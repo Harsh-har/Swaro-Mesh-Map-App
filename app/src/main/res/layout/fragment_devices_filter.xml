@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/device_filter_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:padding="16dp"
+    tools:context=".DevicesFilterFragment">
+
+
+    <!-- no.nordicsemi.android.swaromesh.Device Selection Spinner -->
+
+    <TextView
+        android:id="@+id/tvFilterTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:text="Unprovision Device Filters"
+        android:textAlignment="center"
+        android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="1.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toTopOf="parent" />
+
+    <TextView
+        android:id="@+id/tvDeviceLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="40dp"
+        android:text="Select Device Type:"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvFilterTitle" />
+
+    <Spinner
+        android:id="@+id/spinnerDevices"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:padding="8dp"
+        app:layout_constraintTop_toBottomOf="@id/tvDeviceLabel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- OR Divider -->
+    <TextView
+        android:id="@+id/tvOr"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="OR"
+        android:gravity="center"
+        android:textStyle="bold"
+        android:layout_marginTop="16dp"
+        app:layout_constraintTop_toBottomOf="@id/spinnerDevices"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- no.nordicsemi.android.swaromesh.Device Name Search -->
+    <com.google.android.material.textfield.TextInputLayout
+        android:id="@+id/tilDeviceName"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:hint="Enter Device name"
+        app:layout_constraintTop_toBottomOf="@id/tvOr"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="16dp">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/etDeviceName"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"/>
+    </com.google.android.material.textfield.TextInputLayout>
+
+    <!--  Signal Strength Filter -->
+    <TextView
+        android:id="@+id/tvRssi"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Signal Strength"
+        android:textStyle="bold"
+        app:layout_constraintTop_toBottomOf="@id/tilDeviceName"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginTop="66dp"/>
+
+    <!-- Signal Strength Indicators -->
+    <RadioGroup
+        android:id="@+id/rgSignalStrength"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        app:layout_constraintTop_toBottomOf="@id/tvRssi"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="8dp">
+
+        <RadioButton
+            android:id="@+id/rbSignalDefault"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Default"
+            android:checked="true"
+            android:layout_marginEnd="8dp"/>
+
+        <RadioButton
+            android:id="@+id/rbSignal3Bars"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="20%"
+            android:layout_marginEnd="8dp"/>
+
+        <RadioButton
+            android:id="@+id/rbSignal4Bars"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="60%"
+            android:layout_marginEnd="8dp"/>
+
+        <RadioButton
+            android:id="@+id/rbSignal5Bars"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="100%"/>
+    </RadioGroup>
+
+
+
+    <!-- Action Buttons -->
+    <LinearLayout
+        android:id="@+id/layoutButtons"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="end"
+        app:layout_constraintBottom_toBottomOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="24dp">
+
+        <Button
+            android:id="@+id/btnReset"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Reset" />
+
+        <Button
+            android:id="@+id/btnApply"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Apply"
+            android:layout_marginStart="16dp"/>
+    </LinearLayout>
+
+</androidx.constraintlayout.widget.ConstraintLayout>

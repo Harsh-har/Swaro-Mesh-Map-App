@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    tools:context="no.nordicsemi.android.swaromesh.ProxyFilterFragment">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <!-- FILTER HEADER CARD with Large Toggle -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/proxy_filter_header_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="8dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="4dp"
+            android:background="?attr/colorSurface">
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="10dp">
+
+                <!-- HEADER TEXT -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/filter_header_title"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="@string/title_filter_control"
+                    android:textSize="20sp"
+                    android:textStyle="bold"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+                    app:layout_constraintEnd_toStartOf="@+id/switch_enable_filter"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/filter_header_subtitle"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/subtitle_filter_control"
+                    android:textSize="14sp"
+                    android:textColor="@color/material_grey_600"
+                    app:layout_constraintEnd_toStartOf="@+id/switch_enable_filter"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/filter_header_title" />
+
+                <!-- LARGE TOGGLE SWITCH -->
+                <com.google.android.material.switchmaterial.SwitchMaterial
+                    android:id="@+id/switch_enable_filter"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    app:layout_constraintBottom_toBottomOf="parent"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toTopOf="parent" />
+
+                <!-- STATUS INDICATOR -->
+<!--                <com.google.android.material.textview.MaterialTextView-->
+<!--                    android:id="@+id/filter_status"-->
+<!--                    android:layout_width="wrap_content"-->
+<!--                    android:layout_height="wrap_content"-->
+<!--                    android:layout_marginTop="8dp"-->
+<!--                    android:text="@string/filter_enabled"-->
+<!--                    android:textSize="12sp"-->
+<!--                    android:textColor="@color/green_500"-->
+<!--                    android:visibility="visible"-->
+<!--                    app:layout_constraintEnd_toEndOf="parent"-->
+<!--                    app:layout_constraintStart_toStartOf="parent"-->
+<!--                    app:layout_constraintTop_toBottomOf="@id/switch_enable_filter" />-->
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- ADDRESS FILTER CARD (Same as before but adjusted) -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/proxy_filter_address_card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="16dp"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="2dp"
+            android:background="?attr/colorSurface">
+
+            <androidx.constraintlayout.widget.ConstraintLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+
+                <!-- TOOLBAR -->
+                <com.google.android.material.appbar.MaterialToolbar
+                    android:id="@+id/address_filter_tool_bar"
+                    android:layout_width="0dp"
+                    android:layout_height="?actionBarSize"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toTopOf="parent"
+                    app:logo="@drawable/ic_lan_24dp"
+                    app:title="@string/title_filter_addresses"
+                    app:titleMarginStart="@dimen/toolbar_title_margin"
+                    app:titleTextAppearance="@style/Toolbar.TitleText" />
+
+                <!-- Rest of the layout remains the same... -->
+                <!-- ADDRESS LIST CONTAINER -->
+                <androidx.constraintlayout.widget.ConstraintLayout
+                    android:id="@+id/container_proxy_filter"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="16dp"
+                    android:background="?selectableItemBackground"
+                    android:padding="8dp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/address_filter_tool_bar">
+
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/no_addresses"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:padding="@dimen/activity_horizontal_margin"
+                        android:text="@string/no_addresses_added"
+                        android:textSize="16sp"
+                        android:textColor="@color/material_grey_600"
+                        android:gravity="center"
+                        app:layout_constraintBottom_toBottomOf="parent"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent" />
+
+                    <androidx.recyclerview.widget.RecyclerView
+                        android:id="@+id/recycler_view_filter_addresses"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:scrollbars="none"
+                        app:layout_constraintEnd_toEndOf="parent"
+                        app:layout_constraintStart_toStartOf="parent"
+                        app:layout_constraintTop_toTopOf="parent"
+                        tools:listitem="@layout/address_item"
+                        tools:visibility="visible" />
+
+                </androidx.constraintlayout.widget.ConstraintLayout>
+
+                <!-- DIVIDER -->
+                <include
+                    android:id="@+id/div3"
+                    layout="@layout/layout_divider"
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toStartOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/container_proxy_filter" />
+
+                <!-- ACTION BUTTONS -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_add_address"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginStart="@dimen/item_padding_end"
+                    android:layout_marginEnd="@dimen/item_padding_start"
+                    android:enabled="false"
+                    android:text="@string/action_add"
+                    android:textColor="@color/filter_add_button_states"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintTop_toBottomOf="@id/div3" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_clear_addresses"
+                    style="@style/RedButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginStart="@dimen/item_padding_end"
+                    android:layout_marginEnd="@dimen/item_padding_start"
+                    android:text="@string/action_clear"
+                    android:visibility="gone"
+                    app:layout_constraintBaseline_toBaselineOf="@id/action_add_address"
+                    app:layout_constraintEnd_toStartOf="@id/action_add_address"
+                    tools:visibility="visible" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/remove_hint"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="@dimen/item_padding_end"
+                    android:padding="@dimen/activity_horizontal_margin"
+                    android:text="@string/hint_remove"
+                    android:visibility="gone"
+                    app:layout_constraintBaseline_toBaselineOf="@id/action_add_address"
+                    app:layout_constraintStart_toStartOf="parent"
+                    tools:visibility="visible" />
+
+            </androidx.constraintlayout.widget.ConstraintLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+    </LinearLayout>
+</ScrollView>

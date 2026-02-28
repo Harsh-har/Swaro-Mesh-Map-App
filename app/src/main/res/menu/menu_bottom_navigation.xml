@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <item
+        android:id="@+id/action_network"
+        android:enabled="true"
+        android:icon="@drawable/networkmesh"
+        android:title="@string/network"
+        app:showAsAction="always"
+        tools:ignore="AlwaysShowAction"/>
+
+    <item
+        android:id="@+id/action_device_filter"
+        android:enabled="true"
+        android:icon="@drawable/ic_proxy"
+        android:title="@string/device_filter"
+        app:showAsAction="always"
+        tools:ignore="AlwaysShowAction"/>
+
+    <item
+        android:id="@+id/action_groups"
+        android:enabled="true"
+        android:icon="@drawable/ic_outline_group"
+        android:title="@string/action_groups"
+        app:showAsAction="always"
+        tools:ignore="AlwaysShowAction"/>
+
+    <item
+        android:id="@+id/action_proxy"
+        android:enabled="true"
+        android:icon="@drawable/ic_proxy"
+        android:title="@string/action_proxy"
+        app:showAsAction="always"
+        tools:ignore="AlwaysShowAction"/>
+
+    <item
+        android:id="@+id/action_settings"
+        android:enabled="true"
+        android:icon="@drawable/ic_settings"
+        android:title="@string/action_settings"
+        app:showAsAction="always"
+        tools:ignore="AlwaysShowAction"/>
+
+</menu>

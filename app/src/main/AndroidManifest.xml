@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools" >
+
+    <uses-sdk tools:overrideLibrary="androidx.core.splashscreen" />
+
+    <uses-feature
+        android:name="android.hardware.bluetooth_le"
+        android:required="true" />
+
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_ADMIN"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_COARSE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.ACCESS_FINE_LOCATION"
+        android:maxSdkVersion="30" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_SCAN"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+    <uses-permission
+        android:name="android.permission.BLUETOOTH_CONNECT"
+        android:usesPermissionFlags="neverForLocation"
+        tools:targetApi="s" />
+
+    <application
+        android:name=".di.MeshApplication"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:icon="@drawable/networkmesh"
+        android:label="@string/app_name"
+        android:roundIcon="@drawable/networkmesh"
+        android:theme="@style/AppTheme"
+        tools:ignore="GoogleAppIndexingWarning" >
+        <activity
+            android:name=".SvgmapActivity"
+            android:exported="false" />
+        <activity
+            android:name=".DevicesFilterFragment"
+            android:exported="false" />
+        <activity
+            android:name=".ble.ProxyScannerActivity"
+            android:exported="false" />
+        <activity
+            android:name=".ProxyConnectionActivity"
+            android:exported="false" />
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:theme="@style/AppTheme.SplashScreen"
+            android:windowSoftInputMode="adjustPan" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <!--
+         This activity alias is used to allow opening nRF Blinky from nRF Toolbox.
+         This is not required if this feature is not desired.
+         nRF Toolbox is displaying a different name and an icon, which are taken from this alias.
+        -->
+        <activity-alias
+            android:name=".SplashScreenActivity"
+            android:exported="true"
+            android:icon="@drawable/networkmesh"
+            android:label="@string/feature_name"
+            android:launchMode="singleTop"
+            android:targetActivity=".MainActivity" >
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="no.nordicsemi.android.nrftoolbox.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+
+        <activity
+            android:name=".ble.ScannerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".ble.ReconnectActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".GroupControlsActivity"
+            android:configChanges="orientation|screenSize"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".provisioners.ProvisionersActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".provisioners.AddProvisionerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".provisioners.EditProvisionerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".provisioners.RangesActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.NetKeysActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.EditNetKeyActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.AddNetKeyActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.AppKeysActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.AddAppKeyActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.EditAppKeyActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".ProvisioningActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.NodeConfigurationActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.AddNetKeysActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".keys.AddAppKeysActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".scenes.ScenesActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.PublicationSettingsActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.NodeDetailsActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.GenericLevelServerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.GenericOnOffServerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.SceneServerModelActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.SceneSetupServerModelActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.SensorServerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.VendorModelActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.ConfigurationServerActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.HeartbeatPublicationActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.HeartbeatSubscriptionActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.ConfigurationClientActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".node.GenericModelConfigurationActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".export.ExportNetworkActivity"
+            android:launchMode="singleTop" />
+    </application>
+
+</manifest>
