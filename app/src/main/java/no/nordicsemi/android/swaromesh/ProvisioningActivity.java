@@ -65,6 +65,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
     private ActivityMeshProvisionerBinding binding;
     private ProvisioningViewModel mViewModel;
     private ExtendedBluetoothDevice mDevice;
+    private boolean isFirstDevice = true;
 
     private final ActivityResultLauncher<Intent> appKeySelector = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() == RESULT_OK && result.getData() != null) {
@@ -200,13 +201,58 @@ public class ProvisioningActivity extends AppCompatActivity implements
                         try {
                             final int elementCount = capabilities.getNumberOfElements();
                             final Provisioner provisioner = network.getSelectedProvisioner();
-                            final int unicast = network.nextAvailableUnicastAddress(elementCount, provisioner);
-                            network.assignUnicastAddress(unicast);
+
+                            // Log network state
+                            Log.d(TAG, "=== Network State ===");
+                            Log.d(TAG, "Number of nodes in network: " + network.getNodes().size());
+
+                            // ALWAYS TRY TO SET TO 0x0005 FIRST
+                            Log.d(TAG, "Attempting to set unicast address to 0x0005");
+
+                            try {
+                                // Directly assign 0x0005
+                                network.assignUnicastAddress(0x0005);
+                                Log.d(TAG, "SUCCESS: Assigned unicast address 0x0005");
+                                isFirstDevice = true;
+                            } catch (IllegalArgumentException e) {
+                                // If 0x0005 is taken, find next available starting from 0x0005
+                                Log.w(TAG, "Could not assign 0x0005: " + e.getMessage());
+                                Log.d(TAG, "Searching for next available address starting from 0x0005");
+
+                                int unicastAddress = 0x0005;
+                                boolean found = false;
+                                int maxAttempts = 100; // Prevent infinite loop
+                                int attempts = 0;
+
+                                while (!found && attempts < maxAttempts && unicastAddress < 0x7FFF) {
+                                    try {
+                                        network.assignUnicastAddress(unicastAddress);
+                                        Log.d(TAG, "Found available address: " + String.format("0x%04X", unicastAddress));
+                                        found = true;
+                                        isFirstDevice = (unicastAddress == 0x0005);
+                                    } catch (IllegalArgumentException ex) {
+                                        // Address is taken, try next
+                                        unicastAddress += elementCount;
+                                        attempts++;
+                                    }
+                                }
+
+                                if (!found) {
+                                    // Fallback to nextAvailable method
+                                    Log.w(TAG, "Could not find address sequentially, using nextAvailableUnicastAddress");
+                                    unicastAddress = network.nextAvailableUnicastAddress(elementCount, provisioner);
+                                    network.assignUnicastAddress(unicastAddress);
+                                    Log.d(TAG, "Assigned via nextAvailable: " + String.format("0x%04X", unicastAddress));
+                                    isFirstDevice = false;
+                                }
+                            }
+
                         } catch (IllegalArgumentException ex) {
                             binding.actionProvisionDevice.setEnabled(false);
                             mViewModel.displaySnackBar(this, binding.coordinator,
                                     ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
                                     Snackbar.LENGTH_LONG);
+                            Log.e(TAG, "Error assigning unicast address: " + ex.getMessage());
                         }
                     }
 
@@ -234,10 +280,37 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 }
 
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+
+                // Final check before provisioning
+                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                if (network != null) {
+                    int currentAddress = network.getUnicastAddress();
+                    Log.d(TAG, "FINAL CHECK - Unicast address before provisioning: " +
+                            String.format("0x%04X", currentAddress));
+
+                    // If we want 0x0005 but don't have it, try one more time
+                    if (currentAddress != 0x0005) {
+                        Log.d(TAG, "Attempting final force to 0x0005");
+                        try {
+                            network.assignUnicastAddress(0x0005);
+                            Log.d(TAG, "SUCCESS: Final force to 0x0005 worked");
+                        } catch (IllegalArgumentException e) {
+                            Log.w(TAG, "Final force to 0x0005 failed, continuing with: " +
+                                    String.format("0x%04X", currentAddress));
+                        }
+                    }
+                }
+
                 setupProvisionerStateObservers();
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
 
                 mViewModel.getMeshManagerApi().startProvisioning(node);
+
+                // Log final address
+                if (network != null) {
+                    Log.d(TAG, "PROVISIONING STARTED with unicast address: " +
+                            String.format("0x%04X", network.getUnicastAddress()));
+                }
 
             } catch (IllegalArgumentException ex) {
                 mViewModel.displaySnackBar(
@@ -248,6 +321,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
                                 : ex.getMessage(),
                         Snackbar.LENGTH_LONG
                 );
+                Log.e(TAG, "Error starting provisioning: " + ex.getMessage());
             }
         });
 
@@ -300,7 +374,16 @@ public class ProvisioningActivity extends AppCompatActivity implements
     public boolean setUnicastAddress(final int unicastAddress) {
         final MeshNetwork network = mViewModel.getMeshManagerApi().getMeshNetwork();
         if (network != null) {
-            return network.assignUnicastAddress(unicastAddress);
+            try {
+                boolean result = network.assignUnicastAddress(unicastAddress);
+                if (result) {
+                    Log.d(TAG, "Unicast address manually set to: " + String.format("0x%04X", unicastAddress));
+                }
+                return result;
+            } catch (IllegalArgumentException e) {
+                Log.e(TAG, "Error setting unicast address: " + e.getMessage());
+                return false;
+            }
         }
         return false;
     }
@@ -308,7 +391,9 @@ public class ProvisioningActivity extends AppCompatActivity implements
     @Override
     public int getNextUnicastAddress(final int elementCount) {
         final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        return network.nextAvailableUnicastAddress(elementCount, network.getSelectedProvisioner());
+
+        Log.d(TAG, "getNextUnicastAddress called - Returning 0x0005 (validation will happen in assign)");
+        return 0x0005;
     }
 
     @Override
@@ -427,6 +512,13 @@ public class ProvisioningActivity extends AppCompatActivity implements
                     }
                 }
             }
+
+            // Log the final unicast address
+            MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+            if (network != null) {
+                Log.d(TAG, "PROVISIONING COMPLETED with unicast address: " +
+                        String.format("0x%04X", network.getUnicastAddress()));
+            }
         }
 
         setResult(Activity.RESULT_OK, returnIntent);
@@ -464,6 +556,18 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 }
 
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+
+                // Ensure unicast address is set correctly
+                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                if (network != null && network.getUnicastAddress() != 0x0005) {
+                    try {
+                        network.assignUnicastAddress(0x0005);
+                        Log.d(TAG, "onNoOOBSelected: Set unicast address to 0x0005");
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG, "onNoOOBSelected: Could not set address to 0x0005");
+                    }
+                }
+
                 setupProvisionerStateObservers();
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
                 mViewModel.getMeshManagerApi().startProvisioning(node);
@@ -485,6 +589,18 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 }
 
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+
+                // Ensure unicast address is set correctly
+                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                if (network != null && network.getUnicastAddress() != 0x0005) {
+                    try {
+                        network.assignUnicastAddress(0x0005);
+                        Log.d(TAG, "onStaticOOBSelected: Set unicast address to 0x0005");
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG, "onStaticOOBSelected: Could not set address to 0x0005");
+                    }
+                }
+
                 setupProvisionerStateObservers();
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
                 mViewModel.getMeshManagerApi().startProvisioningWithStaticOOB(node);
@@ -506,6 +622,18 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 }
 
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+
+                // Ensure unicast address is set correctly
+                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                if (network != null && network.getUnicastAddress() != 0x0005) {
+                    try {
+                        network.assignUnicastAddress(0x0005);
+                        Log.d(TAG, "onOutputOOBActionSelected: Set unicast address to 0x0005");
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG, "onOutputOOBActionSelected: Could not set address to 0x0005");
+                    }
+                }
+
                 setupProvisionerStateObservers();
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
                 mViewModel.getMeshManagerApi().startProvisioningWithOutputOOB(node, action);
@@ -527,6 +655,18 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 }
 
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+
+                // Ensure unicast address is set correctly
+                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                if (network != null && network.getUnicastAddress() != 0x0005) {
+                    try {
+                        network.assignUnicastAddress(0x0005);
+                        Log.d(TAG, "onInputOOBActionSelected: Set unicast address to 0x0005");
+                    } catch (IllegalArgumentException e) {
+                        Log.w(TAG, "onInputOOBActionSelected: Could not set address to 0x0005");
+                    }
+                }
+
                 setupProvisionerStateObservers();
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
                 mViewModel.getMeshManagerApi().startProvisioningWithInputOOB(node, action);
