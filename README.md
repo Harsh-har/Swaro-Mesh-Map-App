@@ -19,3 +19,4 @@ UI & UX Improvements Cleaner node listing with: no.nordicsemi.android.swaromesh.
 
 📌 Use Case This customized mesh application is suitable for: Smart Lighting Industrial Automation Building Management Systems Large-scale BLE Mesh deployments
 # Swaro-Mesh-Map-App
+# Swaro-Mesh-Map-App
