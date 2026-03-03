@@ -435,6 +435,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
                                 DialogFragmentProvisioningFailedError message = DialogFragmentProvisioningFailedError.newInstance(getString(R.string.title_error_provisioning_failed), statusMessage);
                                 message.show(getSupportFragmentManager(), DIALOG_FRAGMENT_PROVISIONING_FAILED);
                             }
+
                             break;
                         case PROVISIONING_AUTHENTICATION_STATIC_OOB_WAITING:
                         case PROVISIONING_AUTHENTICATION_OUTPUT_OOB_WAITING:

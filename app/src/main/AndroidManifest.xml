@@ -39,6 +39,12 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".Map.HomePageActivity"
+            android:exported="false" />
+        <activity
+            android:name=".Map.SvgLoadActivity"
+            android:exported="false" />
+        <activity
             android:name=".SvgOperationActivity"
             android:exported="false" />
         <activity
