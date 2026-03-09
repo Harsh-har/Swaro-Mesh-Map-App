@@ -105,6 +105,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private static final String TAG_TID     = "TID";
     private static final String TAG_MODEL   = "MODEL_CARD";
 
+
     // ─────────────────────────────────────────────────────────────────────────
     // ✅ FIXED:  separate model IDs (was duplicate GENERIC_ONOFF_CLIENT before)
     // ─────────────────────────────────────────────────────────────────────────
@@ -134,6 +135,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private final AtomicInteger sceneTidCounter        = new AtomicInteger(0);
 
     protected ActivityModelConfigurationBinding binding;
+
+    // toh
 
     // Command containers
     private LinearLayout mContainerShortLongCommands;
@@ -860,9 +863,6 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // ✅ UPDATED: sendLongBrightnessCommand - Always use all 8 fields visible
-    // ─────────────────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────
 // ✅ UPDATED: sendLongBrightnessCommand - Always send 8 brightness values
 // ─────────────────────────────────────────────────────────────────────────
@@ -1089,6 +1089,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             if (isUpdate) {
                 controlByte |= (1 << 6); // Bit 6
             }
+
 
             controlByte |= (deviceCategory & 0x3F); // Bits 0–5
 

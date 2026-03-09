@@ -1,5 +1,6 @@
 package no.nordicsemi.android.swaromesh;
 
+import android.content.Intent;
 import android.graphics.Matrix;
 import android.graphics.Picture;
 import android.graphics.PointF;
@@ -10,6 +11,7 @@ import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.widget.ImageView;
+import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -21,6 +23,8 @@ import java.io.InputStreamReader;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
+import no.nordicsemi.android.swaromesh.node.BaseModelConfigurationActivity;
+
 public class SvgmapActivity extends AppCompatActivity {
 
     private static final String TAG = "SvgmapActivity";
@@ -29,40 +33,14 @@ public class SvgmapActivity extends AppCompatActivity {
     private String selectedDeviceId = null;
 
     private final String[] deviceIds = {
-            "l_1","l_2","l_3","l_4","l_5",
-            "l_6","l_7","l_8","l_9","l_10"
+            "a_1","c_1","a_2","c_2","l_10"
     };
 
-    /**
-     * Har device ke liye: { centerX, centerY, tapRadius } — SVG coordinate space mein.
-     *
-     * Centers SVG path data se manually calculate kiye hain:
-     *   Circle formula: M(startX, cy) + radius => centerX = startX + radius
-     *   ViewBox = "100 0 1000 640" — minX=100 important hai!
-     *
-     *   l_1 : M761.7,355.54  r=1.98  => cx=763.68, cy=355.54
-     *   l_2 : M721.48,375.02 r=3.59  => cx=725.07, cy=375.02
-     *   l_3 : M645.23,375.02 r=3.59  => cx=641.64, cy=375.02  (minus because path goes left)
-     *   l_4 : M721.48,300.77 r=3.59  => cx=725.07, cy=300.77
-     *   l_5 : M645.23,300.77 r=3.59  => cx=641.64, cy=300.77
-     *   l_6 : M592.6,180.82  r=2.28  => cx=590.32, cy=180.82
-     *   l_7 : M592.6,208.32  r=2.28  => cx=590.32, cy=208.32
-     *   l_8 : M761.7,384.62  r=1.98  => cx=763.68, cy=384.62
-     *   l_9 : irregular shape          => cx≈678,    cy≈189
-     *   l_10: complex shape            => cx≈683,    cy≈345
-     *
-     * Tap radius: actual radius se zyada rakha taaki small dots bhi click ho sakein
-     */
     private final Map<String, float[]> deviceInfo = new LinkedHashMap<String, float[]>() {{
-        put("l_1",  new float[]{ 763.68f, 355.54f, 20f });
-        put("l_2",  new float[]{ 725.07f, 375.02f, 20f });
-        put("l_3",  new float[]{ 641.64f, 375.02f, 20f });
-        put("l_4",  new float[]{ 725.07f, 300.77f, 20f });
-        put("l_5",  new float[]{ 641.64f, 300.77f, 20f });
-        put("l_6",  new float[]{ 590.32f, 180.82f, 20f });
-        put("l_7",  new float[]{ 590.32f, 208.32f, 20f });
-        put("l_8",  new float[]{ 763.68f, 384.62f, 20f });
-        put("l_9",  new float[]{ 678.00f, 189.00f, 20f });
+        put("a_1",  new float[]{ 725.07f, 375.02f, 20f });
+        put("c_1",  new float[]{ 641.64f, 375.02f, 20f });
+        put("a_2",  new float[]{ 725.07f, 300.77f, 20f });
+        put("c_2",  new float[]{ 641.64f, 300.77f, 20f });
         put("l_10", new float[]{ 683.00f, 345.00f, 20f });
     }};
 
@@ -147,8 +125,25 @@ public class SvgmapActivity extends AppCompatActivity {
                             String clickedId = getDeviceAtScreenPoint(upX, upY);
                             Log.d(TAG, "Tap -> device: " + clickedId);
                             if (clickedId != null) {
-                                selectedDeviceId = clickedId.equals(selectedDeviceId)
-                                        ? null : clickedId;
+                                // Check if clicked device is c_1 or c_2
+                                if ("c_1".equals(clickedId) || "c_2".equals(clickedId)) {
+                                    // Show toast with the address
+                                    Toast.makeText(this, "Address: 0x003E", Toast.LENGTH_SHORT).show();
+
+                                    // Navigate to ProvisionActivity
+                                    Intent intent = new Intent(this, CommandActivity.class);
+                                    // Optionally pass the device ID and address as extras
+                                    intent.putExtra("device_id", clickedId);
+                                    intent.putExtra("address", "0x003E");
+                                    startActivity(intent);
+
+                                    // Clear selection since we're navigating away
+                                    selectedDeviceId = null;
+                                } else {
+                                    // For other devices, just toggle selection as before
+                                    selectedDeviceId = clickedId.equals(selectedDeviceId)
+                                            ? null : clickedId;
+                                }
                                 loadSVG();
                             }
                         }

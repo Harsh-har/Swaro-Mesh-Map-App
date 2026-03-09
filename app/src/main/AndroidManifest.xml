@@ -39,6 +39,9 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".CommandActivity"
+            android:exported="false" />
+        <activity
             android:name=".Map.HomePageActivity"
             android:exported="false" />
         <activity

@@ -48,10 +48,12 @@ public class NetworkFragment extends Fragment implements
     private SharedViewModel mViewModel;
     private NodeAdapter mNodeAdapter;
 
+    // For provisioning a new node via ScannerActivity
     private final ActivityResultLauncher<Intent> provisioner =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
                     this::handleProvisioningResult);
 
+    // For connecting to a proxy after provisioning or node config
     private final ActivityResultLauncher<Intent> proxyConnector =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
                     this::handleProxyConnectResult);
@@ -66,6 +68,8 @@ public class NetworkFragment extends Fragment implements
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 
         final ExtendedFloatingActionButton fab = binding.fabAddNode;
+        final ExtendedFloatingActionButton map = binding.mapnode;
+
         final RecyclerView mRecyclerViewNodes = binding.recyclerViewProvisionedNodes;
         final View noNetworksConfiguredView = binding.noNetworksConfigured.getRoot();
 
@@ -74,8 +78,7 @@ public class NetworkFragment extends Fragment implements
 
         mRecyclerViewNodes.setLayoutManager(new LinearLayoutManager(getContext()));
         mRecyclerViewNodes.addItemDecoration(
-                new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL)
-        );
+                new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
 
         final ItemTouchHelper.Callback itemTouchHelperCallback =
                 new RemovableItemTouchHelperCallback(this);
@@ -94,7 +97,8 @@ public class NetworkFragment extends Fragment implements
 
         mRecyclerViewNodes.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
-            public void onScrolled(@NonNull final RecyclerView recyclerView, final int dx, final int dy) {
+            public void onScrolled(@NonNull final RecyclerView recyclerView,
+                                   final int dx, final int dy) {
                 super.onScrolled(recyclerView, dx, dy);
                 final LinearLayoutManager m =
                         (LinearLayoutManager) recyclerView.getLayoutManager();
@@ -102,19 +106,35 @@ public class NetworkFragment extends Fragment implements
             }
         });
 
+        // FAB → start provisioning
         fab.setOnClickListener(v -> {
             final Intent intent = new Intent(requireContext(), ScannerActivity.class);
             intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
             provisioner.launch(intent);
         });
 
+        // ✅ FIXED: was using provisioner.launch() which incorrectly routed the back-result
+        //    to handleProvisioningResult(). CommandActivity returns no result,
+        //    so plain startActivity() is the correct call here.
+        map.setOnClickListener(v ->
+                startActivity(new Intent(requireContext(), CommandActivity.class)));
+
         binding.searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
-            @Override public boolean onQueryTextSubmit(String query) { mNodeAdapter.filter(query); return true; }
-            @Override public boolean onQueryTextChange(String newText) { mNodeAdapter.filter(newText); return true; }
+            @Override
+            public boolean onQueryTextSubmit(String query) {
+                mNodeAdapter.filter(query);
+                return true;
+            }
+            @Override
+            public boolean onQueryTextChange(String newText) {
+                mNodeAdapter.filter(newText);
+                return true;
+            }
         });
 
         mNodeAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
-            @Override public void onChanged() {
+            @Override
+            public void onChanged() {
                 noNetworksConfiguredView.setVisibility(mNodeAdapter.getItemCount() == 0
                         ? View.VISIBLE : View.GONE);
             }
@@ -122,25 +142,6 @@ public class NetworkFragment extends Fragment implements
 
         return binding.getRoot();
     }
-
-//    @Override
-//    public void onConfigureClicked(final ProvisionedMeshNode node) {
-//        mViewModel.setSelectedMeshNode(node);
-//
-//        if (!mViewModel.isProxyEnabled()) {
-//            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
-//            return;
-//        }
-//
-//        final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
-//
-//        if (Boolean.TRUE.equals(isConnected)) {
-//            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
-//        } else {
-//            startProxyConnectInBackground();
-//        }
-//    }
-
 
     @Override
     public void onConfigureClicked(final ProvisionedMeshNode node) {
@@ -152,7 +153,6 @@ public class NetworkFragment extends Fragment implements
         }
 
         final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
-
         if (Boolean.TRUE.equals(isConnected)) {
             startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
         } else {
@@ -164,10 +164,9 @@ public class NetworkFragment extends Fragment implements
         final Intent intent = new Intent(requireContext(), ScannerActivity.class);
         intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
         intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-        intent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, macAddress); // ⭐ IMPORTANT
+        intent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, macAddress);
         proxyConnector.launch(intent);
     }
-
 
     @Override
     public void onItemDismiss(final RemovableViewHolder viewHolder) {
@@ -202,7 +201,6 @@ public class NetworkFragment extends Fragment implements
         if (result.getResultCode() == RESULT_OK && data != null) {
             final boolean provisioningSuccess =
                     data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
-
             if (provisioningSuccess) {
                 final Intent intent = new Intent(requireContext(), ScannerActivity.class);
                 intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
@@ -225,7 +223,3 @@ public class NetworkFragment extends Fragment implements
                 .show(getChildFragmentManager(), null);
     }
 }
-
-
-
-
