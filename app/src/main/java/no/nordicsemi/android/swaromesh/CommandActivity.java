@@ -1,19 +1,17 @@
 package no.nordicsemi.android.swaromesh;
 
+import android.annotation.SuppressLint;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.MotionEvent;
 import android.view.View;
-
+import android.view.ViewGroup;
 import androidx.annotation.NonNull;
 import androidx.coordinatorlayout.widget.CoordinatorLayout;
 import androidx.lifecycle.ViewModelProvider;
-
 import com.google.android.material.snackbar.Snackbar;
-import com.google.android.material.textfield.TextInputEditText;
-
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromesh.databinding.ActivityCommandBinding;
 import no.nordicsemi.android.swaromesh.dialog.DialogFragmentError;
@@ -30,19 +28,22 @@ public class CommandActivity extends BaseActivity {
     private static final String TAG_TID   = "TID";
     private static final int    MAX_TID   = 255;
 
-    // ✅ Auto-hide progress bar after this delay (ms) if no response comes
-    private static final int PROGRESS_AUTO_HIDE_MS = 3000;
-
-    // Hardcoded destination element address
+    private static final int PROGRESS_AUTO_HIDE_MS     = 3000;
     private static final int HARDCODED_ELEMENT_ADDRESS = 0x003E;
+    private static final int HARDCODED_COMMAND         = 2;
 
     private final AtomicInteger genericOnOffTidCounter = new AtomicInteger(0);
 
     private ActivityCommandBinding binding;
     private CoordinatorLayout      mContainer;
-    private TextInputEditText      mCommandEditText;
-    private TextInputEditText      mStateEditText;
 
+    // 0–255 current brightness value
+    private int currentDataValue = 153; // default ~60%
+
+    // Power state
+    private boolean isPoweredOn = true;
+
+    @SuppressLint("ClickableViewAccessibility")
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -50,80 +51,105 @@ public class CommandActivity extends BaseActivity {
         binding = ActivityCommandBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        Log.d(TAG, "onCreate ▶ start");
-
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
-        initialize(); // sets mHandler, mIsConnected observer, mesh message observer
+        initialize();
 
-        setSupportActionBar(binding.toolbar);
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setTitle("Send Command");
-            getSupportActionBar().setSubtitle(
-                    String.format("→ Element 0x%04X", HARDCODED_ELEMENT_ADDRESS));
-        }
+        mContainer = binding.container;
 
-        mContainer       = binding.container;
-        mCommandEditText = binding.etCommand;
-        mStateEditText   = binding.etState;
+        // Draw initial fill at default value (153/255 ≈ 60%)
+        binding.brightnessRow.post(() -> updateBrightnessBar(currentDataValue));
 
-        binding.actionOn.setOnClickListener(v -> sendGenericOnOffCommand());
+        // ── Brightness bar acts as the slider ────────────────────────────────
+        binding.brightnessRow.setOnTouchListener((v, event) -> {
+            if (!isPoweredOn) return true; // ignore touch when off
 
-        Log.d(TAG, "onCreate ▶ done");
+            int action = event.getAction();
+            if (action == MotionEvent.ACTION_DOWN
+                    || action == MotionEvent.ACTION_MOVE) {
+
+                float x        = Math.max(0, Math.min(event.getX(), v.getWidth()));
+                float fraction = x / v.getWidth();                    // 0.0 – 1.0
+                int   newValue = Math.round(fraction * 255);          // 0 – 255
+
+                if (newValue != currentDataValue) {
+                    currentDataValue = newValue;
+                    updateBrightnessBar(currentDataValue);
+
+                    if (mIsConnected) {
+                        sendGenericOnOffCommand(currentDataValue);
+                    } else {
+                        showSnackbar("Not connected");
+                    }
+                }
+                return true;
+            }
+            return false;
+        });
+
+        // ── Power button toggle ───────────────────────────────────────────────
+        binding.btnPower.setOnClickListener(v -> {
+            isPoweredOn = !isPoweredOn;
+
+            if (isPoweredOn) {
+                binding.viewBrightnessFill.setVisibility(View.VISIBLE);
+                binding.btnPower.setIconTint(
+                        android.content.res.ColorStateList.valueOf(
+                                android.graphics.Color.parseColor("#F5A623")));
+                sendGenericOnOffCommand(currentDataValue);
+            } else {
+                binding.viewBrightnessFill.setVisibility(View.INVISIBLE);
+                binding.tvSliderValue.setText("0%");
+                binding.btnPower.setIconTint(
+                        android.content.res.ColorStateList.valueOf(
+                                android.graphics.Color.parseColor("#AAAAAA")));
+                sendGenericOnOffCommand(0);
+            }
+        });
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Send Short Command to hardcoded element address 0x003E
+    // Update amber fill width + percentage label
     // ─────────────────────────────────────────────────────────────────────────
-    private void sendGenericOnOffCommand() {
-        final String cs = mCommandEditText.getText() != null
-                ? mCommandEditText.getText().toString().trim() : "";
-        final String ss = mStateEditText.getText() != null
-                ? mStateEditText.getText().toString().trim() : "";
+    private void updateBrightnessBar(int value) {
+        float fraction = value / 255f;
+        int   pct      = Math.round(fraction * 100);
 
-        if (cs.isEmpty() || ss.isEmpty()) {
-            showSnackbar("Enter command and state");
-            return;
-        }
+        binding.tvSliderValue.setText(pct + "%");
 
+        // Set fill view width as fraction of parent width
+        int parentWidth = binding.brightnessRow.getWidth();
+        int fillWidth   = Math.round(fraction * parentWidth);
+
+        ViewGroup.LayoutParams lp = binding.viewBrightnessFill.getLayoutParams();
+        lp.width = fillWidth;
+        binding.viewBrightnessFill.setLayoutParams(lp);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Send mesh command
+    // ─────────────────────────────────────────────────────────────────────────
+    private void sendGenericOnOffCommand(int dataValue) {
         try {
-            int cmd   = Integer.parseInt(cs);
-            int state = Integer.parseInt(ss);
-
-            if (cmd < 0 || cmd > 255)    { showSnackbar("Command must be 0–255"); return; }
-            if (state < 0 || state > 255) { showSnackbar("State must be 0–255");  return; }
-
             List<ApplicationKey> appKeys = mViewModel.getNetworkLiveData().getAppKeys();
             if (appKeys == null || appKeys.isEmpty()) {
-                showSnackbar("No AppKey found in network");
+                showSnackbar("No AppKey found");
                 return;
             }
             ApplicationKey appKey = appKeys.get(0);
-
             int tid = getNextTid();
 
-            Log.d(TAG_ONOFF, "══════════════════════════════════════");
-            Log.d(TAG_ONOFF, "📤 SHORT COMMAND");
-            Log.d(TAG_ONOFF, String.format("   Destination : 0x%04X (%d)",
-                    HARDCODED_ELEMENT_ADDRESS, HARDCODED_ELEMENT_ADDRESS));
-            Log.d(TAG_ONOFF, String.format("   CMD=0x%02X  STATE=0x%02X  TID=%d",
-                    cmd, state, tid));
-            Log.d(TAG_ONOFF, "══════════════════════════════════════");
-
-            showSnackbar(String.format("Sending → 0x%04X  CMD=0x%02X STATE=0x%02X TID=%d",
-                    HARDCODED_ELEMENT_ADDRESS, cmd, state, tid));
+            Log.d(TAG_ONOFF, String.format(
+                    "📤 CMD=0x%02X  DATA=0x%02X  TID=%d  → 0x%04X",
+                    HARDCODED_COMMAND, dataValue, tid, HARDCODED_ELEMENT_ADDRESS));
 
             sendAcknowledgedMessage(HARDCODED_ELEMENT_ADDRESS,
-                    new GenericOnOffSet(appKey, cmd, state, tid));
+                    new GenericOnOffSet(appKey, HARDCODED_COMMAND, dataValue, tid));
 
-        } catch (NumberFormatException e) {
-            showSnackbar("Invalid number");
+        } catch (Exception e) {
+            showSnackbar("Send failed: " + e.getMessage());
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Mesh send helper
-    // ─────────────────────────────────────────────────────────────────────────
     protected void sendAcknowledgedMessage(int address, @NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
@@ -155,50 +181,29 @@ public class CommandActivity extends BaseActivity {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // BaseActivity abstract overrides
+    // BaseActivity overrides
     // ─────────────────────────────────────────────────────────────────────────
-    @Override
-    protected void updateClickableViews() {
-        binding.actionOn.setEnabled(mIsConnected);
-    }
+    @Override protected void updateClickableViews()  { }
+    @Override protected void enableClickableViews()  { binding.brightnessRow.setEnabled(true);  }
+    @Override protected void disableClickableViews() { binding.brightnessRow.setEnabled(false); }
 
     @Override
     protected void showProgressBar() {
-        // Cancel any pending auto-hide before starting a new one
         mHandler.removeCallbacks(mAutoHideProgress);
-
-        binding.configurationProgressBar.setVisibility(View.VISIBLE);
-        binding.actionOn.setEnabled(false);
-
-        // ✅ FIX: GenericOnOffSet is unacknowledged — no mesh response comes back,
-        //    so updateMeshMessage() never fires → progress bar stays forever.
-        //    Auto-hide after PROGRESS_AUTO_HIDE_MS so button re-enables itself.
         mHandler.postDelayed(mAutoHideProgress, PROGRESS_AUTO_HIDE_MS);
     }
 
     @Override
     protected void hideProgressBar() {
-        // Cancel auto-hide if we're hiding manually (e.g. mesh response arrived)
         mHandler.removeCallbacks(mAutoHideProgress);
-
-        binding.configurationProgressBar.setVisibility(View.INVISIBLE);
-        binding.actionOn.setEnabled(mIsConnected);
     }
 
-    // Runnable that hides progress bar after timeout
-    private final Runnable mAutoHideProgress = () -> {
-        Log.d(TAG, "Auto-hiding progress bar after " + PROGRESS_AUTO_HIDE_MS + "ms");
-        binding.configurationProgressBar.setVisibility(View.INVISIBLE);
-        binding.actionOn.setEnabled(mIsConnected);
-    };
+    private final Runnable mAutoHideProgress = () ->
+            Log.d(TAG, "Auto-hiding progress after " + PROGRESS_AUTO_HIDE_MS + "ms");
 
-    @Override protected void enableClickableViews()  { binding.actionOn.setEnabled(true);  }
-    @Override protected void disableClickableViews() { binding.actionOn.setEnabled(false); }
-
-    // Called when mesh message response arrives (acknowledged messages)
     @Override
     protected void updateMeshMessage(MeshMessage meshMessage) {
-        Log.d(TAG, "updateMeshMessage ▶ response received, hiding progress bar");
+        Log.d(TAG, "updateMeshMessage ▶ response received");
         hideProgressBar();
     }
 }

@@ -41,6 +41,7 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
+import no.nordicsemi.android.swaromesh.CommandActivity;
 import no.nordicsemi.android.swaromesh.R;
 
 public class HomePageActivity extends AppCompatActivity {
@@ -66,6 +67,7 @@ public class HomePageActivity extends AppCompatActivity {
     private Document svgDocument;
     private String   selectedDeviceId     = null;
     private String   selectedOriginalFill = null;
+
 
     // viewBox values  e.g. "100 0 1000 640"
     private float vbX = 0f, vbY = 0f, vbW = 1000f, vbH = 640f;
@@ -226,8 +228,8 @@ public class HomePageActivity extends AppCompatActivity {
             if (bounds == null || bounds.isEmpty()) continue;
 
             // Small elements get extra tap padding so they're easier to hit
-            boolean tiny = (bounds.width() < 10f || bounds.height() < 10f);
-            float   pad  = tiny ? 18f : 10f;
+            boolean tiny = (bounds.width() < 13f || bounds.height() < 13f);
+            float   pad  = tiny ? 20f : 13f;
             bounds.inset(-pad, -pad);
 
             deviceBoundsMap.put(id, bounds);
@@ -325,7 +327,6 @@ public class HomePageActivity extends AppCompatActivity {
         String v = el.getAttribute(attr);
         return (v == null || v.isEmpty()) ? 0f : Float.parseFloat(v.trim());
     }
-
     // ── Click Handling ────────────────────────────────────────────────────────
 
     private void handleSvgClick(float touchX, float touchY) {
@@ -382,9 +383,17 @@ public class HomePageActivity extends AppCompatActivity {
         }
         selectedDeviceId = deviceId;
         reRender();
+
+        // ✅ Navigate to new Activity when eng_f_18 is clicked
+        if (deviceId.equals("eng_f_18")) {
+            Intent intent = new Intent(HomePageActivity.this, CommandActivity.class);
+            intent.putExtra("device_id", deviceId); // pass ID if needed
+            startActivity(intent);
+            return;
+        }
+
         Toast.makeText(this, "Device: " + deviceId, Toast.LENGTH_SHORT).show();
     }
-
     private void restoreColor(String deviceId, String originalFill) {
         Element el = findById(svgDocument.getDocumentElement(), deviceId);
         if (el != null) {

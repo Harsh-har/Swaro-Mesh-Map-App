@@ -4,134 +4,104 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/container"
     android:layout_width="match_parent"
-    android:layout_height="match_parent">
+    android:layout_height="match_parent"
+    android:background="@color/background">
 
-    <!-- ✅ Toolbar — required by CommandActivity (setSupportActionBar) -->
-    <com.google.android.material.appbar.AppBarLayout
-        android:id="@+id/app_bar_layout"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        app:layout_constraintTop_toTopOf="parent">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize" />
-
-    </com.google.android.material.appbar.AppBarLayout>
-
-    <!-- ✅ Progress bar — required by showProgressBar() / hideProgressBar() -->
     <ProgressBar
         android:id="@+id/configuration_progress_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:indeterminate="true"
-        android:visibility="invisible"
-        app:layout_anchor="@id/app_bar_layout"
-        app:layout_anchorGravity="bottom"
+        android:visibility="gone"
         style="@style/Widget.AppCompat.ProgressBar.Horizontal" />
 
-    <!-- ✅ Scrollable content below toolbar -->
-    <androidx.core.widget.NestedScrollView
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="16dp"
-        android:clipToPadding="false"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingBottom="20dp"
+        android:paddingTop="120dp">
 
-        <!-- Short Command Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/node_controls_card"
-            android:layout_width="match_parent"
+        <!-- Light icon -->
+        <ImageView
+            android:id="@+id/iv_light_icon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:src="@drawable/light"
+            android:contentDescription="Light"
+            app:tint="#F5A623"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <!-- Title -->
+        <TextView
+            android:id="@+id/tv_device_title"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="1dp">
+            android:text="Lights"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:gravity="end"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/iv_light_icon"
+            app:layout_constraintBottom_toBottomOf="@id/iv_light_icon"
+            app:layout_constraintStart_toEndOf="@id/iv_light_icon" />
 
-            <androidx.constraintlayout.widget.ConstraintLayout
-                android:layout_width="match_parent"
+
+        <FrameLayout
+            android:id="@+id/brightness_row"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:layout_marginTop="28dp"
+            android:clipChildren="true"
+            app:layout_constraintEnd_toStartOf="@id/btn_power"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintTop_toBottomOf="@id/iv_light_icon">
+
+            <!-- Fill — width set programmatically on touch/drag -->
+            <View
+                android:id="@+id/view_brightness_fill"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="@color/material_grey_600" />
+
+            <!-- Percentage label, always visible on top -->
+            <TextView
+                android:id="@+id/tv_slider_value"
+                android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:padding="30dp">
+                android:layout_gravity="end|center_vertical"
+                android:layout_marginEnd="16dp"
+                android:text="60%"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+                android:textSize="18sp"
+                android:textStyle="bold" />
 
-                <!-- Card header -->
-                <com.google.android.material.appbar.MaterialToolbar
-                    android:id="@+id/node_controls_tool_bar"
-                    android:layout_width="0dp"
-                    android:layout_height="?attr/actionBarSize"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent"
-                    app:logo="@drawable/ic_lightbulb_outline_black_24dp"
-                    app:title="Short Command On Off Controls"
-                    app:titleTextAppearance="@style/Toolbar.TitleText" />
+        </FrameLayout>
 
-                <!-- Command input — binding.etCommand -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/layout_mcommand"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:hint="Enter Command"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/node_controls_tool_bar">
+        <!-- Power toggle button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_power"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:layout_marginStart="12dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            app:icon="@drawable/ic_settings_power"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconSize="24dp"
+            app:iconTint="#AAAAAA"
+            app:strokeColor="#333333"
+            app:strokeWidth="1.5dp"
+            app:cornerRadius="28dp"
+            app:backgroundTint="#1E1E1E"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="@id/brightness_row"
+            app:layout_constraintBottom_toBottomOf="@id/brightness_row" />
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_command"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:imeOptions="actionNext"
-                        android:inputType="number" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <!-- State input — binding.etState -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:id="@+id/layout_mstate"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:hint="Enter Data"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/layout_mcommand">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/et_state"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:imeOptions="actionDone"
-                        android:inputType="number" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <!-- Divider -->
-                <include
-                    android:id="@+id/div_controls"
-                    layout="@layout/layout_divider"
-                    android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_marginTop="16dp"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/layout_mstate" />
-
-                <!-- ✅ SEND button only — action_read_state removed (not used in CommandActivity) -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/action_on"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="8dp"
-                    android:text="SEND"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/div_controls" />
-
-            </androidx.constraintlayout.widget.ConstraintLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-    </androidx.core.widget.NestedScrollView>
+    </androidx.constraintlayout.widget.ConstraintLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

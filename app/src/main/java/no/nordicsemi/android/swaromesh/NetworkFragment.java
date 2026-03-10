@@ -23,6 +23,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromesh.Map.HomePageActivity;
 import no.nordicsemi.android.swaromesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromesh.databinding.FragmentNetworkBinding;
 import no.nordicsemi.android.swaromesh.dialog.DialogFragmentDeleteNode;
@@ -54,6 +55,15 @@ public class NetworkFragment extends Fragment implements
                     this::handleProvisioningResult);
 
     // For connecting to a proxy after provisioning or node config
+
+
+
+
+
+
+
+
+
     private final ActivityResultLauncher<Intent> proxyConnector =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
                     this::handleProxyConnectResult);
@@ -117,7 +127,7 @@ public class NetworkFragment extends Fragment implements
         //    to handleProvisioningResult(). CommandActivity returns no result,
         //    so plain startActivity() is the correct call here.
         map.setOnClickListener(v ->
-                startActivity(new Intent(requireContext(), CommandActivity.class)));
+                startActivity(new Intent(requireContext(), HomePageActivity.class)));
 
         binding.searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
             @Override
