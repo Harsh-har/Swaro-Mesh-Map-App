@@ -46,7 +46,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private static final int    REQUEST_ACCESS_FINE_LOCATION          = 1022;
     private static final int    REQUEST_ACCESS_BLUETOOTH_PERMISSION   = 1023;
     private static final long   AUTO_CONNECT_RETRY_DELAY_MS           = 1000;
-    private static final long   TARGET_CONNECT_TIMEOUT_MS             = 30000;
+    private static final long   TARGET_CONNECT_TIMEOUT_MS             = 20000;
     private static final long   AUTO_CONNECT_AFTER_PROVISIONING_DELAY = 2000;
 
     private ActivityScannerBinding binding;
@@ -350,12 +350,16 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             intent.putExtra(Utils.EXTRA_DEVICE, device);
             provisioner.launch(intent);
         } else {
+            // ✅ Silent connect — ReconnectActivity runs in background
             final Intent intent = new Intent(this, ReconnectActivity.class);
             intent.putExtra(Utils.EXTRA_DEVICE, device);
-            intent.putExtra(Utils.EXTRA_SILENT_CONNECT, false);
+            intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);  // ← changed to true
+            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
             reconnect.launch(intent);
         }
     }
+
+
 
     // -----------------------------------------------------------------------
     // Permissions

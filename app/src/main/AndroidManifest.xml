@@ -51,7 +51,7 @@
             android:name=".SvgOperationActivity"
             android:exported="false" />
         <activity
-            android:name=".SvgmapActivity"
+            android:name=".Map.SvgmapActivity"
             android:exported="false" />
         <activity
             android:name=".DevicesFilterFragment"
@@ -98,7 +98,7 @@
             android:launchMode="singleTop" />
         <activity
             android:name=".ble.ReconnectActivity"
-            android:launchMode="singleTop" />
+            android:theme="@style/Theme.Transparent" />
         <activity
             android:name=".GroupControlsActivity"
             android:configChanges="orientation|screenSize"

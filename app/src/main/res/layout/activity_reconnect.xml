@@ -52,6 +52,7 @@
                 android:layout_height="wrap_content"
                 android:gravity="center_horizontal"
                 android:textSize="16sp"
+                android:textColor="@color/red"
                 tools:text="@string/state_connecting"/>
 
             <ProgressBar

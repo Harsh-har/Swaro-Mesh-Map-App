@@ -86,7 +86,12 @@
         <item name="materialThemeOverlay">@style/ThemeOverlay.App.Switch</item>
     </style>
 
-
+    <style name="Theme.Transparent" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 
 
 </resources>

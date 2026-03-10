@@ -36,69 +36,54 @@ public class ReconnectActivity extends AppCompatActivity {
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        binding = ActivityReconnectBinding.inflate(getLayoutInflater());
-        setContentView(binding.getRoot());
-
-        // ViewModel
-        mReconnectViewModel = new ViewModelProvider(this).get(ReconnectViewModel.class);
-
+        // ✅ Check silent BEFORE setContentView to prevent any flash
         final Intent intent = getIntent();
-        if (intent == null) {
-            finish();
-            return;
-        }
+        if (intent == null) { finish(); return; }
 
-        // Silent connect flag (AUTO PROXY CONNECT)
         mSilentConnect = intent.getBooleanExtra(Utils.EXTRA_SILENT_CONNECT, false);
 
-        final ExtendedBluetoothDevice device = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
-        if (device == null) {
-            finish();
-            return;
-        }
-
-        final String deviceName = device.getName();
-        final String deviceAddress = device.getAddress();
-
-        // ------------------ SILENT MODE (BACKGROUND) ------------------
         if (mSilentConnect) {
-            // Hide complete UI
-            binding.toolbar.setVisibility(View.GONE);
-
-            // Hide any other views if exist in layout
-            final View connectionStateView = findViewById(R.id.connection_state);
-            if (connectionStateView != null) connectionStateView.setVisibility(View.GONE);
-
-            // Make activity transparent + no touch (looks like nothing opened)
+            // Apply transparent window BEFORE setContentView
             getWindow().setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));
             getWindow().clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND);
             getWindow().setDimAmount(0f);
             getWindow().addFlags(WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE);
-
-            // No animation (prevents screen blink)
             overridePendingTransition(0, 0);
+        }
+
+        binding = ActivityReconnectBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
+
+        mReconnectViewModel = new ViewModelProvider(this).get(ReconnectViewModel.class);
+
+        final ExtendedBluetoothDevice device = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
+        if (device == null) { finish(); return; }
+
+        final String deviceName = device.getName();
+        final String deviceAddress = device.getAddress();
+
+        if (mSilentConnect) {
+            // Hide everything
+            binding.toolbar.setVisibility(View.GONE);
+            final View connectionStateView = findViewById(R.id.connection_state);
+            if (connectionStateView != null) connectionStateView.setVisibility(View.GONE);
 
         } else {
-            // ------------------ NORMAL MODE (MANUAL) ------------------
             final Toolbar toolbar = binding.toolbar;
             setSupportActionBar(toolbar);
-
             if (getSupportActionBar() != null) {
                 getSupportActionBar().setDisplayHomeAsUpEnabled(true);
                 getSupportActionBar().setTitle(deviceName);
                 getSupportActionBar().setSubtitle(deviceAddress);
             }
-
             final TextView connectionState = findViewById(R.id.connection_state);
             if (connectionState != null) {
                 mReconnectViewModel.getConnectionState().observe(this, connectionState::setText);
             }
         }
 
-        // Connect (works for both silent/manual)
         mReconnectViewModel.connect(this, device, true);
 
-        // If disconnected -> close
         mReconnectViewModel.isConnected().observe(this, isConnected -> {
             if (!isConnected) {
                 finish();
@@ -106,7 +91,6 @@ public class ReconnectActivity extends AppCompatActivity {
             }
         });
 
-        // When device ready -> return OK
         mReconnectViewModel.isDeviceReady().observe(this, deviceReady -> {
             if (mReconnectViewModel.getBleMeshManager().isDeviceReady()) {
                 final Intent returnIntent = new Intent();
@@ -117,7 +101,6 @@ public class ReconnectActivity extends AppCompatActivity {
             }
         });
     }
-
     @Override
     public boolean onOptionsItemSelected(@NonNull final MenuItem item) {
         if (item.getItemId() == android.R.id.home) {

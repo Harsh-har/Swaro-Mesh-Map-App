@@ -1,9 +1,8 @@
-package no.nordicsemi.android.swaromesh;
+package no.nordicsemi.android.swaromesh.Map;
 
 import android.content.Intent;
 import android.graphics.Matrix;
 import android.graphics.Picture;
-import android.graphics.PointF;
 import android.graphics.drawable.PictureDrawable;
 import android.os.Bundle;
 import android.util.Log;
@@ -23,7 +22,8 @@ import java.io.InputStreamReader;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import no.nordicsemi.android.swaromesh.node.BaseModelConfigurationActivity;
+import no.nordicsemi.android.swaromesh.CommandActivity;
+import no.nordicsemi.android.swaromesh.R;
 
 public class SvgmapActivity extends AppCompatActivity {
 
