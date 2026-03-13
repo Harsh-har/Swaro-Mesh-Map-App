@@ -15,7 +15,6 @@ import android.widget.Spinner;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
@@ -27,12 +26,11 @@ import java.util.List;
 
 import no.nordicsemi.android.swaromesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromesh.ble.BleMeshManager;
-import no.nordicsemi.android.swaromesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromesh.viewmodels.ScannerViewModel;
 import no.nordicsemi.android.swaromesh.viewmodels.SharedViewModel;
 
-public class DevicesFilterFragment extends Fragment {
+public class DevicesFilterActivity extends Fragment {
 
     private static final String TAG = "DevicesFilterFragment";
 
@@ -81,10 +79,10 @@ public class DevicesFilterFragment extends Fragment {
     private String selectedDevice   = DEFAULT_SELECTED_DEVICE;
     private int    currentSignalThreshold = DevicesAdapter.SIGNAL_DEFAULT; // ← NEW
 
-    public DevicesFilterFragment() {}
+    public DevicesFilterActivity() {}
 
-    public static DevicesFilterFragment newInstance() {
-        return new DevicesFilterFragment();
+    public static DevicesFilterActivity newInstance() {
+        return new DevicesFilterActivity();
     }
 
     @Override
@@ -92,7 +90,7 @@ public class DevicesFilterFragment extends Fragment {
                              ViewGroup container,
                              Bundle savedInstanceState) {
 
-        View view = inflater.inflate(R.layout.fragment_devices_filter, container, false);
+        View view = inflater.inflate(R.layout.activity_devices_filter, container, false);
 
         scannerViewModel = new ViewModelProvider(requireActivity()).get(ScannerViewModel.class);
         sharedViewModel  = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);

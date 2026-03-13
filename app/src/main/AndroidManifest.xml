@@ -38,30 +38,23 @@
         android:roundIcon="@drawable/networkmesh"
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
+
         <activity
             android:name=".CommandActivity"
             android:exported="false" />
         <activity
+            android:name=".DevicesFilterActivity"
+            android:exported="false" />
+        <activity
             android:name=".Map.HomePageActivity"
             android:exported="false" />
+
+
         <activity
-            android:name=".Map.SvgLoadActivity"
+            android:name=".SvgmapActivity"
             android:exported="false" />
-        <activity
-            android:name=".SvgOperationActivity"
-            android:exported="false" />
-        <activity
-            android:name=".Map.SvgmapActivity"
-            android:exported="false" />
-        <activity
-            android:name=".DevicesFilterFragment"
-            android:exported="false" />
-        <activity
-            android:name=".ble.ProxyScannerActivity"
-            android:exported="false" />
-        <activity
-            android:name=".ProxyConnectionActivity"
-            android:exported="false" />
+
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -190,6 +183,9 @@
         <activity
             android:name=".export.ExportNetworkActivity"
             android:launchMode="singleTop" />
+        <activity
+            android:name=".SvgOperationActivity"
+            android:exported="false" />
     </application>
 
 </manifest>

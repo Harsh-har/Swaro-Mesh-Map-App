@@ -26,7 +26,7 @@ import no.nordicsemi.android.swaromesh.viewmodels.ReconnectViewModel;
 @AndroidEntryPoint
 public class ReconnectActivity extends AppCompatActivity {
 
-    public static final int REQUEST_DEVICE_READY = 1122; //Random number
+    public static final int REQUEST_DEVICE_READY = 1122;
     private ReconnectViewModel mReconnectViewModel;
 
     private ActivityReconnectBinding binding;
@@ -59,14 +59,21 @@ public class ReconnectActivity extends AppCompatActivity {
         final ExtendedBluetoothDevice device = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
         if (device == null) { finish(); return; }
 
-        final String deviceName = device.getName();
+        final String deviceName    = device.getName();
         final String deviceAddress = device.getAddress();
 
         if (mSilentConnect) {
-            // Hide everything
+            // ✅ Hide all UI elements — completely invisible to user
             binding.toolbar.setVisibility(View.GONE);
+
             final View connectionStateView = findViewById(R.id.connection_state);
             if (connectionStateView != null) connectionStateView.setVisibility(View.GONE);
+
+            // ✅ Hide progress bar
+            binding.progressBar.setVisibility(View.GONE);
+
+            // ✅ Hide entire container to be safe
+            binding.connectivityProgressContainer.setVisibility(View.GONE);
 
         } else {
             final Toolbar toolbar = binding.toolbar;
@@ -101,6 +108,7 @@ public class ReconnectActivity extends AppCompatActivity {
             }
         });
     }
+
     @Override
     public boolean onOptionsItemSelected(@NonNull final MenuItem item) {
         if (item.getItemId() == android.R.id.home) {

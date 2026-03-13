@@ -29,7 +29,7 @@ public class CommandActivity extends BaseActivity {
     private static final int    MAX_TID   = 255;
 
     private static final int PROGRESS_AUTO_HIDE_MS     = 3000;
-    private static final int HARDCODED_ELEMENT_ADDRESS = 0x003E;
+    private static final int HARDCODED_ELEMENT_ADDRESS = 0x0149;
     private static final int HARDCODED_COMMAND         = 2;
 
     private final AtomicInteger genericOnOffTidCounter = new AtomicInteger(0);

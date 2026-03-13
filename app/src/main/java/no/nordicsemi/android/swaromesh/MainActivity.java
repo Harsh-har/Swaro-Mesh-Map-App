@@ -1,9 +1,38 @@
+//package no.nordicsemi.android.swaromesh;
+//
+//import android.content.Intent;
+//import android.os.Bundle;
+//
+//import androidx.appcompat.app.AppCompatActivity;
+//
+//import dagger.hilt.android.AndroidEntryPoint;
+//
+//@AndroidEntryPoint
+//public class MainActivity extends AppCompatActivity {
+//
+//    @Override
+//    protected void onCreate(Bundle savedInstanceState) {
+//        setTheme(R.style.AppTheme);
+//        super.onCreate(savedInstanceState);
+//
+//        // Directly start SvgmapActivity
+//        startActivity(new Intent(this, SvgmapActivity.class));
+//        finish();
+//    }
+//}
+//
+
+
+
 package no.nordicsemi.android.swaromesh;
 
-import android.content.Intent;
+import android.graphics.drawable.Drawable;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
+import android.view.View;
+import android.view.animation.Animation;
+import android.view.animation.AnimationUtils;
 
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
@@ -30,10 +59,11 @@ public class MainActivity extends AppCompatActivity implements
     private SharedViewModel mViewModel;
 
     private NetworkFragment mNetworkFragment;
-    private DevicesFilterFragment mDevicesFilterFragment;
+    private DevicesFilterActivity mDevicesFilterFragment;
     private GroupsFragment mGroupsFragment;
     private ProxyFilterFragment mProxyFilterFragment;
     private Fragment mSettingsFragment;
+    private ActivityMainBinding binding;
 
     private BottomNavigationView bottomNavigationView;
 
@@ -45,7 +75,7 @@ public class MainActivity extends AppCompatActivity implements
 
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
-        ActivityMainBinding binding = ActivityMainBinding.inflate(getLayoutInflater());
+        binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
         setSupportActionBar(binding.toolbar);
@@ -58,7 +88,7 @@ public class MainActivity extends AppCompatActivity implements
         mNetworkFragment = (NetworkFragment)
                 getSupportFragmentManager().findFragmentById(R.id.fragment_network);
 
-        mDevicesFilterFragment = (DevicesFilterFragment)
+        mDevicesFilterFragment = (DevicesFilterActivity)
                 getSupportFragmentManager().findFragmentById(R.id.fragment_device_filter);
 
         mGroupsFragment = (GroupsFragment)
@@ -87,6 +117,9 @@ public class MainActivity extends AppCompatActivity implements
                     bottomNavigationView.getMenu().findItem(selected)
             );
         }
+        mViewModel.isConnectedToProxy().observe(this, connected -> {
+            invalidateOptionsMenu();
+        });
     }
 
     @Override
@@ -99,22 +132,59 @@ public class MainActivity extends AppCompatActivity implements
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
+
         Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
+
         getMenuInflater().inflate(
                 isConnected != null && isConnected
-                        ? R.menu.disconnect
-                        : R.menu.connect,
+                        ? R.menu.menu_connect_icon
+                        : R.menu.menu_disconnect_icon,
                 menu
         );
+
+        MenuItem item;
+
+        if (isConnected == null || !isConnected) {
+
+            // DISCONNECTED → start blinking
+            item = menu.findItem(R.id.action_disconnection_state);
+
+            if (item != null) {
+
+                View view = findViewById(item.getItemId());
+
+                if (view != null) {
+
+                    Animation blink =
+                            AnimationUtils.loadAnimation(this, R.anim.blink);
+
+                    view.startAnimation(blink);
+                }
+            }
+
+        } else {
+
+            // CONNECTED → stop blinking
+            item = menu.findItem(R.id.action_connection_state);
+
+            if (item != null) {
+
+                View view = findViewById(item.getItemId());
+
+                if (view != null) {
+                    view.clearAnimation();
+                }
+            }
+        }
+
         return true;
     }
-
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
-        if (item.getItemId() == R.id.action_connect) {
+        if (item.getItemId() == R.id.action_connection_state) {
             mViewModel.navigateToScannerActivity(this, false);
             return true;
-        } else if (item.getItemId() == R.id.action_disconnect) {
+        } else if (item.getItemId() == R.id.action_disconnection_state) {
             mViewModel.disconnect();
             return true;
         }
@@ -178,6 +248,7 @@ public class MainActivity extends AppCompatActivity implements
         // No-op
     }
 }
+
 
 
 
