@@ -2,6 +2,7 @@ package no.nordicsemi.android.swaromesh.viewmodels;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.net.Uri;
 
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
@@ -30,15 +31,17 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     private static final String KEY_PROXY_ENABLED       = "proxy_enabled";
     private static final String KEY_DEVICE_NAME_FILTER  = "device_name_filter";
     private static final String KEY_SELECTED_DEVICE     = "selected_device";
-    private static final String KEY_SIGNAL_THRESHOLD    = "signal_threshold";       // ← NEW
+    private static final String KEY_SIGNAL_THRESHOLD    = "signal_threshold";
+    private static final String KEY_SVG_URI             = "svg_uri";              // ← NEW
     private static final String DEFAULT_SELECTED_DEVICE = "Select no.nordicsemi.android.swaromesh.Device";
 
     private final SharedPreferences prefs;
 
-    private final MutableLiveData<Boolean>  proxyEnabled    = new MutableLiveData<>();
+    private final MutableLiveData<Boolean>  proxyEnabled     = new MutableLiveData<>();
     private final MutableLiveData<String>   deviceNameFilter = new MutableLiveData<>("");
-    private final MutableLiveData<String>   selectedDevice  = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
-    private final MutableLiveData<Integer>  signalThreshold = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT); // ← NEW
+    private final MutableLiveData<String>   selectedDevice   = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
+    private final MutableLiveData<Integer>  signalThreshold  = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
+    private final MutableLiveData<Uri>      svgUri           = new MutableLiveData<>();  // ← NEW
     private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices         = new MutableLiveData<>(new ArrayList<>());
     private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices = new MutableLiveData<>(new ArrayList<>());
 
@@ -59,18 +62,21 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
         deviceNameFilter.setValue(prefs.getString(KEY_DEVICE_NAME_FILTER, ""));
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
-        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT)); // ← NEW
+        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
+
+        // ← NEW: Restore saved SVG URI on app restart
+        final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
+        if (savedSvgUri != null) {
+            svgUri.setValue(Uri.parse(savedSvgUri));
+        }
     }
 
     @Override
     protected void onCleared() {
         super.onCleared();
-
-        // ✅ ROOT FIX: Do NOT disconnect if proxy is currently connected.
         if (!mNrfMeshRepository.getBleMeshManager().isConnected()) {
             mNrfMeshRepository.disconnect();
         }
-
         mScannerRepository.unregisterBroadcastReceivers();
     }
 
@@ -106,6 +112,33 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     @Override
     public void onNetworkExportFailed(@NonNull final String error) {
         networkExportState.postValue(error);
+    }
+
+    // ---------------- SVG URI (PERSISTENT) ← NEW ----------------
+
+    public LiveData<Uri> getSvgUri() { return svgUri; }
+
+    /**
+     * Save SVG URI from file picker.
+     * Persists across app restarts via SharedPreferences.
+     */
+    public void setSvgUri(@NonNull Uri uri) {
+        svgUri.setValue(uri);
+        prefs.edit().putString(KEY_SVG_URI, uri.toString()).apply();
+    }
+
+    @NonNull
+    public Uri getSvgUriValue() {
+        return svgUri.getValue();
+    }
+
+    public boolean hasSvg() {
+        return svgUri.getValue() != null;
+    }
+
+    public void clearSvgUri() {
+        svgUri.setValue(null);
+        prefs.edit().remove(KEY_SVG_URI).apply();
     }
 
     // ---------------- PROXY BUTTON STATE (PERSISTENT) ----------------
@@ -160,15 +193,10 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void clearSelectedDevice() { setSelectedDevice(DEFAULT_SELECTED_DEVICE); }
 
-    // ---------------- SIGNAL STRENGTH THRESHOLD (PERSISTENT) ← NEW ----------------
+    // ---------------- SIGNAL STRENGTH THRESHOLD (PERSISTENT) ----------------
 
     public LiveData<Integer> getSignalThreshold() { return signalThreshold; }
 
-    /**
-     * Set minimum RSSI signal threshold.
-     * Use DevicesAdapter.SIGNAL_DEFAULT (0) to disable.
-     * Use DevicesAdapter.SIGNAL_20 / SIGNAL_60 / SIGNAL_100 for thresholds.
-     */
     public void setSignalThreshold(int threshold) {
         signalThreshold.setValue(threshold);
         prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, threshold).apply();
@@ -232,66 +260,47 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public String getActiveFilterDescription() {
         StringBuilder sb = new StringBuilder();
-
         if (!getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)) {
             sb.append("no.nordicsemi.android.swaromesh.Device: ").append(getSelectedDeviceValue());
         } else if (!getDeviceNameFilterValue().isEmpty()) {
             sb.append("Name: ").append(getDeviceNameFilterValue());
         }
-
         if (getSignalThresholdValue() != DevicesAdapter.SIGNAL_DEFAULT) {
             if (sb.length() > 0) sb.append(" | ");
             sb.append("Signal ≥ ").append(getSignalThresholdValue()).append("%");
         }
-
         return sb.length() > 0 ? "Filter: " + sb : "No filter active";
     }
 
     public void resetAllFilters() {
         clearDeviceNameFilter();
         clearSelectedDevice();
-        clearSignalThreshold();   // ← NEW
+        clearSignalThreshold();
         clearFilteredDevices();
     }
 
-    /**
-     * Apply both name AND signal filters.
-     * no.nordicsemi.android.swaromesh.Device must pass BOTH to be included.
-     */
     public List<ExtendedBluetoothDevice> applyFilter(List<ExtendedBluetoothDevice> devices) {
         if (devices == null) return new ArrayList<>();
 
-        // Spinner selection takes priority over typed name
         String nameFilter = !getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)
                 ? getSelectedDeviceValue()
                 : getDeviceNameFilterValue();
 
-        int     threshold      = getSignalThresholdValue();
-        boolean hasNameFilter  = !nameFilter.isEmpty();
+        int     threshold       = getSignalThresholdValue();
+        boolean hasNameFilter   = !nameFilter.isEmpty();
         boolean hasSignalFilter = threshold != DevicesAdapter.SIGNAL_DEFAULT;
 
-        if (!hasNameFilter && !hasSignalFilter) {
-            return new ArrayList<>(devices);
-        }
+        if (!hasNameFilter && !hasSignalFilter) return new ArrayList<>(devices);
 
         List<ExtendedBluetoothDevice> filtered    = new ArrayList<>();
         String                        lowerFilter = nameFilter.toLowerCase();
 
         for (ExtendedBluetoothDevice device : devices) {
-
-            // Name check
-            boolean nameOk = !hasNameFilter
-                    || (device.getName() != null
+            boolean nameOk   = !hasNameFilter || (device.getName() != null
                     && device.getName().toLowerCase().contains(lowerFilter));
-
-            // Signal check
             boolean signalOk = !hasSignalFilter || matchesSignalThreshold(device, threshold);
-
-            if (nameOk && signalOk) {
-                filtered.add(device);
-            }
+            if (nameOk && signalOk) filtered.add(device);
         }
-
         return filtered;
     }
 

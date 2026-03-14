@@ -495,25 +495,61 @@ public class SvgmapActivity extends AppCompatActivity implements
     // Navigation Methods
     @Override
     public boolean onNavigationItemSelected(@NonNull MenuItem item) {
+
+        FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
+
         if (item.getItemId() == R.id.action_network) {
-            // Network option - show SVG, hide all fragments
-            showSvgOnly();
-        } else {
-            // Any other option - hide SVG, show respective fragment
-            hideSvg();
-            showFragment(item.getItemId());
+            ft.show(mNetworkFragment)
+                    .hide(mDevicesFilterFragment)
+                    .hide(mGroupsFragment)
+                    .hide(mProxyFilterFragment)
+                    .hide(mSettingsFragment);
         }
+
+        else if (item.getItemId() == R.id.action_device_filter) {
+            ft.hide(mNetworkFragment)
+                    .show(mDevicesFilterFragment)
+                    .hide(mGroupsFragment)
+                    .hide(mProxyFilterFragment)
+                    .hide(mSettingsFragment);
+        }
+
+        else if (item.getItemId() == R.id.action_groups) {
+            ft.hide(mNetworkFragment)
+                    .hide(mDevicesFilterFragment)
+                    .show(mGroupsFragment)
+                    .hide(mProxyFilterFragment)
+                    .hide(mSettingsFragment);
+        }
+
+        else if (item.getItemId() == R.id.action_proxy) {
+            ft.hide(mNetworkFragment)
+                    .hide(mDevicesFilterFragment)
+                    .hide(mGroupsFragment)
+                    .show(mProxyFilterFragment)
+                    .hide(mSettingsFragment);
+        }
+
+        else if (item.getItemId() == R.id.action_settings) {
+            ft.hide(mNetworkFragment)
+                    .hide(mDevicesFilterFragment)
+                    .hide(mGroupsFragment)
+                    .hide(mProxyFilterFragment)
+                    .show(mSettingsFragment);
+        }
+
+        ft.commit();
+        invalidateOptionsMenu();
         return true;
     }
 
+
+
     @Override
     public void onNavigationItemReselected(@NonNull MenuItem item) {
-        // Handle reselection if needed
-        if (item.getItemId() == R.id.action_network) {
-            // Already on network, maybe reset view?
-            resetMapView();
-        }
+        // No-op
     }
+
 
     private void resetMapView() {
         // Reset to initial zoom and position

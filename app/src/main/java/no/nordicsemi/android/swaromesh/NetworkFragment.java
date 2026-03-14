@@ -1,417 +1,531 @@
 package no.nordicsemi.android.swaromesh;
 
-import android.bluetooth.BluetoothAdapter;
-import android.content.Intent;
+import android.graphics.Matrix;
+import android.graphics.Picture;
+import android.graphics.RectF;
+import android.graphics.drawable.PictureDrawable;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.GestureDetector;
 import android.view.LayoutInflater;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.SearchView;
-
-import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
-import com.google.android.material.snackbar.Snackbar;
-
-import androidx.activity.result.ActivityResult;
-import androidx.activity.result.ActivityResultLauncher;
-import androidx.activity.result.contract.ActivityResultContracts;
+import android.widget.ImageView;
+import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.DividerItemDecoration;
-import androidx.recyclerview.widget.ItemTouchHelper;
-import androidx.recyclerview.widget.LinearLayoutManager;
-import androidx.recyclerview.widget.RecyclerView;
-
-import java.util.HashSet;
+import com.caverock.androidsvg.SVG;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import java.io.InputStream;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
-
+import java.util.Map;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.transform.TransformerFactory;
+import javax.xml.transform.dom.DOMSource;
+import javax.xml.transform.stream.StreamResult;
 import dagger.hilt.android.AndroidEntryPoint;
-import no.nordicsemi.android.swaromesh.Map.HomePageActivity;
-import no.nordicsemi.android.swaromesh.ble.AutoProxyConnectManager;
-import no.nordicsemi.android.swaromesh.ble.ReconnectActivity;
-import no.nordicsemi.android.swaromesh.ble.ScannerActivity;
-import no.nordicsemi.android.swaromesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromesh.databinding.FragmentNetworkBinding;
-import no.nordicsemi.android.swaromesh.dialog.DialogFragmentDeleteNode;
-import no.nordicsemi.android.swaromesh.dialog.DialogFragmentError;
-import no.nordicsemi.android.swaromesh.node.NodeConfigurationActivity;
-import no.nordicsemi.android.swaromesh.node.adapter.NodeAdapter;
-import no.nordicsemi.android.swaromesh.transport.ProvisionedMeshNode;
-import no.nordicsemi.android.swaromesh.utils.Utils;
 import no.nordicsemi.android.swaromesh.viewmodels.SharedViewModel;
-import no.nordicsemi.android.swaromesh.widgets.ItemTouchHelperAdapter;
-import no.nordicsemi.android.swaromesh.widgets.RemovableItemTouchHelperCallback;
-import no.nordicsemi.android.swaromesh.widgets.RemovableViewHolder;
-
-import static android.app.Activity.RESULT_OK;
 
 @AndroidEntryPoint
-public class NetworkFragment extends Fragment implements
-        NodeAdapter.OnItemClickListener,
-        ItemTouchHelperAdapter,
-        DialogFragmentDeleteNode.DialogFragmentDeleteNodeListener {
+public class NetworkFragment extends Fragment {
 
-    private static final String TAG                    = "NetworkFragment";
-    private static final long   AUTO_PROXY_SCAN_WINDOW = 5000L;
+    private static final String TAG            = "NetworkFragment";
+    private static final float  MAX_ZOOM       = 8f;
+    private static final float  DOUBLE_TAP_ZOOM = 2.5f;
+
+    private static final String[] SKIP_GROUPS = {
+            "Ground_Floor_Walls", "Furniture", "Background"
+    };
 
     private FragmentNetworkBinding binding;
     private SharedViewModel        mViewModel;
-    private NodeAdapter            mNodeAdapter;
 
-    // Background RSSI-based auto-connect
-    private AutoProxyConnectManager mAutoProxyManager;
-    private boolean                 mAutoConnectInProgress = false;
+    // ── Zoom ─────────────────────────────────────────────────────────────────
+    private final Matrix matrix      = new Matrix();
+    private final float[] matrixValues = new float[9];
+    private float   minZoom    = 1f;
+    private static final float TAP_TOLERANCE = 20f; // svg units
+    private float   lastTouchX, lastTouchY;
+    private boolean isDragging = false;
+    private ScaleGestureDetector scaleDetector;
+    private GestureDetector      gestureDetector;
 
-    // Guard: only trigger auto-connect once per fragment session
-    private boolean mAutoConnectTriggeredThisSession = false;
+    // ── SVG state ─────────────────────────────────────────────────────────────
+    private Document svgDocument          = null;
+    private String   selectedDeviceId     = null;
+    private String   selectedOriginalFill = null;
 
-    // -----------------------------------------------------------------------
-    // Activity Result Launchers
-    // -----------------------------------------------------------------------
+    // viewBox  e.g. "100 0 1000 640"
+    private float vbX = 0f, vbY = 0f, vbW = 1000f, vbH = 640f;
 
-    private final ActivityResultLauncher<Intent> provisioner =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                    this::handleProvisioningResult);
-
-    private final ActivityResultLauncher<Intent> proxyConnector =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                    this::handleProxyConnectResult);
-
-    // -----------------------------------------------------------------------
-    // onCreateView
-    // -----------------------------------------------------------------------
+    private final Map<String, RectF> deviceBoundsMap = new LinkedHashMap<>();
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull final LayoutInflater inflater,
-                             @Nullable final ViewGroup viewGroup,
-                             @Nullable final Bundle savedInstanceState) {
+    public View onCreateView(@NonNull LayoutInflater inflater,
+                             @Nullable ViewGroup container,
+                             @Nullable Bundle savedInstanceState) {
 
-        binding    = FragmentNetworkBinding.inflate(getLayoutInflater());
+        binding    = FragmentNetworkBinding.inflate(inflater, container, false);
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 
-        final ExtendedFloatingActionButton fab = binding.fabAddNode;
-        final ExtendedFloatingActionButton map = binding.mapnode;
-        final RecyclerView recyclerViewNodes   = binding.recyclerViewProvisionedNodes;
-        final View noNetworksView              = binding.noNetworksConfigured.getRoot();
+        setupZoom();
 
-        mNodeAdapter = new NodeAdapter(this, mViewModel.getNodes());
-        mNodeAdapter.setOnItemClickListener(this);
-
-        recyclerViewNodes.setLayoutManager(new LinearLayoutManager(getContext()));
-        recyclerViewNodes.addItemDecoration(
-                new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL));
-
-        final ItemTouchHelper itemTouchHelper =
-                new ItemTouchHelper(new RemovableItemTouchHelperCallback(this));
-        itemTouchHelper.attachToRecyclerView(recyclerViewNodes);
-        recyclerViewNodes.setAdapter(mNodeAdapter);
-
-        // Observe nodes — trigger auto-connect when data first arrives
-        mViewModel.getNodes().observe(getViewLifecycleOwner(), nodes -> {
-            final boolean hasNodes = nodes != null && !nodes.isEmpty();
-            noNetworksView.setVisibility(hasNodes ? View.GONE : View.VISIBLE);
-            requireActivity().invalidateOptionsMenu();
-
-            // Trigger auto-connect only once per session
-            if (hasNodes && !mAutoConnectTriggeredThisSession) {
-                mAutoConnectTriggeredThisSession = true;
-                Log.d(TAG, "Nodes loaded (" + nodes.size() + ") — triggering auto-connect");
-                tryAutoConnectToNearestProxy(nodes);
-            }
-        });
-
-        mViewModel.isConnectedToProxy().observe(getViewLifecycleOwner(), isConnected -> {
-            requireActivity().invalidateOptionsMenu();
-
-            // If connected while scanning, cancel the scan
-            if (Boolean.TRUE.equals(isConnected) && mAutoConnectInProgress) {
-                Log.d(TAG, "Proxy connected — cancelling background scan");
-                stopAutoProxyScan();
-            }
-        });
-
-        recyclerViewNodes.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
-                super.onScrolled(rv, dx, dy);
-                final LinearLayoutManager lm = (LinearLayoutManager) rv.getLayoutManager();
-                if (lm != null) fab.setExtended(lm.findFirstCompletelyVisibleItemPosition() == 0);
-            }
-        });
-
-        fab.setOnClickListener(v -> {
-            final Intent intent = new Intent(requireContext(), ScannerActivity.class);
-            intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
-            provisioner.launch(intent);
-        });
-
-        map.setOnClickListener(v ->
-                startActivity(new Intent(requireContext(), HomePageActivity.class)));
-
-        binding.searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
-            @Override public boolean onQueryTextSubmit(String q) {
-                mNodeAdapter.filter(q); return true;
-            }
-            @Override public boolean onQueryTextChange(String t) {
-                mNodeAdapter.filter(t); return true;
-            }
-        });
-
-        mNodeAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
-            @Override public void onChanged() {
-                noNetworksView.setVisibility(
-                        mNodeAdapter.getItemCount() == 0 ? View.VISIBLE : View.GONE);
-            }
+        mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
+            if (uri != null) loadSVG(uri);
         });
 
         return binding.getRoot();
     }
 
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void onPause() {
-        super.onPause();
-        stopAutoProxyScan();
-    }
-
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        stopAutoProxyScan();
         binding = null;
     }
 
-    // -----------------------------------------------------------------------
-    // Auto-connect to nearest proxy (background, silent, RSSI-based)
-    // -----------------------------------------------------------------------
+    private void loadSVG(Uri uri) {
+        try {
+            // ── Pass 1: parse DOM ─────────────────────────────────────────────
+            InputStream is1 = requireContext().getContentResolver().openInputStream(uri);
 
-    private void tryAutoConnectToNearestProxy(List<ProvisionedMeshNode> nodes) {
-        final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
-        if (Boolean.TRUE.equals(isConnected)) {
-            Log.d(TAG, "Auto-proxy: already connected, skipping");
-            return;
-        }
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            factory.setNamespaceAware(false);
+            factory.setValidating(false);
+            try { factory.setFeature("http://xml.org/sax/features/external-general-entities",   false); } catch (Exception ignored) {}
+            try { factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false); } catch (Exception ignored) {}
+            try { factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false); } catch (Exception ignored) {}
+            try { factory.setXIncludeAware(false); }         catch (Exception ignored) {}
+            try { factory.setExpandEntityReferences(false); } catch (Exception ignored) {}
 
-        if (mAutoConnectInProgress) {
-            Log.d(TAG, "Auto-proxy: scan already in progress");
-            return;
-        }
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            builder.setErrorHandler(new org.xml.sax.ErrorHandler() {
+                @Override public void warning(org.xml.sax.SAXParseException e)    {}
+                @Override public void error(org.xml.sax.SAXParseException e)      {}
+                @Override public void fatalError(org.xml.sax.SAXParseException e) {}
+            });
+            builder.setEntityResolver((pub, sys) ->
+                    new org.xml.sax.InputSource(new java.io.StringReader("")));
 
-        final Set<String> knownMacs = new HashSet<>();
-        for (ProvisionedMeshNode node : nodes) {
-            final String mac = node.getMacAddress();
-            if (mac != null && !mac.isEmpty()) {
-                knownMacs.add(mac.toUpperCase());
+            svgDocument = builder.parse(is1);
+            svgDocument.getDocumentElement().normalize();
+            if (is1 != null) is1.close();
+
+            // Parse viewBox
+            String vb = svgDocument.getDocumentElement().getAttribute("viewBox");
+            if (vb != null && !vb.isEmpty()) {
+                String[] p = vb.trim().split("[\\s,]+");
+                if (p.length == 4) {
+                    vbX = Float.parseFloat(p[0]);
+                    vbY = Float.parseFloat(p[1]);
+                    vbW = Float.parseFloat(p[2]);
+                    vbH = Float.parseFloat(p[3]);
+                }
             }
-        }
 
-        if (knownMacs.isEmpty()) {
-            Log.d(TAG, "Auto-proxy: no valid MACs — trying any proxy");
-            startProxyScan(null);
-        } else {
-            Log.d(TAG, "Auto-proxy: scanning for " + knownMacs.size() + " known node(s)");
-            startProxyScan(knownMacs);
+            selectedDeviceId     = null;
+            selectedOriginalFill = null;
+            buildDeviceBoundsMap();
+
+            // ── Pass 2: render ────────────────────────────────────────────────
+            InputStream is2 = requireContext().getContentResolver().openInputStream(uri);
+            SVG     svg     = SVG.getFromInputStream(is2);
+            Picture picture = svg.renderToPicture();
+            PictureDrawable drawable = new PictureDrawable(picture);
+            if (is2 != null) is2.close();
+
+            binding.svgPlaceholder.setVisibility(View.GONE);
+            binding.svgView.setVisibility(View.VISIBLE);
+            binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            binding.svgView.setImageDrawable(drawable);
+
+            // Fit to view after layout pass
+            binding.svgView.post(() -> {
+                float dW = drawable.getIntrinsicWidth();
+                float dH = drawable.getIntrinsicHeight();
+                float vW = binding.svgView.getWidth();
+                float vH = binding.svgView.getHeight();
+                if (dW <= 0 || dH <= 0) return;
+
+                minZoom = Math.min(vW / dW, vH / dH);
+                matrix.reset();
+                matrix.postScale(minZoom, minZoom);
+                matrix.postTranslate(
+                        (vW - dW * minZoom) / 2f,
+                        (vH - dH * minZoom) / 2f);
+                binding.svgView.setImageMatrix(matrix);
+
+                Toast.makeText(requireContext(),
+                        deviceBoundsMap.size() + " devices detected",
+                        Toast.LENGTH_SHORT).show();
+            });
+
+        } catch (Exception e) {
+            Log.e(TAG, "loadSVG error: " + e.getMessage());
         }
     }
 
-    private void startProxyScan(@Nullable Set<String> knownMacs) {
-        mAutoConnectInProgress = true;
+    private void buildDeviceBoundsMap() {
+        deviceBoundsMap.clear();
+        if (svgDocument == null) return;
 
-        if (mAutoProxyManager != null) mAutoProxyManager.stop();
-        mAutoProxyManager = new AutoProxyConnectManager(requireContext());
+        Element devicesGroup = findById(svgDocument.getDocumentElement(), "Devices");
+        Element scanRoot     = (devicesGroup != null)
+                ? devicesGroup
+                : svgDocument.getDocumentElement();
 
-        mAutoProxyManager.findBestProxy(knownMacs, AUTO_PROXY_SCAN_WINDOW, bestMac -> {
-            mAutoConnectInProgress = false;
+        List<Element> leaves = new ArrayList<>();
+        collectAllLeaves(scanRoot, leaves);
 
-            if (bestMac == null) {
-                Log.d(TAG, "Auto-proxy: no proxy device found nearby");
-                return;
+        Map<String, Element> idToElement = new LinkedHashMap<>();
+        for (Element el : leaves) {
+            String id = el.getAttribute("id");
+            if (id != null && !id.isEmpty()) idToElement.put(id, el);
+        }
+
+        for (Map.Entry<String, Element> entry : idToElement.entrySet()) {
+            String  id     = entry.getKey();
+            Element el     = entry.getValue();
+            RectF   bounds = computeBounds(el);
+            if (bounds == null || bounds.isEmpty()) continue;
+
+            deviceBoundsMap.put(id, bounds);
+        }
+
+        Log.d(TAG, "Total devices: " + deviceBoundsMap.size());
+    }
+
+    private void collectAllLeaves(Element parent, List<Element> result) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            if (!(children.item(i) instanceof Element)) continue;
+            Element child = (Element) children.item(i);
+            String  tag   = child.getTagName().toLowerCase();
+            String  id    = child.getAttribute("id");
+
+            if (id != null && shouldSkip(id)) continue;
+
+            if (tag.equals("g")) {
+                collectAllLeaves(child, result);
+            } else {
+                if (id != null && !id.isEmpty()) result.add(child);
             }
+        }
+    }
 
-            final Boolean stillConnected = mViewModel.isConnectedToProxy().getValue();
-            if (Boolean.TRUE.equals(stillConnected)) {
-                Log.d(TAG, "Auto-proxy: connected while scanning — skipping");
-                return;
+    private boolean shouldSkip(String id) {
+        for (String s : SKIP_GROUPS) if (s.equals(id)) return true;
+        return false;
+    }
+
+    private RectF computeBounds(Element el) {
+        try {
+            switch (el.getTagName().toLowerCase()) {
+                case "rect": {
+                    float x = fa(el,"x"), y = fa(el,"y");
+                    float w = fa(el,"width"), h = fa(el,"height");
+                    return (w > 0 && h > 0) ? new RectF(x, y, x+w, y+h) : null;
+                }
+                case "circle": {
+                    float cx = fa(el,"cx"), cy = fa(el,"cy"), r = fa(el,"r");
+                    return r > 0 ? new RectF(cx-r, cy-r, cx+r, cy+r) : null;
+                }
+                case "ellipse": {
+                    float cx = fa(el,"cx"), cy = fa(el,"cy");
+                    float rx = fa(el,"rx"), ry = fa(el,"ry");
+                    return new RectF(cx-rx, cy-ry, cx+rx, cy+ry);
+                }
+                case "path":     return boundsFromNumbers(el.getAttribute("d"));
+                case "polygon":
+                case "polyline": return boundsFromNumbers(el.getAttribute("points"));
+                case "line": {
+                    float x1=fa(el,"x1"), y1=fa(el,"y1");
+                    float x2=fa(el,"x2"), y2=fa(el,"y2");
+                    return new RectF(Math.min(x1,x2), Math.min(y1,y2),
+                            Math.max(x1,x2), Math.max(y1,y2));
+                }
             }
+        } catch (Exception ignored) {}
+        return null;
+    }
 
-            if (!isAdded() || !isResumed()) {
-                Log.w(TAG, "Auto-proxy: fragment not active — skipping for " + bestMac);
-                return;
+    private RectF boundsFromNumbers(String data) {
+        if (data == null || data.isEmpty()) return null;
+
+        List<Float> xs = new ArrayList<>();
+        List<Float> ys = new ArrayList<>();
+
+        String cleaned = data.replaceAll("([MmLlHhVvCcSsQqTtAaZz])", " $1 ");
+        String[] tokens = cleaned.trim().split("[\\s,]+");
+
+        char currentCmd = 'M';
+        int  argIndex   = 0;
+
+        for (String tok : tokens) {
+            if (tok.isEmpty()) continue;
+            char c = tok.charAt(0);
+            if (Character.isLetter(c)) {
+                currentCmd = c;
+                argIndex   = 0;
+                continue;
             }
+            float val;
+            try { val = Float.parseFloat(tok); } catch (Exception e) { continue; }
 
-            Log.i(TAG, "Auto-proxy: launching silent connect → " + bestMac);
-            startProxyConnectInBackground(bestMac);
+            switch (currentCmd) {
+                case 'M': case 'L': case 'm': case 'l':
+                case 'C': case 'c': case 'S': case 's':
+                case 'Q': case 'q': case 'T': case 't':
+                    if (argIndex % 2 == 0) xs.add(val); else ys.add(val);
+                    argIndex++;
+                    break;
+                case 'H': xs.add(val); argIndex++; break;
+                case 'h': argIndex++; break;
+                case 'V': ys.add(val); argIndex++; break;
+                case 'v': argIndex++; break;
+                case 'A':
+                    if (argIndex % 7 == 5) xs.add(val);
+                    if (argIndex % 7 == 6) ys.add(val);
+                    argIndex++;
+                    break;
+                case 'a': argIndex++; break;
+                default:
+                    if (argIndex % 2 == 0) xs.add(val); else ys.add(val);
+                    argIndex++;
+                    break;
+            }
+        }
+
+        if (xs.isEmpty() || ys.isEmpty()) return null;
+        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
+        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        for (float x : xs) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+        for (float y : ys) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
+        if (minX == Float.MAX_VALUE || minY == Float.MAX_VALUE) return null;
+        return new RectF(minX, minY, maxX, maxY);
+    }
+
+    private float fa(Element el, String attr) {
+        String v = el.getAttribute(attr);
+        return (v == null || v.isEmpty()) ? 0f : Float.parseFloat(v.trim());
+    }
+
+    private void handleSvgClick(float touchX, float touchY) {
+        if (svgDocument == null || deviceBoundsMap.isEmpty()) return;
+
+        float[] sc   = touchToSvg(touchX, touchY);
+        float   svgX = sc[0], svgY = sc[1];
+        Log.d(TAG, "svgX=" + svgX + " svgY=" + svgY);
+
+        String bestId   = null;
+        float  bestArea = Float.MAX_VALUE;
+        for (Map.Entry<String, RectF> e : deviceBoundsMap.entrySet()) {
+
+            RectF expanded = new RectF(e.getValue());
+            expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+
+            if (expanded.contains(svgX, svgY)) {
+
+                float area = expanded.width() * expanded.height();
+                if (area < bestArea) {
+                    bestArea = area;
+                    bestId = e.getKey();
+                }
+            }
+        }
+
+        if (bestId != null) {
+            onDeviceClicked(bestId);
+        } else if (selectedDeviceId != null) {
+            restoreColor(selectedDeviceId, selectedOriginalFill);
+            selectedDeviceId     = null;
+            selectedOriginalFill = null;
+            reRender();
+        }
+    }
+
+    private void onDeviceClicked(String deviceId) {
+        if (svgDocument == null) return;
+
+        // Deselect previous
+        if (selectedDeviceId != null && !selectedDeviceId.equals(deviceId)) {
+            restoreColor(selectedDeviceId, selectedOriginalFill);
+        }
+
+        // Toggle same device
+        if (deviceId.equals(selectedDeviceId)) {
+            restoreColor(deviceId, selectedOriginalFill);
+            selectedDeviceId     = null;
+            selectedOriginalFill = null;
+            reRender();
+            Toast.makeText(requireContext(), "Deselected: " + deviceId, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Select → red
+        Element el = findById(svgDocument.getDocumentElement(), deviceId);
+        if (el != null) {
+            selectedOriginalFill = el.getAttribute("fill");
+            el.setAttribute("fill", "#ff0000");
+        }
+        selectedDeviceId = deviceId;
+        reRender();
+
+        Toast.makeText(requireContext(), "Device: " + deviceId, Toast.LENGTH_SHORT).show();
+    }
+
+    private void restoreColor(String deviceId, String originalFill) {
+        Element el = findById(svgDocument.getDocumentElement(), deviceId);
+        if (el != null) {
+            String fill = (originalFill != null && !originalFill.isEmpty())
+                    ? originalFill : "transparent";
+            el.setAttribute("fill", fill);
+        }
+    }
+    private float[] touchToSvg(float touchX, float touchY) {
+        Matrix inv = new Matrix();
+        matrix.invert(inv);
+        float[] pts = {touchX, touchY};
+        inv.mapPoints(pts);
+
+        float dW = binding.svgView.getDrawable() != null
+                ? binding.svgView.getDrawable().getIntrinsicWidth()
+                : binding.svgView.getWidth();
+        float dH = binding.svgView.getDrawable() != null
+                ? binding.svgView.getDrawable().getIntrinsicHeight()
+                : binding.svgView.getHeight();
+
+        return new float[]{
+                vbX + (pts[0] / dW) * vbW,
+                vbY + (pts[1] / dH) * vbH
+        };
+    }
+
+    private void reRender() {
+        if (binding == null || svgDocument == null) return;
+        try {
+            StringWriter sw = new StringWriter();
+            TransformerFactory.newInstance().newTransformer()
+                    .transform(new DOMSource(svgDocument), new StreamResult(sw));
+            SVG             svg = SVG.getFromString(sw.toString());
+            PictureDrawable d   = new PictureDrawable(svg.renderToPicture());
+            binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            binding.svgView.setImageDrawable(d);
+            binding.svgView.setImageMatrix(matrix); // preserve current pan/zoom
+        } catch (Exception e) {
+            Log.e(TAG, "reRender error: " + e.getMessage());
+        }
+    }
+
+    private Element findById(Element root, String targetId) {
+        if (targetId.equals(root.getAttribute("id"))) return root;
+        NodeList ch = root.getChildNodes();
+        for (int i = 0; i < ch.getLength(); i++) {
+            if (ch.item(i) instanceof Element) {
+                Element found = findById((Element) ch.item(i), targetId);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+    private void setupZoom() {
+        binding.svgView.setScaleType(ImageView.ScaleType.MATRIX);
+
+        scaleDetector = new ScaleGestureDetector(requireContext(),
+                new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                    @Override public boolean onScale(ScaleGestureDetector d) {
+                        float sf = d.getScaleFactor(), cur = getScale(), ns = cur * sf;
+                        if (ns < minZoom)  sf = minZoom / cur;
+                        if (ns > MAX_ZOOM) sf = MAX_ZOOM / cur;
+                        matrix.postScale(sf, sf, d.getFocusX(), d.getFocusY());
+                        clampMatrix();
+                        binding.svgView.setImageMatrix(matrix);
+                        return true;
+                    }
+                });
+
+        gestureDetector = new GestureDetector(requireContext(),
+                new GestureDetector.SimpleOnGestureListener() {
+                    @Override public boolean onDoubleTap(MotionEvent e) {
+                        float cur    = getScale();
+                        float target = (cur > minZoom + 0.5f) ? minZoom : DOUBLE_TAP_ZOOM;
+                        matrix.postScale(target/cur, target/cur, e.getX(), e.getY());
+                        clampMatrix();
+                        binding.svgView.setImageMatrix(matrix);
+                        return true;
+                    }
+                    @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+                        handleSvgClick(e.getX(), e.getY());
+                        return true;
+                    }
+                });
+
+        binding.svgView.setOnTouchListener((v, event) -> {
+            scaleDetector.onTouchEvent(event);
+            gestureDetector.onTouchEvent(event);
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    lastTouchX = event.getX();
+                    lastTouchY = event.getY();
+                    isDragging = true;
+                    break;
+                case MotionEvent.ACTION_MOVE:
+                    if (isDragging && !scaleDetector.isInProgress()) {
+                        matrix.postTranslate(
+                                event.getX() - lastTouchX,
+                                event.getY() - lastTouchY);
+                        clampMatrix();
+                        binding.svgView.setImageMatrix(matrix);
+                        lastTouchX = event.getX();
+                        lastTouchY = event.getY();
+                    }
+                    break;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    isDragging = false;
+                    break;
+            }
+            return true;
         });
     }
 
-    private void stopAutoProxyScan() {
-        if (mAutoProxyManager != null) {
-            mAutoProxyManager.stop();
-            mAutoProxyManager = null;
-        }
-        mAutoConnectInProgress = false;
+    private float getScale() {
+        matrix.getValues(matrixValues);
+        return matrixValues[Matrix.MSCALE_X];
     }
 
-    // -----------------------------------------------------------------------
-    // Node click — manual configure
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void onConfigureClicked(final ProvisionedMeshNode node) {
-        mViewModel.setSelectedMeshNode(node);
-
-        if (!mViewModel.isProxyEnabled()) {
-            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
-            return;
-        }
-
-        final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
-        if (Boolean.TRUE.equals(isConnected)) {
-            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
-        } else {
-            stopAutoProxyScan();
-            startProxyConnectInBackground(node.getMacAddress());
-        }
-    }
-
-    /**
-     * ✅ Directly launch ReconnectActivity in silent/transparent mode.
-     * MAC is already known from AutoProxyConnectManager scan.
-     * ScannerActivity is completely bypassed — no screen change at all.
-     * NetworkFragment stays fully visible throughout the connect process.
-     */
-    private void startProxyConnectInBackground(@Nullable String macAddress) {
-        if (macAddress == null) {
-            Log.w(TAG, "startProxyConnectInBackground: macAddress is null, skipping");
-            return;
-        }
-
-        Log.d(TAG, "Direct silent connect to MAC: " + macAddress);
-
-        final ExtendedBluetoothDevice device = getDeviceFromMac(macAddress);
-        if (device == null) {
-            Log.e(TAG, "Could not build device for MAC: " + macAddress);
-            return;
-        }
-
-        // ✅ ReconnectActivity directly — transparent theme, no animation, no UI shown
-        final Intent intent = new Intent(requireContext(), ReconnectActivity.class);
-        intent.putExtra(Utils.EXTRA_DEVICE, device);
-        intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
-        proxyConnector.launch(intent);
-    }
-
-    /**
-     * Build an ExtendedBluetoothDevice from a MAC address string.
-     * BluetoothAdapter.getRemoteDevice() works without active scanning —
-     * it creates a BluetoothDevice handle directly from the MAC string.
-     */
-    @Nullable
-    private ExtendedBluetoothDevice getDeviceFromMac(String macAddress) {
-        try {
-            final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter == null) {
-                Log.e(TAG, "BluetoothAdapter is null");
-                return null;
-            }
-
-            // Get Android BluetoothDevice from MAC
-            final android.bluetooth.BluetoothDevice btDevice =
-                    adapter.getRemoteDevice(macAddress.toUpperCase());
-
-            // Build Nordic ScanResult from BluetoothDevice
-            final no.nordicsemi.android.support.v18.scanner.ScanResult nordicScanResult =
-                    new no.nordicsemi.android.support.v18.scanner.ScanResult(
-                            btDevice,   // device
-                            null,       // scanRecord
-                            -70,        // rssi (dummy value)
-                            0           // timestampNanos
-                    );
-
-            return new ExtendedBluetoothDevice(nordicScanResult);
-
-        } catch (Exception e) {
-            Log.e(TAG, "getDeviceFromMac error: " + e.getMessage());
-            return null;
-        }
-    }
-    // -----------------------------------------------------------------------
-    // Swipe-to-delete
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void onItemDismiss(final RemovableViewHolder viewHolder) {
-        final int position = viewHolder.getAdapterPosition();
-        if (!mNodeAdapter.isEmpty()) {
-            DialogFragmentDeleteNode.newInstance(position)
-                    .show(getChildFragmentManager(), null);
-        }
-    }
-
-    @Override public void onItemDismissFailed(final RemovableViewHolder viewHolder) {}
-
-    @Override
-    public void onNodeDeleteConfirmed(final int position) {
-        final ProvisionedMeshNode node = mNodeAdapter.getItem(position);
-        if (mViewModel.getNetworkLiveData().getMeshNetwork().deleteNode(node)) {
-            mViewModel.displaySnackBar(requireActivity(),
-                    binding.container,
-                    getString(R.string.node_deleted),
-                    Snackbar.LENGTH_LONG);
-        }
-    }
-
-    @Override
-    public void onNodeDeleteCancelled(final int position) {
-        mNodeAdapter.notifyItemChanged(position);
-    }
-
-    // -----------------------------------------------------------------------
-    // Activity result handlers
-    // -----------------------------------------------------------------------
-
-    private void handleProvisioningResult(final ActivityResult result) {
-        // Reset session flag so auto-connect runs again after provisioning
-        mAutoConnectTriggeredThisSession = false;
-
-        final Intent data = result.getData();
-        if (result.getResultCode() == RESULT_OK && data != null) {
-            final boolean success = data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
-            if (success) {
-                // After provisioning: MAC not yet known, use ScannerActivity silently
-                // to find the newly provisioned proxy node
-                final Intent intent = new Intent(requireContext(), ScannerActivity.class);
-                intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
-                intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
-                intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
-                proxyConnector.launch(intent);
-            }
-            requireActivity().invalidateOptionsMenu();
-        }
-    }
-
-    private void handleProxyConnectResult(final ActivityResult result) {
-        mAutoConnectInProgress = false;
-        if (result.getResultCode() == RESULT_OK) {
-            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Error dialog
-    // -----------------------------------------------------------------------
-
-    private void showErrorDialog(@NonNull final String title, @NonNull final String message) {
-        DialogFragmentError.newInstance(title, message)
-                .show(getChildFragmentManager(), null);
+    private void clampMatrix() {
+        if (binding.svgView.getDrawable() == null) return;
+        matrix.getValues(matrixValues);
+        float scale = matrixValues[Matrix.MSCALE_X];
+        float tX    = matrixValues[Matrix.MTRANS_X];
+        float tY    = matrixValues[Matrix.MTRANS_Y];
+        if (scale < minZoom)  scale = minZoom;
+        if (scale > MAX_ZOOM) scale = MAX_ZOOM;
+        float dW = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
+        float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+        float vW = binding.svgView.getWidth();
+        float vH = binding.svgView.getHeight();
+        float minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0, vW - dW);
+        float maxTX = (dW < vW) ? (vW - dW) / 2f : 0;
+        float minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0, vH - dH);
+        float maxTY = (dH < vH) ? (vH - dH) / 2f : 0;
+        matrixValues[Matrix.MSCALE_X] = scale;
+        matrixValues[Matrix.MSCALE_Y] = scale;
+        matrixValues[Matrix.MTRANS_X] = Math.max(minTX, Math.min(maxTX, tX));
+        matrixValues[Matrix.MTRANS_Y] = Math.max(minTY, Math.min(maxTY, tY));
+        matrix.setValues(matrixValues);
     }
 }

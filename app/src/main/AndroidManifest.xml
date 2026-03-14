@@ -38,7 +38,9 @@
         android:roundIcon="@drawable/networkmesh"
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
-
+        <activity
+            android:name=".Map.DeviceDebugOverlay"
+            android:exported="false" />
         <activity
             android:name=".CommandActivity"
             android:exported="false" />
@@ -48,13 +50,9 @@
         <activity
             android:name=".Map.HomePageActivity"
             android:exported="false" />
-
-
         <activity
             android:name=".SvgmapActivity"
             android:exported="false" />
-
-
         <activity
             android:name=".MainActivity"
             android:exported="true"

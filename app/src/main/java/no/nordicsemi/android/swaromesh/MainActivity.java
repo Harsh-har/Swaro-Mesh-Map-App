@@ -6,6 +6,7 @@
 //import androidx.appcompat.app.AppCompatActivity;
 //
 //import dagger.hilt.android.AndroidEntryPoint;
+//import no.nordicsemi.android.swaromesh.Map.HomePageActivity;
 //
 //@AndroidEntryPoint
 //public class MainActivity extends AppCompatActivity {
@@ -16,11 +17,11 @@
 //        super.onCreate(savedInstanceState);
 //
 //        // Directly start SvgmapActivity
-//        startActivity(new Intent(this, SvgmapActivity.class));
+//        startActivity(new Intent(this, HomePageActivity.class));
 //        finish();
 //    }
 //}
-//
+
 
 
 

@@ -2,81 +2,52 @@
 <androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/background"
-    tools:context="no.nordicsemi.android.swaromesh.NetworkFragment">
+    android:background="@color/background">
 
-    <!-- ConstraintLayout for content -->
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <!-- PLACEHOLDER: shown before SVG is imported -->
+    <LinearLayout
+        android:id="@+id/svg_placeholder"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:paddingTop="20dp"
-        >
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="visible">
 
-        <!-- Empty view when no nodes -->
-        <include
-            android:id="@+id/no_networks_configured"
-            layout="@layout/info_no_nodes_provisioned"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:visibility="visible"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent" />
+        <ImageView
+            android:layout_width="72dp"
+            android:layout_height="72dp"
+            android:alpha="0.3"
+            app:srcCompat="@drawable/ic_add_white"
+            android:contentDescription="No map" />
 
-
-
-        <!-- SEARCHVIEW -->
-        <SearchView
-            android:id="@+id/searchView"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:queryHint="Search devices..."
-            android:background="@drawable/searchview_bg"
-            android:iconifiedByDefault="false"
-            android:layout_marginLeft="10dp"
-            android:layout_marginRight="10dp"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
-
-        <androidx.recyclerview.widget.RecyclerView
-            android:id="@+id/recycler_view_provisioned_nodes"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:clipToPadding="false"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/searchView"
-            tools:listitem="@layout/network_item" />
-
-        <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-            android:id="@+id/mapnode"
+        <com.google.android.material.textview.MaterialTextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_gravity="bottom|end"
-            android:layout_margin="@dimen/activity_horizontal_margin"
-            android:text="@string/action_add_node"
-            app:icon="@drawable/ic_add_white"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/searchView" />
+            android:layout_marginTop="12dp"
+            android:text="No map imported yet"
+            android:alpha="0.4"
+            android:textSize="16sp" />
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+        <com.google.android.material.textview.MaterialTextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Settings → Import SVG Map"
+            android:alpha="0.3"
+            android:textSize="13sp" />
 
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/fab_add_node"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom|end"
-        android:layout_margin="@dimen/activity_horizontal_margin"
-        android:text="@string/action_add_node"
-        app:icon="@drawable/ic_add_white" />
+    </LinearLayout>
+
+    <!-- SVG MAP: zoom/pan/click -->
+    <ImageView
+        android:id="@+id/svg_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        android:scaleType="matrix"
+        android:contentDescription="SVG Map" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
-
-
