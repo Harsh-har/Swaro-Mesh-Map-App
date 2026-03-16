@@ -32,16 +32,17 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     private static final String KEY_DEVICE_NAME_FILTER  = "device_name_filter";
     private static final String KEY_SELECTED_DEVICE     = "selected_device";
     private static final String KEY_SIGNAL_THRESHOLD    = "signal_threshold";
-    private static final String KEY_SVG_URI             = "svg_uri";              // ← NEW
+    private static final String KEY_SVG_URI             = "svg_uri";
     private static final String DEFAULT_SELECTED_DEVICE = "Select no.nordicsemi.android.swaromesh.Device";
 
     private final SharedPreferences prefs;
 
-    private final MutableLiveData<Boolean>  proxyEnabled     = new MutableLiveData<>();
-    private final MutableLiveData<String>   deviceNameFilter = new MutableLiveData<>("");
-    private final MutableLiveData<String>   selectedDevice   = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
-    private final MutableLiveData<Integer>  signalThreshold  = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
-    private final MutableLiveData<Uri>      svgUri           = new MutableLiveData<>();  // ← NEW
+    private final MutableLiveData<Boolean>  proxyEnabled        = new MutableLiveData<>();
+    private final MutableLiveData<String>   deviceNameFilter    = new MutableLiveData<>("");
+    private final MutableLiveData<String>   selectedDevice      = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
+    private final MutableLiveData<Integer>  signalThreshold     = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
+    private final MutableLiveData<Uri>      svgUri              = new MutableLiveData<>();
+    private final MutableLiveData<String>   selectedDeviceId    = new MutableLiveData<>();  // ✅ NEW — SVG click se
     private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices         = new MutableLiveData<>(new ArrayList<>());
     private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices = new MutableLiveData<>(new ArrayList<>());
 
@@ -64,7 +65,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
         signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
 
-        // ← NEW: Restore saved SVG URI on app restart
+        // Restore saved SVG URI on app restart
         final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
         if (savedSvgUri != null) {
             svgUri.setValue(Uri.parse(savedSvgUri));
@@ -114,14 +115,10 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         networkExportState.postValue(error);
     }
 
-    // ---------------- SVG URI (PERSISTENT) ← NEW ----------------
+    // ---------------- SVG URI (PERSISTENT) ----------------
 
     public LiveData<Uri> getSvgUri() { return svgUri; }
 
-    /**
-     * Save SVG URI from file picker.
-     * Persists across app restarts via SharedPreferences.
-     */
     public void setSvgUri(@NonNull Uri uri) {
         svgUri.setValue(uri);
         prefs.edit().putString(KEY_SVG_URI, uri.toString()).apply();
@@ -139,6 +136,28 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     public void clearSvgUri() {
         svgUri.setValue(null);
         prefs.edit().remove(KEY_SVG_URI).apply();
+    }
+
+    // ---------------- SELECTED DEVICE ID (SVG click navigation) ✅ NEW ----------------
+
+    /** SVG map pe click hone wale device ka ID */
+    public LiveData<String> getSelectedDeviceIdLive() {
+        return selectedDeviceId;
+    }
+
+    /** NetworkFragment se set hota hai jab koi device click ho */
+    public void setSelectedDeviceId(String id) {
+        selectedDeviceId.setValue(id);
+    }
+
+    /** DeviceDetailActivity mein directly value lene ke liye */
+    public String getSelectedDeviceIdValue() {
+        return selectedDeviceId.getValue();
+    }
+
+    /** Jab DeviceDetail screen close ho ya deselect ho */
+    public void clearSelectedDeviceId() {
+        selectedDeviceId.setValue(null);
     }
 
     // ---------------- PROXY BUTTON STATE (PERSISTENT) ----------------

@@ -1,5 +1,7 @@
 package no.nordicsemi.android.swaromesh;
 
+import android.animation.ValueAnimator;
+import android.content.Intent;
 import android.graphics.Matrix;
 import android.graphics.Picture;
 import android.graphics.RectF;
@@ -11,9 +13,12 @@ import android.view.GestureDetector;
 import android.view.LayoutInflater;
 import android.view.MotionEvent;
 import android.view.ScaleGestureDetector;
+import android.view.VelocityTracker;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
+import android.widget.OverScroller;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -35,15 +40,17 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromesh.databinding.FragmentNetworkBinding;
 import no.nordicsemi.android.swaromesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
 public class NetworkFragment extends Fragment {
 
-    private static final String TAG            = "NetworkFragment";
-    private static final float  MAX_ZOOM       = 8f;
+    private static final String TAG             = "NetworkFragment";
+    private static final float  MAX_ZOOM        = 10f;
     private static final float  DOUBLE_TAP_ZOOM = 2.5f;
+    private static final float  TAP_TOLERANCE   = 10f; // svg units
 
     private static final String[] SKIP_GROUPS = {
             "Ground_Floor_Walls", "Furniture", "Background"
@@ -52,15 +59,23 @@ public class NetworkFragment extends Fragment {
     private FragmentNetworkBinding binding;
     private SharedViewModel        mViewModel;
 
-    // ── Zoom ─────────────────────────────────────────────────────────────────
-    private final Matrix matrix      = new Matrix();
+    // ── Zoom/pan matrix ──────────────────────────────────────────────────────
+    private final Matrix  matrix       = new Matrix();
     private final float[] matrixValues = new float[9];
     private float   minZoom    = 1f;
-    private static final float TAP_TOLERANCE = 20f; // svg units
     private float   lastTouchX, lastTouchY;
     private boolean isDragging = false;
+
     private ScaleGestureDetector scaleDetector;
     private GestureDetector      gestureDetector;
+
+    // ── Smooth fling ─────────────────────────────────────────────────────────
+    private OverScroller   mScroller;
+    private VelocityTracker mVelocityTracker;
+    private ValueAnimator  mFlingAnimator;
+
+    // ── Smooth zoom ──────────────────────────────────────────────────────────
+    private ValueAnimator mZoomAnimator;
 
     // ── SVG state ─────────────────────────────────────────────────────────────
     private Document svgDocument          = null;
@@ -68,9 +83,13 @@ public class NetworkFragment extends Fragment {
     private String   selectedOriginalFill = null;
 
     // viewBox  e.g. "100 0 1000 640"
-    private float vbX = 0f, vbY = 0f, vbW = 1000f, vbH = 640f;
+    private float vbX = 100f, vbY = 0f, vbW = 1000f, vbH = 640f;
 
     private final Map<String, RectF> deviceBoundsMap = new LinkedHashMap<>();
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Lifecycle
+    // ─────────────────────────────────────────────────────────────────────────
 
     @Nullable
     @Override
@@ -93,8 +112,18 @@ public class NetworkFragment extends Fragment {
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        if (mFlingAnimator != null) mFlingAnimator.cancel();
+        if (mZoomAnimator  != null) mZoomAnimator.cancel();
+        if (mVelocityTracker != null) {
+            mVelocityTracker.recycle();
+            mVelocityTracker = null;
+        }
         binding = null;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // SVG load
+    // ─────────────────────────────────────────────────────────────────────────
 
     private void loadSVG(Uri uri) {
         try {
@@ -140,9 +169,9 @@ public class NetworkFragment extends Fragment {
             buildDeviceBoundsMap();
 
             // ── Pass 2: render ────────────────────────────────────────────────
-            InputStream is2 = requireContext().getContentResolver().openInputStream(uri);
-            SVG     svg     = SVG.getFromInputStream(is2);
-            Picture picture = svg.renderToPicture();
+            InputStream is2      = requireContext().getContentResolver().openInputStream(uri);
+            SVG         svg      = SVG.getFromInputStream(is2);
+            Picture     picture  = svg.renderToPicture();
             PictureDrawable drawable = new PictureDrawable(picture);
             if (is2 != null) is2.close();
 
@@ -151,7 +180,7 @@ public class NetworkFragment extends Fragment {
             binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             binding.svgView.setImageDrawable(drawable);
 
-            // Fit to view after layout pass
+            // Fit-to-view after layout pass
             binding.svgView.post(() -> {
                 float dW = drawable.getIntrinsicWidth();
                 float dH = drawable.getIntrinsicHeight();
@@ -177,6 +206,10 @@ public class NetworkFragment extends Fragment {
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Device bounds
+    // ─────────────────────────────────────────────────────────────────────────
+
     private void buildDeviceBoundsMap() {
         deviceBoundsMap.clear();
         if (svgDocument == null) return;
@@ -200,7 +233,6 @@ public class NetworkFragment extends Fragment {
             Element el     = entry.getValue();
             RectF   bounds = computeBounds(el);
             if (bounds == null || bounds.isEmpty()) continue;
-
             deviceBoundsMap.put(id, bounds);
         }
 
@@ -267,8 +299,8 @@ public class NetworkFragment extends Fragment {
         List<Float> xs = new ArrayList<>();
         List<Float> ys = new ArrayList<>();
 
-        String cleaned = data.replaceAll("([MmLlHhVvCcSsQqTtAaZz])", " $1 ");
-        String[] tokens = cleaned.trim().split("[\\s,]+");
+        String   cleaned = data.replaceAll("([MmLlHhVvCcSsQqTtAaZz])", " $1 ");
+        String[] tokens  = cleaned.trim().split("[\\s,]+");
 
         char currentCmd = 'M';
         int  argIndex   = 0;
@@ -322,78 +354,10 @@ public class NetworkFragment extends Fragment {
         return (v == null || v.isEmpty()) ? 0f : Float.parseFloat(v.trim());
     }
 
-    private void handleSvgClick(float touchX, float touchY) {
-        if (svgDocument == null || deviceBoundsMap.isEmpty()) return;
+    // ─────────────────────────────────────────────────────────────────────────
+    // Touch → SVG coordinate
+    // ─────────────────────────────────────────────────────────────────────────
 
-        float[] sc   = touchToSvg(touchX, touchY);
-        float   svgX = sc[0], svgY = sc[1];
-        Log.d(TAG, "svgX=" + svgX + " svgY=" + svgY);
-
-        String bestId   = null;
-        float  bestArea = Float.MAX_VALUE;
-        for (Map.Entry<String, RectF> e : deviceBoundsMap.entrySet()) {
-
-            RectF expanded = new RectF(e.getValue());
-            expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
-
-            if (expanded.contains(svgX, svgY)) {
-
-                float area = expanded.width() * expanded.height();
-                if (area < bestArea) {
-                    bestArea = area;
-                    bestId = e.getKey();
-                }
-            }
-        }
-
-        if (bestId != null) {
-            onDeviceClicked(bestId);
-        } else if (selectedDeviceId != null) {
-            restoreColor(selectedDeviceId, selectedOriginalFill);
-            selectedDeviceId     = null;
-            selectedOriginalFill = null;
-            reRender();
-        }
-    }
-
-    private void onDeviceClicked(String deviceId) {
-        if (svgDocument == null) return;
-
-        // Deselect previous
-        if (selectedDeviceId != null && !selectedDeviceId.equals(deviceId)) {
-            restoreColor(selectedDeviceId, selectedOriginalFill);
-        }
-
-        // Toggle same device
-        if (deviceId.equals(selectedDeviceId)) {
-            restoreColor(deviceId, selectedOriginalFill);
-            selectedDeviceId     = null;
-            selectedOriginalFill = null;
-            reRender();
-            Toast.makeText(requireContext(), "Deselected: " + deviceId, Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        // Select → red
-        Element el = findById(svgDocument.getDocumentElement(), deviceId);
-        if (el != null) {
-            selectedOriginalFill = el.getAttribute("fill");
-            el.setAttribute("fill", "#ff0000");
-        }
-        selectedDeviceId = deviceId;
-        reRender();
-
-        Toast.makeText(requireContext(), "Device: " + deviceId, Toast.LENGTH_SHORT).show();
-    }
-
-    private void restoreColor(String deviceId, String originalFill) {
-        Element el = findById(svgDocument.getDocumentElement(), deviceId);
-        if (el != null) {
-            String fill = (originalFill != null && !originalFill.isEmpty())
-                    ? originalFill : "transparent";
-            el.setAttribute("fill", fill);
-        }
-    }
     private float[] touchToSvg(float touchX, float touchY) {
         Matrix inv = new Matrix();
         matrix.invert(inv);
@@ -413,6 +377,86 @@ public class NetworkFragment extends Fragment {
         };
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    // Click handling
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void handleSvgClick(float touchX, float touchY) {
+        if (svgDocument == null || deviceBoundsMap.isEmpty()) return;
+
+        float[] sc   = touchToSvg(touchX, touchY);
+        float   svgX = sc[0], svgY = sc[1];
+        Log.d(TAG, "svgX=" + svgX + " svgY=" + svgY);
+
+        String bestId   = null;
+        float  bestArea = Float.MAX_VALUE;
+        for (Map.Entry<String, RectF> e : deviceBoundsMap.entrySet()) {
+            RectF expanded = new RectF(e.getValue());
+            expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+            if (expanded.contains(svgX, svgY)) {
+                float area = expanded.width() * expanded.height();
+                if (area < bestArea) {
+                    bestArea = area;
+                    bestId   = e.getKey();
+                }
+            }
+        }
+
+        if (bestId != null) {
+            onDeviceClicked(bestId);
+        } else if (selectedDeviceId != null) {
+            restoreColor(selectedDeviceId, selectedOriginalFill);
+            selectedDeviceId     = null;
+            selectedOriginalFill = null;
+            reRender();
+        }
+    }
+
+    private void onDeviceClicked(String deviceId) {
+        if (svgDocument == null) return;
+
+        if (selectedDeviceId != null && !selectedDeviceId.equals(deviceId)) {
+            restoreColor(selectedDeviceId, selectedOriginalFill);
+        }
+
+        // Same device dobara tap — deselect
+        if (deviceId.equals(selectedDeviceId)) {
+            restoreColor(deviceId, selectedOriginalFill);
+            selectedDeviceId     = null;
+            selectedOriginalFill = null;
+            reRender();
+            Toast.makeText(requireContext(), "Deselected: " + deviceId, Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // ── Navigate to ScannerActivity if l_10 is clicked ──────────────────
+        if ("l_10".equals(deviceId)) {
+            Intent intent = new Intent(requireContext(), ScannerActivity.class);
+            intent.putExtra("device_id", deviceId); // optional: pass device id
+            startActivity(intent);
+            return; 
+        }
+
+        // Naya device select — red highlight
+        Element el = findById(svgDocument.getDocumentElement(), deviceId);
+        if (el != null) {
+            selectedOriginalFill = el.getAttribute("fill");
+            el.setAttribute("fill", "#ff0000");
+        }
+        selectedDeviceId = deviceId;
+        reRender();
+
+        Toast.makeText(requireContext(), "Device: " + deviceId, Toast.LENGTH_SHORT).show();
+    }
+    private void restoreColor(String deviceId, String originalFill) {
+        Element el = findById(svgDocument.getDocumentElement(), deviceId);
+        if (el != null) {
+            String fill = (originalFill != null && !originalFill.isEmpty())
+                    ? originalFill : "transparent";
+            el.setAttribute("fill", fill);
+        }
+    }
+
     private void reRender() {
         if (binding == null || svgDocument == null) return;
         try {
@@ -423,7 +467,8 @@ public class NetworkFragment extends Fragment {
             PictureDrawable d   = new PictureDrawable(svg.renderToPicture());
             binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             binding.svgView.setImageDrawable(d);
-            binding.svgView.setImageMatrix(matrix); // preserve current pan/zoom
+            binding.svgView.setImageMatrix(matrix); // pan/zoom preserve karo
+            binding.svgView.postInvalidateOnAnimation();
         } catch (Exception e) {
             Log.e(TAG, "reRender error: " + e.getMessage());
         }
@@ -440,13 +485,24 @@ public class NetworkFragment extends Fragment {
         }
         return null;
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Zoom / pan setup  ← SMOOTH VERSION
+    // ─────────────────────────────────────────────────────────────────────────
+
     private void setupZoom() {
         binding.svgView.setScaleType(ImageView.ScaleType.MATRIX);
 
+        mScroller = new OverScroller(requireContext(),
+                new DecelerateInterpolator(2.5f));
+
         scaleDetector = new ScaleGestureDetector(requireContext(),
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-                    @Override public boolean onScale(ScaleGestureDetector d) {
-                        float sf = d.getScaleFactor(), cur = getScale(), ns = cur * sf;
+                    @Override
+                    public boolean onScale(ScaleGestureDetector d) {
+                        float sf  = d.getScaleFactor();
+                        float cur = getScale();
+                        float ns  = cur * sf;
                         if (ns < minZoom)  sf = minZoom / cur;
                         if (ns > MAX_ZOOM) sf = MAX_ZOOM / cur;
                         matrix.postScale(sf, sf, d.getFocusX(), d.getFocusY());
@@ -458,42 +514,95 @@ public class NetworkFragment extends Fragment {
 
         gestureDetector = new GestureDetector(requireContext(),
                 new GestureDetector.SimpleOnGestureListener() {
-                    @Override public boolean onDoubleTap(MotionEvent e) {
+
+                    @Override
+                    public boolean onDoubleTap(MotionEvent e) {
                         float cur    = getScale();
                         float target = (cur > minZoom + 0.5f) ? minZoom : DOUBLE_TAP_ZOOM;
-                        matrix.postScale(target/cur, target/cur, e.getX(), e.getY());
-                        clampMatrix();
-                        binding.svgView.setImageMatrix(matrix);
+                        animateZoomTo(target, e.getX(), e.getY());
                         return true;
                     }
-                    @Override public boolean onSingleTapConfirmed(MotionEvent e) {
+
+                    @Override
+                    public boolean onSingleTapConfirmed(MotionEvent e) {
                         handleSvgClick(e.getX(), e.getY());
+                        return true;
+                    }
+
+                    @Override
+                    public boolean onFling(MotionEvent e1, MotionEvent e2,
+                                           float vx, float vy) {
+                        startFling(vx, vy);
                         return true;
                     }
                 });
 
         binding.svgView.setOnTouchListener((v, event) -> {
+
+            // VelocityTracker maintain karo
+            if (mVelocityTracker == null)
+                mVelocityTracker = VelocityTracker.obtain();
+            mVelocityTracker.addMovement(event);
+
             scaleDetector.onTouchEvent(event);
             gestureDetector.onTouchEvent(event);
+
             switch (event.getActionMasked()) {
+
                 case MotionEvent.ACTION_DOWN:
+                    // Koi bhi chal raha animation rok do
+                    if (mFlingAnimator != null) mFlingAnimator.cancel();
+                    if (mZoomAnimator  != null) mZoomAnimator.cancel();
+                    mScroller.forceFinished(true);
+
                     lastTouchX = event.getX();
                     lastTouchY = event.getY();
                     isDragging = true;
                     break;
+
+                case MotionEvent.ACTION_POINTER_DOWN:
+                    isDragging = false;
+                    break;
+
+                case MotionEvent.ACTION_POINTER_UP: {
+                    int liftedIndex = event.getActionIndex();
+                    int remainingIndex = (liftedIndex == 0) ? 1 : 0;
+                    lastTouchX = event.getX(remainingIndex);
+                    lastTouchY = event.getY(remainingIndex);
+                    isDragging = true;
+                    break;
+                }
+
                 case MotionEvent.ACTION_MOVE:
                     if (isDragging && !scaleDetector.isInProgress()) {
-                        matrix.postTranslate(
-                                event.getX() - lastTouchX,
-                                event.getY() - lastTouchY);
-                        clampMatrix();
-                        binding.svgView.setImageMatrix(matrix);
-                        lastTouchX = event.getX();
-                        lastTouchY = event.getY();
+                        float curX = event.getX(0);
+                        float curY = event.getY(0);
+                        float dx   = curX - lastTouchX;
+                        float dy   = curY - lastTouchY;
+                        if (Math.abs(dx) > 0.5f || Math.abs(dy) > 0.5f) {
+                            matrix.postTranslate(dx, dy);
+                            clampMatrix();
+                            binding.svgView.setImageMatrix(matrix);
+                        }
+                        lastTouchX = curX;
+                        lastTouchY = curY;
                     }
                     break;
+
                 case MotionEvent.ACTION_UP:
+                    // GestureDetector ka onFling internally call hoga
+                    if (mVelocityTracker != null) {
+                        mVelocityTracker.recycle();
+                        mVelocityTracker = null;
+                    }
+                    isDragging = false;
+                    break;
+
                 case MotionEvent.ACTION_CANCEL:
+                    if (mVelocityTracker != null) {
+                        mVelocityTracker.recycle();
+                        mVelocityTracker = null;
+                    }
                     isDragging = false;
                     break;
             }
@@ -501,27 +610,100 @@ public class NetworkFragment extends Fragment {
         });
     }
 
+    private void animateZoomTo(float targetScale, float pivotX, float pivotY) {
+        if (mZoomAnimator != null) mZoomAnimator.cancel();
+
+        float startScale = getScale();
+        mZoomAnimator = ValueAnimator.ofFloat(startScale, targetScale);
+        mZoomAnimator.setDuration(280);
+        mZoomAnimator.setInterpolator(new DecelerateInterpolator(2f));
+        mZoomAnimator.addUpdateListener(anim -> {
+            if (binding == null) return;
+            float newScale = (float) anim.getAnimatedValue();
+            float sf       = newScale / getScale();
+            matrix.postScale(sf, sf, pivotX, pivotY);
+            clampMatrix();
+            binding.svgView.setImageMatrix(matrix);
+        });
+        mZoomAnimator.start();
+    }
+
+    private void startFling(float vx, float vy) {
+        if (binding == null || binding.svgView.getDrawable() == null) return;
+
+        matrix.getValues(matrixValues);
+        int   startX = (int) matrixValues[Matrix.MTRANS_X];
+        int   startY = (int) matrixValues[Matrix.MTRANS_Y];
+        float scale  = matrixValues[Matrix.MSCALE_X];
+
+        float dW = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
+        float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+        float vW = binding.svgView.getWidth();
+        float vH = binding.svgView.getHeight();
+
+        int minX = (dW < vW) ? (int)((vW - dW) / 2f) : (int)(vW - dW);
+        int maxX = (dW < vW) ? (int)((vW - dW) / 2f) : 0;
+        int minY = (dH < vH) ? (int)((vH - dH) / 2f) : (int)(vH - dH);
+        int maxY = (dH < vH) ? (int)((vH - dH) / 2f) : 0;
+
+        mScroller.fling(
+                startX, startY,
+                (int) vx, (int) vy,
+                minX, maxX,
+                minY, maxY,
+                0, 0);   // over-scroll = 0 (tight boundary)
+
+        if (mFlingAnimator != null) mFlingAnimator.cancel();
+
+
+        mFlingAnimator = ValueAnimator.ofFloat(0f, 1f);
+        mFlingAnimator.setDuration(2000); // generous upper bound
+        mFlingAnimator.addUpdateListener(anim -> {
+            if (binding == null) {
+                anim.cancel();
+                return;
+            }
+            if (mScroller.computeScrollOffset()) {
+                matrix.getValues(matrixValues);
+                matrixValues[Matrix.MTRANS_X] = mScroller.getCurrX();
+                matrixValues[Matrix.MTRANS_Y] = mScroller.getCurrY();
+                matrix.setValues(matrixValues);
+                clampMatrix();
+                binding.svgView.setImageMatrix(matrix);
+            } else {
+                anim.cancel(); // Scroller done — animator band karo
+            }
+        });
+        mFlingAnimator.start();
+    }
+
+
     private float getScale() {
         matrix.getValues(matrixValues);
         return matrixValues[Matrix.MSCALE_X];
     }
 
     private void clampMatrix() {
-        if (binding.svgView.getDrawable() == null) return;
+        if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
+
         float scale = matrixValues[Matrix.MSCALE_X];
         float tX    = matrixValues[Matrix.MTRANS_X];
         float tY    = matrixValues[Matrix.MTRANS_Y];
+
         if (scale < minZoom)  scale = minZoom;
         if (scale > MAX_ZOOM) scale = MAX_ZOOM;
+
         float dW = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
         float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
         float vW = binding.svgView.getWidth();
         float vH = binding.svgView.getHeight();
+
         float minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0, vW - dW);
         float maxTX = (dW < vW) ? (vW - dW) / 2f : 0;
         float minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0, vH - dH);
         float maxTY = (dH < vH) ? (vH - dH) / 2f : 0;
+
         matrixValues[Matrix.MSCALE_X] = scale;
         matrixValues[Matrix.MSCALE_Y] = scale;
         matrixValues[Matrix.MTRANS_X] = Math.max(minTX, Math.min(maxTX, tX));
