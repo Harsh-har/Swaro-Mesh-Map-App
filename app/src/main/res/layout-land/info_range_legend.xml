@@ -57,7 +57,7 @@
             app:layout_constraintTop_toTopOf="parent"
             tools:ignore="HardcodedText" />
 
-        <no.nordicsemi.android.swaromesh.widgets.RangeView
+        <no.nordicsemi.android.swaromapmesh.widgets.RangeView
             android:id="@+id/range"
             android:layout_width="0dp"
             android:layout_height="18dp"

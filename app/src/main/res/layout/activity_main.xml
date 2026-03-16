@@ -5,7 +5,7 @@
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="no.nordicsemi.android.swaromesh.MainActivity">
+    tools:context="no.nordicsemi.android.swaromapmesh.MainActivity">
 
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/app_bar_layout"
@@ -27,7 +27,7 @@
 
     <fragment
         android:id="@+id/fragment_network"
-        android:name="no.nordicsemi.android.swaromesh.NetworkFragment"
+        android:name="no.nordicsemi.android.swaromapmesh.NetworkFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"
@@ -37,7 +37,7 @@
 
     <fragment
         android:id="@+id/fragment_device_filter"
-        android:name="no.nordicsemi.android.swaromesh.DevicesFilterActivity"
+        android:name="no.nordicsemi.android.swaromapmesh.DevicesFilterActivity"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"
@@ -49,7 +49,7 @@
 
     <fragment
         android:id="@+id/fragment_groups"
-        android:name="no.nordicsemi.android.swaromesh.GroupsFragment"
+        android:name="no.nordicsemi.android.swaromapmesh.GroupsFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"
@@ -59,7 +59,7 @@
 
     <fragment
         android:id="@+id/fragment_proxy"
-        android:name="no.nordicsemi.android.swaromesh.ProxyFilterFragment"
+        android:name="no.nordicsemi.android.swaromapmesh.ProxyFilterFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"
@@ -69,7 +69,7 @@
 
     <fragment
         android:id="@+id/fragment_settings"
-        android:name="no.nordicsemi.android.swaromesh.SettingsFragment"
+        android:name="no.nordicsemi.android.swaromapmesh.SettingsFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"

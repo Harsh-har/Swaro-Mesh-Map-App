@@ -52,7 +52,7 @@
         android:textSize="16sp"
         tools:ignore="RtlSymmetry"/>
 
-    <no.nordicsemi.android.swaromesh.widgets.RangeView
+    <no.nordicsemi.android.swaromapmesh.widgets.RangeView
         android:id="@+id/range_view"
         android:layout_width="0dp"
         android:layout_height="@dimen/range_view_height"

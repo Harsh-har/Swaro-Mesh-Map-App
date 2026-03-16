@@ -6,7 +6,7 @@
     android:id="@+id/container"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="no.nordicsemi.android.swaromesh.ble.ReconnectActivity"
+    tools:context="no.nordicsemi.android.swaromapmesh.ble.ReconnectActivity"
     tools:ignore="ContentDescription">
 
     <RelativeLayout

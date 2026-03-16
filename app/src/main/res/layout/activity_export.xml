@@ -26,7 +26,7 @@
     android:id="@+id/coordinator"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context="no.nordicsemi.android.swaromesh.export.ExportNetworkActivity"
+    tools:context="no.nordicsemi.android.swaromapmesh.export.ExportNetworkActivity"
     tools:ignore="ContentDescription">
 
     <com.google.android.material.appbar.AppBarLayout
