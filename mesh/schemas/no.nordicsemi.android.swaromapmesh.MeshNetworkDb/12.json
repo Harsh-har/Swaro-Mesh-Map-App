@@ -2,12 +2,32 @@
   "formatVersion": 1,
   "database": {
     "version": 12,
-    "identityHash": "a4ae1304504d03272c0763a23e1d01ed",
+    "identityHash": "47aa8b30dd96501536a9af573555da0f",
     "entities": [
       {
         "tableName": "mesh_network",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`mesh_uuid` TEXT NOT NULL, `mesh_name` TEXT, `timestamp` INTEGER NOT NULL DEFAULT 0, `partial` INTEGER NOT NULL DEFAULT 0, `iv_index` TEXT NOT NULL, `network_exclusions` TEXT NOT NULL DEFAULT '{}', `last_selected` INTEGER NOT NULL, PRIMARY KEY(`mesh_uuid`))",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`svg_data` TEXT, `svg_uri` TEXT, `svg_modifications` TEXT, `svg_file_path` TEXT, `mesh_uuid` TEXT NOT NULL, `mesh_name` TEXT, `timestamp` INTEGER NOT NULL DEFAULT 0, `partial` INTEGER NOT NULL DEFAULT 0, `iv_index` TEXT NOT NULL, `network_exclusions` TEXT NOT NULL DEFAULT '{}', `last_selected` INTEGER NOT NULL, PRIMARY KEY(`mesh_uuid`))",
         "fields": [
+          {
+            "fieldPath": "svgData",
+            "columnName": "svg_data",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "svgUri",
+            "columnName": "svg_uri",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "svgModifications",
+            "columnName": "svg_modifications",
+            "affinity": "TEXT"
+          },
+          {
+            "fieldPath": "svgFilePath",
+            "columnName": "svg_file_path",
+            "affinity": "TEXT"
+          },
           {
             "fieldPath": "meshUUID",
             "columnName": "mesh_uuid",
@@ -625,7 +645,7 @@
     ],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'a4ae1304504d03272c0763a23e1d01ed')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '47aa8b30dd96501536a9af573555da0f')"
     ]
   }
 }
