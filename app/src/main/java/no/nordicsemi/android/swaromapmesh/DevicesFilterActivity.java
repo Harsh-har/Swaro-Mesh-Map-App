@@ -1,8 +1,6 @@
 package no.nordicsemi.android.swaromapmesh;
 
 import android.os.Bundle;
-import android.text.Editable;
-import android.text.TextWatcher;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -18,8 +16,6 @@ import androidx.annotation.NonNull;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
-import com.google.android.material.textfield.TextInputEditText;
-
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -34,13 +30,10 @@ public class DevicesFilterActivity extends Fragment {
 
     private static final String TAG = "DevicesFilterFragment";
 
-    // Default filter values
-    private static final String DEFAULT_DEVICE_NAME    = "";
-    private static final String DEFAULT_SELECTED_DEVICE = "All no.nordicsemi.android.swaromesh.Device";
+    private static final String DEFAULT_SELECTED_DEVICE = "All Device";
 
-    // Predefined device list
     private static final List<String> PREDEFINED_DEVICES = Arrays.asList(
-            "All no.nordicsemi.android.swaromesh.Device",
+            "All Device",
             "SW-RL01-006", "SW-RL02-012", "SW-RL03-016",
             "SW-CLF01-100", "SW-CLE02-050", "SW-CLC03-150",
             "SW-PSU01-30", "SW-PSD02-60", "SW-PSS04-60", "SW-PSR05-60",
@@ -64,10 +57,9 @@ public class DevicesFilterActivity extends Fragment {
     );
 
     // UI
-    private TextInputEditText etDeviceName;
-    private Spinner           spinnerDevices;
-    private RadioGroup        rgSignalStrength;   // ← NEW
-    private Button            btnApply, btnReset;
+    private Spinner    spinnerDevices;
+    private RadioGroup rgSignalStrength;
+    private Button     btnApply, btnReset;
 
     // ViewModels
     private ScannerViewModel scannerViewModel;
@@ -75,9 +67,8 @@ public class DevicesFilterActivity extends Fragment {
 
     // Local state
     private List<ExtendedBluetoothDevice> allUnprovisionedDevices = new ArrayList<>();
-    private String currentFilter    = "";
-    private String selectedDevice   = DEFAULT_SELECTED_DEVICE;
-    private int    currentSignalThreshold = DevicesAdapter.SIGNAL_DEFAULT; // ← NEW
+    private String selectedDevice         = DEFAULT_SELECTED_DEVICE;
+    private int    currentSignalThreshold = DevicesAdapter.SIGNAL_DEFAULT;
 
     public DevicesFilterActivity() {}
 
@@ -97,10 +88,9 @@ public class DevicesFilterActivity extends Fragment {
 
         initUi(view);
         setupDeviceSpinner();
-        restoreSavedState();       // ← restore all 3 filters from SharedViewModel
-        setupTextWatcher();
-        setupSignalRadioGroup();   // ← NEW
-        setupActions();
+        restoreSavedState();
+        setupSignalRadioGroup();
+        setupButtons();
         observeScanResults();
 
         return view;
@@ -111,37 +101,27 @@ public class DevicesFilterActivity extends Fragment {
     // -------------------------------------------------------------------------
 
     private void initUi(View view) {
-        etDeviceName     = view.findViewById(R.id.etDeviceName);
         spinnerDevices   = view.findViewById(R.id.spinnerDevices);
-        rgSignalStrength = view.findViewById(R.id.rgSignalStrength);   // ← NEW
+        rgSignalStrength = view.findViewById(R.id.rgSignalStrength);
         btnApply         = view.findViewById(R.id.btnApply);
         btnReset         = view.findViewById(R.id.btnReset);
     }
 
     // -------------------------------------------------------------------------
-    // Restore previously saved filter state into all UI controls
+    // Restore previously saved filter state
     // -------------------------------------------------------------------------
 
     private void restoreSavedState() {
-        // Restore device name text
-        String savedName = sharedViewModel.getDeviceNameFilterValue();
-        etDeviceName.setText(savedName);
-        currentFilter = savedName;
-
         // Restore spinner selection
         String savedDevice = sharedViewModel.getSelectedDeviceValue();
         selectedDevice = savedDevice;
         int spinnerPos = PREDEFINED_DEVICES.indexOf(savedDevice);
         spinnerDevices.setSelection(spinnerPos >= 0 ? spinnerPos : 0);
 
-        // Restore signal threshold radio button ← NEW
+        // Restore signal threshold — only Default or 100%
         int savedThreshold = sharedViewModel.getSignalThresholdValue();
         currentSignalThreshold = savedThreshold;
-        if (savedThreshold == DevicesAdapter.SIGNAL_20) {
-            rgSignalStrength.check(R.id.rbSignal3Bars);
-        } else if (savedThreshold == DevicesAdapter.SIGNAL_60) {
-            rgSignalStrength.check(R.id.rbSignal4Bars);
-        } else if (savedThreshold == DevicesAdapter.SIGNAL_100) {
+        if (savedThreshold == DevicesAdapter.SIGNAL_100) {
             rgSignalStrength.check(R.id.rbSignal5Bars);
         } else {
             rgSignalStrength.check(R.id.rbSignalDefault);
@@ -164,95 +144,55 @@ public class DevicesFilterActivity extends Fragment {
             @Override
             public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
                 selectedDevice = PREDEFINED_DEVICES.get(position);
-
-                if (selectedDevice.equals(DEFAULT_SELECTED_DEVICE)) {
-
-                    // 👇 Clear text when "All no.nordicsemi.android.swaromesh.Device" selected
-                    etDeviceName.setText("");
-                    currentFilter = "";
-
-                } else {
-
+                if (!selectedDevice.equals(DEFAULT_SELECTED_DEVICE)) {
                     Toast.makeText(requireContext(),
                             "Selected: " + selectedDevice, Toast.LENGTH_SHORT).show();
-
-                    // Auto-fill text field
-                    etDeviceName.setText(selectedDevice);
-                    currentFilter = selectedDevice;
                 }
-
-                // Apply filter immediately
-                filterDevicesAndUpdateScanner();
+                filterDevicesAndUpdate();
             }
 
             @Override
             public void onNothingSelected(AdapterView<?> parent) {
                 selectedDevice = DEFAULT_SELECTED_DEVICE;
-                etDeviceName.setText("");
-                currentFilter = "";
-            }
-        });    }
-
-    // -------------------------------------------------------------------------
-    // Text watcher — real-time name filter
-    // -------------------------------------------------------------------------
-
-    private void setupTextWatcher() {
-        etDeviceName.addTextChangedListener(new TextWatcher() {
-            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
-            @Override public void afterTextChanged(Editable s) {}
-
-            @Override
-            public void onTextChanged(CharSequence s, int start, int before, int count) {
-                currentFilter = s.toString().trim();
-                filterDevicesAndUpdateScanner();
             }
         });
     }
 
     // -------------------------------------------------------------------------
-    // Signal strength RadioGroup ← NEW
+    // Signal strength RadioGroup — Default or 100% only
     // -------------------------------------------------------------------------
 
     private void setupSignalRadioGroup() {
         rgSignalStrength.setOnCheckedChangeListener((group, checkedId) -> {
-            if (checkedId == R.id.rbSignal3Bars) {
-                currentSignalThreshold = DevicesAdapter.SIGNAL_20;
-            } else if (checkedId == R.id.rbSignal4Bars) {
-                currentSignalThreshold = DevicesAdapter.SIGNAL_60;
-            } else if (checkedId == R.id.rbSignal5Bars) {
+            if (checkedId == R.id.rbSignal5Bars) {
                 currentSignalThreshold = DevicesAdapter.SIGNAL_100;
             } else {
                 currentSignalThreshold = DevicesAdapter.SIGNAL_DEFAULT;
             }
-
-            // Apply in real-time as user changes signal selection
-            filterDevicesAndUpdateScanner();
-
-            Log.d(TAG, "Signal threshold changed: " + currentSignalThreshold + "%");
+            filterDevicesAndUpdate();
+            Log.d(TAG, "Signal threshold: " + currentSignalThreshold + "%");
         });
     }
 
     // -------------------------------------------------------------------------
-    // Apply / Reset buttons
+    // Apply + Reset buttons
     // -------------------------------------------------------------------------
 
-    private void setupActions() {
+    private void setupButtons() {
+
         btnApply.setOnClickListener(v -> {
-            applyFilter();
+            sharedViewModel.setSelectedDevice(selectedDevice);
+            sharedViewModel.setSignalThreshold(currentSignalThreshold);
+            sharedViewModel.setDeviceNameFilter("");
 
-            String filterInfo;
-            if (!selectedDevice.equals(DEFAULT_SELECTED_DEVICE)) {
-                filterInfo = "no.nordicsemi.android.swaromesh.Device: " + selectedDevice;
-            } else if (!currentFilter.isEmpty()) {
-                filterInfo = "Name: " + currentFilter;
-            } else {
-                filterInfo = "All devices";
-            }
+            filterDevicesAndUpdate();
 
-            // Append signal info if active
-            if (currentSignalThreshold != DevicesAdapter.SIGNAL_DEFAULT) {
-                filterInfo += " | Signal ≥ " + currentSignalThreshold + "%";
+            String filterInfo = selectedDevice.equals(DEFAULT_SELECTED_DEVICE)
+                    ? "All devices"
+                    : "Device: " + selectedDevice;
+
+            if (currentSignalThreshold == DevicesAdapter.SIGNAL_100) {
+                filterInfo += " | Signal ≥ 100%";
             }
 
             Toast.makeText(requireContext(),
@@ -265,7 +205,33 @@ public class DevicesFilterActivity extends Fragment {
     }
 
     // -------------------------------------------------------------------------
-    // Observe scan results
+    // Reset all filters
+    // -------------------------------------------------------------------------
+
+    private void resetFilter() {
+        // Reset UI
+        spinnerDevices.setSelection(0);
+        rgSignalStrength.check(R.id.rbSignalDefault);
+
+        // Reset local state
+        selectedDevice         = DEFAULT_SELECTED_DEVICE;
+        currentSignalThreshold = DevicesAdapter.SIGNAL_DEFAULT;
+
+        // Reset SharedViewModel
+        sharedViewModel.setSelectedDevice(DEFAULT_SELECTED_DEVICE);
+        sharedViewModel.setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
+        sharedViewModel.setDeviceNameFilter("");
+
+        filterDevicesAndUpdate();
+
+        Toast.makeText(requireContext(),
+                "Filters reset — showing all devices", Toast.LENGTH_SHORT).show();
+
+        Log.i(TAG, "Filters reset");
+    }
+
+    // -------------------------------------------------------------------------
+    // Observe BLE scan results
     // -------------------------------------------------------------------------
 
     private void observeScanResults() {
@@ -278,14 +244,14 @@ public class DevicesFilterActivity extends Fragment {
                                 allUnprovisionedDevices.add(device);
                             }
                         }
-                        filterDevicesAndUpdateScanner();
-                        Log.d(TAG, "Unprovisioned devices found: " + allUnprovisionedDevices.size());
+                        filterDevicesAndUpdate();
+                        Log.d(TAG, "Unprovisioned devices: " + allUnprovisionedDevices.size());
                     }
                 });
     }
 
     // -------------------------------------------------------------------------
-    // Check unprovisioned
+    // Check if device is unprovisioned
     // -------------------------------------------------------------------------
 
     private boolean isUnprovisionedDevice(ExtendedBluetoothDevice device) {
@@ -299,133 +265,48 @@ public class DevicesFilterActivity extends Fragment {
     }
 
     // -------------------------------------------------------------------------
-    // Core filter logic — name AND signal combined ← UPDATED
+    // Filter logic — device type AND signal strength
     // -------------------------------------------------------------------------
 
-    private void filterDevicesAndUpdateScanner() {
+    private void filterDevicesAndUpdate() {
         List<ExtendedBluetoothDevice> filteredList = new ArrayList<>();
 
-        // Spinner takes priority over typed name
-        String nameFilterToUse = !selectedDevice.equals(DEFAULT_SELECTED_DEVICE)
-                ? selectedDevice
-                : currentFilter;
-
-        boolean hasNameFilter   = !nameFilterToUse.isEmpty();
+        boolean hasDeviceFilter = !selectedDevice.equals(DEFAULT_SELECTED_DEVICE);
         boolean hasSignalFilter = currentSignalThreshold != DevicesAdapter.SIGNAL_DEFAULT;
 
         for (ExtendedBluetoothDevice device : allUnprovisionedDevices) {
 
-            // --- Name check ---
-            boolean nameOk = !hasNameFilter
+            boolean deviceOk = !hasDeviceFilter
                     || (device.getName() != null
                     && device.getName().toLowerCase()
-                    .contains(nameFilterToUse.toLowerCase()));
+                    .contains(selectedDevice.toLowerCase()));
 
-            // --- Signal check ---
             boolean signalOk = !hasSignalFilter
                     || meetsSignalThreshold(device, currentSignalThreshold);
 
-            // no.nordicsemi.android.swaromesh.Device must pass BOTH filters
-            if (nameOk && signalOk) {
+            if (deviceOk && signalOk) {
                 filteredList.add(device);
-
-                // Toast when exact match found
-                if (hasNameFilter && device.getName() != null
-                        && device.getName().equalsIgnoreCase(nameFilterToUse)) {
-                    showDeviceFoundToast(device.getName());
-                }
             }
         }
 
-        updateScannerDisplay(filteredList);
+        sharedViewModel.setFilteredDevices(filteredList);
 
-        Log.d(TAG, "Filter — name:'" + nameFilterToUse
+        Log.d(TAG, "Filter — device:'" + selectedDevice
                 + "' signal:" + currentSignalThreshold
                 + "% → showing " + filteredList.size() + " devices");
     }
 
-    /**
-     * Returns true if device RSSI percentage meets the minimum threshold.
-     * Formula: rssiPercent = 100 * (127 + rssi) / (127 + 20)
-     */
     private boolean meetsSignalThreshold(ExtendedBluetoothDevice device, int threshold) {
         int rssiPercent = (int) (100.0f * (127.0f + device.getRssi()) / (127.0f + 20.0f));
         return rssiPercent >= threshold;
     }
 
-    // -------------------------------------------------------------------------
-    // Update scanner display via SharedViewModel
-    // -------------------------------------------------------------------------
-
-    private void updateScannerDisplay(List<ExtendedBluetoothDevice> filteredDevices) {
-        sharedViewModel.setDeviceNameFilter(currentFilter);
-        sharedViewModel.setSelectedDevice(selectedDevice);
-        sharedViewModel.setSignalThreshold(currentSignalThreshold);   // ← NEW
-    }
-
-    // -------------------------------------------------------------------------
-    // Apply filter (called on Apply button)
-    // -------------------------------------------------------------------------
-
-    private void applyFilter() {
-        String deviceName = etDeviceName.getText() != null
-                ? etDeviceName.getText().toString().trim()
-                : "";
-
-        Log.i(TAG, "----- APPLY FILTER -----");
-        Log.i(TAG, "Name filter: " + deviceName);
-        Log.i(TAG, "Spinner selection: " + selectedDevice);
-        Log.i(TAG, "Signal threshold: " + currentSignalThreshold + "%");
-
-        // Persist all 3 values
-        sharedViewModel.setDeviceNameFilter(deviceName);
-        sharedViewModel.setSelectedDevice(selectedDevice);
-        sharedViewModel.setSignalThreshold(currentSignalThreshold);   // ← NEW
-
-        // Final filter pass
-        filterDevicesAndUpdateScanner();
-    }
-
-    // -------------------------------------------------------------------------
-    // Reset all filters
-    // -------------------------------------------------------------------------
-
-    private void resetFilter() {
-        // Reset UI
-        etDeviceName.setText("");
-        spinnerDevices.setSelection(0);
-        rgSignalStrength.check(R.id.rbSignalDefault);   // ← NEW
-
-        // Reset local state
-        currentFilter          = "";
-        selectedDevice         = DEFAULT_SELECTED_DEVICE;
-        currentSignalThreshold = DevicesAdapter.SIGNAL_DEFAULT;   // ← NEW
-
-        // Reset SharedViewModel
-        sharedViewModel.setDeviceNameFilter("");
-        sharedViewModel.setSelectedDevice(DEFAULT_SELECTED_DEVICE);
-        sharedViewModel.setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);   // ← NEW
-
-        filterDevicesAndUpdateScanner();
-
-        Log.i(TAG, "Filters reset — showing all unprovisioned devices");
-        Toast.makeText(requireContext(),
-                "Filters reset — showing all devices", Toast.LENGTH_SHORT).show();
-    }
-
-    // -------------------------------------------------------------------------
-    // Helpers
-    // -------------------------------------------------------------------------
-
-    private void showDeviceFoundToast(String deviceName) {
-        if (isAdded()) {
-            Toast.makeText(requireContext(),
-                    "✓ no.nordicsemi.android.swaromesh.Device found: " + deviceName, Toast.LENGTH_SHORT).show();
-        }
-    }
-
     @Override
     public void onDestroyView() {
         super.onDestroyView();
+        spinnerDevices   = null;
+        rgSignalStrength = null;
+        btnApply         = null;
+        btnReset         = null;
     }
 }

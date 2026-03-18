@@ -1,5 +1,6 @@
 package no.nordicsemi.android.swaromapmesh.ble;
 
+
 import android.Manifest;
 import android.app.Activity;
 import android.bluetooth.BluetoothAdapter;
@@ -25,10 +26,6 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 
-import java.util.HashSet;
-import java.util.Set;
-import java.util.UUID;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ProvisioningActivity;
 import no.nordicsemi.android.swaromapmesh.R;
@@ -41,13 +38,16 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerStateLiveData;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerViewModel;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
+import java.util.UUID;
+
 @AndroidEntryPoint
 public class ScannerActivity extends AppCompatActivity implements DevicesAdapter.OnItemClickListener {
 
     private static final String TAG = "ScannerActivity";
     private static final int    REQUEST_ACCESS_FINE_LOCATION          = 1022;
     private static final int    REQUEST_ACCESS_BLUETOOTH_PERMISSION   = 1023;
-    private static final long   TARGET_CONNECT_TIMEOUT_MS             = 20000;
+    private static final long   AUTO_CONNECT_RETRY_DELAY_MS           = 1000;
+    private static final long   TARGET_CONNECT_TIMEOUT_MS             = 30000;
     private static final long   AUTO_CONNECT_AFTER_PROVISIONING_DELAY = 2000;
 
     private ActivityScannerBinding binding;
@@ -55,8 +55,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private SharedViewModel        mSharedViewModel;
     private DevicesAdapter         adapter;
 
-    // Active filters
-    private String mCurrentDeviceFilter = "";
+    // Active filters — name filter removed from UI, only signal remains
+    private String mCurrentDeviceFilter = "";  // always empty; kept for adapter API compatibility
     private int    mCurrentSignalFilter = DevicesAdapter.SIGNAL_DEFAULT;
 
     private boolean mScanWithProxyService = true;
@@ -68,15 +68,12 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private boolean mShouldAutoConnectAfterProvisioning = false;
     private String  mProvisionedDeviceMac               = null;
 
-    // ✅ ROOT FIX: prevent double-launch and scan restart
     private boolean mReconnectLaunched = false;
     private boolean mProxyConnected    = false;
 
     private Handler  mAutoConnectHandler;
+    private Runnable mAutoConnectRunnable;
     private long     mScanStartTime;
-
-    // ✅ AutoProxyConnectManager — handles instant RSSI-based connect
-    private AutoProxyConnectManager mAutoProxyConnectManager;
 
     // -----------------------------------------------------------------------
     // Activity Result Launchers
@@ -142,7 +139,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                         showScannerUI();
                         mAutoConnectStarted = false;
                         if (targetProxyMac != null) {
-                            startAutoConnectWithManager();
+                            startAutoConnectLoop();
                         }
                     }
                 }
@@ -161,9 +158,6 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
         mViewModel       = new ViewModelProvider(this).get(ScannerViewModel.class);
         mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
-
-        // ✅ Init AutoProxyConnectManager
-        mAutoProxyConnectManager = new AutoProxyConnectManager(this);
 
         final Toolbar toolbar = binding.toolbar;
         toolbar.setTitle(R.string.title_scanner);
@@ -235,7 +229,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
         mViewModel.getScannerRepository().getScannerState().observe(this, this::startScan);
 
-        targetProxyMac    = getIntent().getStringExtra(Utils.EXTRA_TARGET_PROXY_MAC);
+        targetProxyMac      = getIntent().getStringExtra(Utils.EXTRA_TARGET_PROXY_MAC);
         mAutoConnectHandler = new Handler();
 
         if (targetProxyMac != null && !mShouldAutoConnectAfterProvisioning) {
@@ -243,14 +237,14 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     String.format("Looking for device: %s...", formatMacForDisplay(targetProxyMac)));
         }
 
-        // Observe name/spinner filter from SharedViewModel
-        mSharedViewModel.getDeviceNameFilter().observe(this, filter -> {
-            mCurrentDeviceFilter = filter != null ? filter : "";
-            Log.d(TAG, "Name filter changed: '" + mCurrentDeviceFilter + "'");
+        // Observe selected device (spinner) from SharedViewModel
+        mSharedViewModel.getSelectedDevice().observe(this, device -> {
+            mCurrentDeviceFilter = (device != null && !device.equals("All Device")) ? device : "";
+            Log.d(TAG, "Device filter changed: '" + mCurrentDeviceFilter + "'");
             applyFilterToAdapter();
         });
 
-        // Observe signal threshold from SharedViewModel
+        // Observe signal threshold from SharedViewModel — Default or 100% only
         mSharedViewModel.getSignalThreshold().observe(this, threshold -> {
             mCurrentSignalFilter = threshold != null ? threshold : DevicesAdapter.SIGNAL_DEFAULT;
             Log.d(TAG, "Signal filter changed: " + mCurrentSignalFilter + "%");
@@ -264,7 +258,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     }
 
     // -----------------------------------------------------------------------
-    // Filter
+    // Filter — apply device type (spinner) AND signal to adapter
     // -----------------------------------------------------------------------
 
     private void applyFilterToAdapter() {
@@ -311,13 +305,13 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         }
 
         stopScan();
-        stopAutoConnect();
+        stopAutoConnectLoop();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        stopAutoConnect();
+        stopAutoConnectLoop();
         if (mAutoConnectHandler != null) {
             mAutoConnectHandler.removeCallbacksAndMessages(null);
         }
@@ -348,8 +342,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         } else {
             final Intent intent = new Intent(this, ReconnectActivity.class);
             intent.putExtra(Utils.EXTRA_DEVICE, device);
-            intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
+            intent.putExtra(Utils.EXTRA_SILENT_CONNECT, false);
             reconnect.launch(intent);
         }
     }
@@ -447,7 +440,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             binding.connectivityProgressContainer.setVisibility(View.GONE);
 
             if (mAutoConnectStarted) {
-                stopAutoConnect();
+                stopAutoConnectLoop();
             }
 
             Log.d(TAG, "Bluetooth is off - showing Bluetooth off UI");
@@ -477,12 +470,11 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     (adapter != null && adapter.isEmpty()) ? View.VISIBLE : View.GONE);
         }
 
-        // ✅ Start AutoProxyConnectManager instead of old polling loop
         if (!mScanWithProxyService && (mSilentConnect || mShouldAutoConnectAfterProvisioning)
                 && targetProxyMac != null && !mAutoConnectStarted) {
+            Log.d(TAG, "Starting auto-connect loop for: " + targetProxyMac);
             if (state.isBluetoothEnabled()) {
-                Log.d(TAG, "Starting AutoProxyConnectManager for: " + targetProxyMac);
-                startAutoConnectWithManager();
+                startAutoConnectLoop();
             } else {
                 Log.d(TAG, "Bluetooth is off - not starting auto-connect");
             }
@@ -506,145 +498,108 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             Log.d(TAG, "Starting PROXY scan after delay");
             mViewModel.getScannerRepository().startScan(BleMeshManager.MESH_PROXY_UUID);
             if (!mAutoConnectStarted) {
-                startAutoConnectWithManager();
+                startAutoConnectLoop();
             }
         }), AUTO_CONNECT_AFTER_PROVISIONING_DELAY);
     }
 
     // -----------------------------------------------------------------------
-    // ✅ NEW: AutoProxyConnectManager-based connect
+    // Auto-connect loop
     // -----------------------------------------------------------------------
 
-    /**
-     * Uses AutoProxyConnectManager to scan for proxy devices.
-     * Instantly connects to the first device with RSSI > -85 dBm.
-     * Falls back to best RSSI after scan window if no instant match found.
-     *
-     * If targetProxyMac is set, only that MAC is accepted.
-     * Otherwise any provisioned proxy is accepted.
-     */
-    private void startAutoConnectWithManager() {
+    private void startAutoConnectLoop() {
         if (mAutoConnectStarted) return;
-        if (mReconnectLaunched || mProxyConnected) return;
 
         mAutoConnectStarted = true;
         mScanStartTime      = System.currentTimeMillis();
+        Log.d(TAG, "Auto-connect loop started");
 
-        // Build known MACs set — if we have a target, restrict to only that
-        final Set<String> knownMacs = new HashSet<>();
-        if (targetProxyMac != null) {
-            knownMacs.add(targetProxyMac.toUpperCase());
-        }
-        // Pass null for knownMacs if set is empty (accept any proxy)
-        final Set<String> macs = knownMacs.isEmpty() ? null : knownMacs;
+        mAutoConnectRunnable = new Runnable() {
+            @Override
+            public void run() {
+                if (mProxyConnected || mReconnectLaunched) {
+                    Log.d(TAG, "Loop stopped — reconnect launched or connected");
+                    stopAutoConnectLoop();
+                    return;
+                }
 
-        Log.d(TAG, "⚡ AutoProxyConnectManager started. Target: "
-                + (targetProxyMac != null ? targetProxyMac : "any"));
+                long elapsed = System.currentTimeMillis() - mScanStartTime;
+                Log.d(TAG, "Loop check: elapsed " + elapsed + "ms");
 
-        mAutoProxyConnectManager.findBestProxy(macs, TARGET_CONNECT_TIMEOUT_MS, mac -> {
-            // Called on main thread
-            mAutoConnectStarted = false;
+                if (elapsed > TARGET_CONNECT_TIMEOUT_MS) {
+                    Log.e(TAG, "Timeout!");
+                    if (mShouldAutoConnectAfterProvisioning) {
+                        runOnUiThread(() -> {
+                            binding.textConnectingProgress.setText(
+                                    "Failed to connect after provisioning.\nPlease try manual connection.");
+                            new Handler().postDelayed(() -> {
+                                setResult(Activity.RESULT_CANCELED);
+                                finish();
+                            }, 3000);
+                        });
+                    } else {
+                        showTimeoutMessage();
+                    }
+                    stopAutoConnectLoop();
+                    return;
+                }
 
-            if (mReconnectLaunched || mProxyConnected) {
-                Log.d(TAG, "Ignoring proxy result — already connected/launched");
-                return;
+                ExtendedBluetoothDevice targetDevice = findTargetDevice();
+
+                if (targetDevice != null) {
+                    Log.i(TAG, "✅ Target found: " + targetDevice.getAddress());
+
+                    mReconnectLaunched  = true;
+                    mAutoConnectStarted = false;
+
+                    stopScan();
+                    stopAutoConnectLoop();
+
+                    final Intent intent = new Intent(ScannerActivity.this, ReconnectActivity.class);
+                    intent.putExtra(Utils.EXTRA_DEVICE, targetDevice);
+                    intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
+                    if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
+                        intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
+                    }
+                    intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                    reconnect.launch(intent);
+
+                } else {
+                    updateProgressText();
+                    mAutoConnectHandler.postDelayed(this, AUTO_CONNECT_RETRY_DELAY_MS);
+                }
             }
+        };
 
-            if (mac == null) {
-                // Nothing found in scan window
-                Log.e(TAG, "No proxy found within timeout");
-                handleAutoConnectTimeout();
-                return;
-            }
-
-            Log.i(TAG, "✅ Best proxy MAC: " + mac + " — launching ReconnectActivity");
-
-            // Find ExtendedBluetoothDevice from scan results for this MAC
-            launchReconnectForMac(mac, 0);
-        });
+        mAutoConnectHandler.post(mAutoConnectRunnable);
     }
 
-    private void stopAutoConnect() {
+    private void stopAutoConnectLoop() {
         mAutoConnectStarted = false;
-        if (mAutoProxyConnectManager != null) {
-            mAutoProxyConnectManager.stop();
+        if (mAutoConnectRunnable != null) {
+            mAutoConnectHandler.removeCallbacks(mAutoConnectRunnable);
+            mAutoConnectRunnable = null;
         }
-        Log.d(TAG, "AutoProxyConnectManager stopped");
+        Log.d(TAG, "Auto-connect loop stopped");
     }
 
-    private void handleAutoConnectTimeout() {
-        if (mShouldAutoConnectAfterProvisioning) {
-            runOnUiThread(() -> {
-                binding.textConnectingProgress.setText(
-                        "Failed to connect after provisioning.\nPlease try manual connection.");
-                new Handler().postDelayed(() -> {
-                    setResult(Activity.RESULT_CANCELED);
-                    finish();
-                }, 3000);
-            });
-        } else {
-            showTimeoutMessage();
-        }
-    }
-
-    // -----------------------------------------------------------------------
-    // Helpers
-    // -----------------------------------------------------------------------
-
-    /**
-     * Try to find device in ViewModel results and launch ReconnectActivity.
-     * If not found yet, retry up to 5 times with 300ms delay (device may not
-     * have appeared in ViewModel scan results yet even though BLE saw it).
-     */
-    private void launchReconnectForMac(String mac, int attempt) {
-        if (mReconnectLaunched || mProxyConnected) return;
-
-        ExtendedBluetoothDevice targetDevice = findDeviceByMac(mac);
-
-        if (targetDevice != null) {
-            Log.i(TAG, "✅ Launching ReconnectActivity for: " + mac);
-            mReconnectLaunched = true;
-            stopScan();
-
-            final Intent intent = new Intent(ScannerActivity.this, ReconnectActivity.class);
-            intent.putExtra(Utils.EXTRA_DEVICE, targetDevice);
-            intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-            if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
-                intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
-            }
-            intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
-            reconnect.launch(intent);
-
-        } else if (attempt < 5) {
-            // Device not in ViewModel yet — wait 300ms and retry
-            Log.w(TAG, "Device " + mac + " not in scan results yet, retry " + (attempt + 1) + "/5");
-            mAutoConnectHandler.postDelayed(() -> launchReconnectForMac(mac, attempt + 1), 300);
-
-        } else {
-            // Gave up — treat as timeout
-            Log.e(TAG, "Device " + mac + " never appeared in ViewModel results after retries");
-            mReconnectLaunched = false;
-            handleAutoConnectTimeout();
-        }
-    }
-
-    /**
-     * Find device in ViewModel scan results by MAC address.
-     */
-    private ExtendedBluetoothDevice findDeviceByMac(String mac) {
-        if (mac == null) return null;
+    private ExtendedBluetoothDevice findTargetDevice() {
         final ScannerLiveData resultsLiveData =
                 mViewModel.getScannerRepository().getScannerResults();
         if (resultsLiveData == null || resultsLiveData.getDevices() == null) return null;
 
         for (ExtendedBluetoothDevice device : resultsLiveData.getDevices()) {
             if (device.getAddress() != null
-                    && device.getAddress().equalsIgnoreCase(mac)) {
+                    && device.getAddress().equalsIgnoreCase(targetProxyMac)) {
                 return device;
             }
         }
         return null;
     }
+
+    // -----------------------------------------------------------------------
+    // UI helpers
+    // -----------------------------------------------------------------------
 
     private void updateProgressText() {
         if (targetProxyMac == null || binding.textConnectingProgress == null) return;
@@ -694,7 +649,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         targetProxyMac                      = null;
         mShouldAutoConnectAfterProvisioning = false;
         mReconnectLaunched                  = false;
-        stopAutoConnect();
+        stopAutoConnectLoop();
 
         if (adapter != null) {
             adapter.applyFilters(mCurrentDeviceFilter, mCurrentSignalFilter);

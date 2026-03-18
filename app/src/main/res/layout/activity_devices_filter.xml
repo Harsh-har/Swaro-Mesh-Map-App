@@ -9,9 +9,7 @@
     android:padding="16dp"
     tools:context=".DevicesFilterActivity">
 
-
-    <!-- no.nordicsemi.android.swaromesh.Device Selection Spinner -->
-
+    <!-- Title -->
     <TextView
         android:id="@+id/tvFilterTitle"
         android:layout_width="0dp"
@@ -24,10 +22,10 @@
         android:textSize="20sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="1.0"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toTopOf="parent" />
 
+    <!-- Device Type Label -->
     <TextView
         android:id="@+id/tvDeviceLabel"
         android:layout_width="0dp"
@@ -37,114 +35,69 @@
         android:textSize="14sp"
         android:textStyle="bold"
         app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.0"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintTop_toBottomOf="@id/tvFilterTitle" />
 
+    <!-- Device Type Spinner -->
     <Spinner
         android:id="@+id/spinnerDevices"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:padding="8dp"
-        app:layout_constraintTop_toBottomOf="@id/tvDeviceLabel"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <!-- OR Divider -->
-    <TextView
-        android:id="@+id/tvOr"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="OR"
-        android:gravity="center"
-        android:textStyle="bold"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/spinnerDevices"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
-
-    <!-- no.nordicsemi.android.swaromesh.Device Name Search -->
-    <com.google.android.material.textfield.TextInputLayout
-        android:id="@+id/tilDeviceName"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:hint="Enter Device name"
-        app:layout_constraintTop_toBottomOf="@id/tvOr"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="16dp">
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvDeviceLabel" />
 
-        <com.google.android.material.textfield.TextInputEditText
-            android:id="@+id/etDeviceName"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"/>
-    </com.google.android.material.textfield.TextInputLayout>
-
-    <!--  Signal Strength Filter -->
+    <!-- Signal Strength Label -->
     <TextView
         android:id="@+id/tvRssi"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
         android:text="Signal Strength"
         android:textStyle="bold"
-        app:layout_constraintTop_toBottomOf="@id/tilDeviceName"
         app:layout_constraintStart_toStartOf="parent"
-        android:layout_marginTop="66dp"/>
+        app:layout_constraintTop_toBottomOf="@id/spinnerDevices" />
 
-    <!-- Signal Strength Indicators -->
+    <!-- Signal Strength: Default + 100% only -->
     <RadioGroup
         android:id="@+id/rgSignalStrength"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
         android:orientation="horizontal"
-        app:layout_constraintTop_toBottomOf="@id/tvRssi"
-        app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="8dp">
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvRssi">
 
         <RadioButton
             android:id="@+id/rbSignalDefault"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Default"
+            android:layout_marginEnd="16dp"
             android:checked="true"
-            android:layout_marginEnd="8dp"/>
-
-        <RadioButton
-            android:id="@+id/rbSignal3Bars"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="20%"
-            android:layout_marginEnd="8dp"/>
-
-        <RadioButton
-            android:id="@+id/rbSignal4Bars"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="60%"
-            android:layout_marginEnd="8dp"/>
+            android:text="Default" />
 
         <RadioButton
             android:id="@+id/rbSignal5Bars"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="100%"/>
+            android:text="100%" />
+
     </RadioGroup>
 
-
-
-    <!-- Action Buttons -->
+    <!-- Reset + Apply Buttons -->
     <LinearLayout
         android:id="@+id/layoutButtons"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
+        android:layout_marginTop="32dp"
         android:gravity="end"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
+        android:orientation="horizontal"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="24dp">
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/rgSignalStrength">
 
         <Button
             android:id="@+id/btnReset"
@@ -156,8 +109,9 @@
             android:id="@+id/btnApply"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Apply"
-            android:layout_marginStart="16dp"/>
+            android:layout_marginStart="16dp"
+            android:text="Apply" />
+
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

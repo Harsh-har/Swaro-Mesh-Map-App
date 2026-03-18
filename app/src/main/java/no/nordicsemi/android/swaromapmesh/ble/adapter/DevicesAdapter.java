@@ -21,10 +21,8 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerLiveData;
 public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHolder> {
 
     // Signal strength threshold constants (percentage)
-    public static final int SIGNAL_DEFAULT = 0;   // No RSSI filter
-    public static final int SIGNAL_20      = 10;
-    public static final int SIGNAL_60      = 34;
-    public static final int SIGNAL_100     = 40;
+    public static final int SIGNAL_DEFAULT = 0;
+    public static final int SIGNAL_100     = 52;
 
     // All devices from scanner (unfiltered source of truth)
     private final List<ExtendedBluetoothDevice> mAllDevices;
@@ -50,17 +48,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
         });
     }
 
-    // -------------------------------------------------------------------------
-    // Public filter API
-    // -------------------------------------------------------------------------
 
-    /**
-     * Apply both name filter AND signal strength threshold together.
-     * A device must pass BOTH to be shown.
-     *
-     * @param nameFilter      no.nordicsemi.android.swaromesh.Device name substring (empty = no name filter)
-     * @param signalThreshold Minimum signal % (0 = no threshold, 20/60/100 = filter)
-     */
     public void applyFilters(@NonNull String nameFilter, int signalThreshold) {
         mCurrentNameFilter      = nameFilter;
         mCurrentSignalThreshold = signalThreshold;
@@ -105,15 +93,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
                 && device.getName().toLowerCase().contains(nameFilter.toLowerCase());
     }
 
-    /**
-     * Returns true if the device RSSI percentage meets the minimum threshold.
-     * SIGNAL_DEFAULT (0) matches everything.
-     *
-     * Formula: rssiPercent = 100 * (127 + rssi) / (127 + 20)
-     *   threshold 20%  →  rssi >= -107
-     *   threshold 60%  →  rssi >= -68
-     *   threshold 100% →  rssi >= -20
-     */
+  
     private boolean matchesSignalFilter(@NonNull ExtendedBluetoothDevice device,
                                         int signalThreshold) {
         if (signalThreshold == SIGNAL_DEFAULT) return true;

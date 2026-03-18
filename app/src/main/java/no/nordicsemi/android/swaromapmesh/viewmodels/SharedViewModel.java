@@ -20,7 +20,6 @@ import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
-
 @HiltViewModel
 public class SharedViewModel extends BaseViewModel implements NetworkExportUtils.NetworkExportCallbacks {
 
@@ -29,20 +28,18 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     private static final String PREFS_NAME              = "mesh_prefs";
     private static final String KEY_PROXY_ENABLED       = "proxy_enabled";
-    private static final String KEY_DEVICE_NAME_FILTER  = "device_name_filter";
     private static final String KEY_SELECTED_DEVICE     = "selected_device";
     private static final String KEY_SIGNAL_THRESHOLD    = "signal_threshold";
     private static final String KEY_SVG_URI             = "svg_uri";
-    private static final String DEFAULT_SELECTED_DEVICE = "Select no.nordicsemi.android.swaromesh.Device";
+    private static final String DEFAULT_SELECTED_DEVICE = "All Device";
 
     private final SharedPreferences prefs;
 
-    private final MutableLiveData<Boolean>  proxyEnabled        = new MutableLiveData<>();
-    private final MutableLiveData<String>   deviceNameFilter    = new MutableLiveData<>("");
-    private final MutableLiveData<String>   selectedDevice      = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
-    private final MutableLiveData<Integer>  signalThreshold     = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
-    private final MutableLiveData<Uri>      svgUri              = new MutableLiveData<>();
-    private final MutableLiveData<String>   selectedDeviceId    = new MutableLiveData<>();  // ✅ NEW — SVG click se
+    private final MutableLiveData<Boolean>  proxyEnabled     = new MutableLiveData<>();
+    private final MutableLiveData<String>   selectedDevice   = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
+    private final MutableLiveData<Integer>  signalThreshold  = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
+    private final MutableLiveData<Uri>      svgUri           = new MutableLiveData<>();
+    private final MutableLiveData<String>   selectedDeviceId = new MutableLiveData<>();
     private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices         = new MutableLiveData<>(new ArrayList<>());
     private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices = new MutableLiveData<>(new ArrayList<>());
 
@@ -59,13 +56,10 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
-        // Restore persisted values
         proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
-        deviceNameFilter.setValue(prefs.getString(KEY_DEVICE_NAME_FILTER, ""));
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
         signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
 
-        // Restore saved SVG URI on app restart
         final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
         if (savedSvgUri != null) {
             svgUri.setValue(Uri.parse(savedSvgUri));
@@ -124,7 +118,6 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         prefs.edit().putString(KEY_SVG_URI, uri.toString()).apply();
     }
 
-    @NonNull
     public Uri getSvgUriValue() {
         return svgUri.getValue();
     }
@@ -136,28 +129,6 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     public void clearSvgUri() {
         svgUri.setValue(null);
         prefs.edit().remove(KEY_SVG_URI).apply();
-    }
-
-    // ---------------- SELECTED DEVICE ID (SVG click navigation) ✅ NEW ----------------
-
-    /** SVG map pe click hone wale device ka ID */
-    public LiveData<String> getSelectedDeviceIdLive() {
-        return selectedDeviceId;
-    }
-
-    /** NetworkFragment se set hota hai jab koi device click ho */
-    public void setSelectedDeviceId(String id) {
-        selectedDeviceId.setValue(id);
-    }
-
-    /** DeviceDetailActivity mein directly value lene ke liye */
-    public String getSelectedDeviceIdValue() {
-        return selectedDeviceId.getValue();
-    }
-
-    /** Jab DeviceDetail screen close ho ya deselect ho */
-    public void clearSelectedDeviceId() {
-        selectedDeviceId.setValue(null);
     }
 
     // ---------------- PROXY BUTTON STATE (PERSISTENT) ----------------
@@ -174,22 +145,14 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         return v != null && v;
     }
 
-    // ---------------- DEVICE NAME FILTER (PERSISTENT) ----------------
-
-    public LiveData<String> getDeviceNameFilter() { return deviceNameFilter; }
+    // ---------------- DEVICE NAME FILTER (stub — field removed from UI) ----------------
 
     public void setDeviceNameFilter(String filter) {
-        if (filter == null) filter = "";
-        deviceNameFilter.setValue(filter);
-        prefs.edit().putString(KEY_DEVICE_NAME_FILTER, filter).apply();
+        // Name filter field removed from UI; always store empty
+        prefs.edit().putString("device_name_filter", "").apply();
     }
 
-    public String getDeviceNameFilterValue() {
-        String v = deviceNameFilter.getValue();
-        return v != null ? v : "";
-    }
-
-    public void clearDeviceNameFilter() { setDeviceNameFilter(""); }
+    public String getDeviceNameFilterValue() { return ""; }
 
     // ---------------- SELECTED DEVICE (PERSISTENT) ----------------
 
@@ -212,13 +175,17 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void clearSelectedDevice() { setSelectedDevice(DEFAULT_SELECTED_DEVICE); }
 
-    // ---------------- SIGNAL STRENGTH THRESHOLD (PERSISTENT) ----------------
+    // ---------------- SIGNAL STRENGTH THRESHOLD (PERSISTENT) — Default or 100% only ----------------
 
     public LiveData<Integer> getSignalThreshold() { return signalThreshold; }
 
     public void setSignalThreshold(int threshold) {
-        signalThreshold.setValue(threshold);
-        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, threshold).apply();
+        // Sanitize: only SIGNAL_DEFAULT or SIGNAL_100 allowed
+        int sanitized = (threshold == DevicesAdapter.SIGNAL_100)
+                ? DevicesAdapter.SIGNAL_100
+                : DevicesAdapter.SIGNAL_DEFAULT;
+        signalThreshold.setValue(sanitized);
+        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, sanitized).apply();
     }
 
     public int getSignalThresholdValue() {
@@ -272,27 +239,23 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     // ---------------- FILTER UTILITY ----------------
 
     public boolean isFilterActive() {
-        return !getDeviceNameFilterValue().isEmpty()
-                || !getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)
+        return !getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)
                 || getSignalThresholdValue() != DevicesAdapter.SIGNAL_DEFAULT;
     }
 
     public String getActiveFilterDescription() {
         StringBuilder sb = new StringBuilder();
         if (!getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)) {
-            sb.append("no.nordicsemi.android.swaromesh.Device: ").append(getSelectedDeviceValue());
-        } else if (!getDeviceNameFilterValue().isEmpty()) {
-            sb.append("Name: ").append(getDeviceNameFilterValue());
+            sb.append("Device: ").append(getSelectedDeviceValue());
         }
-        if (getSignalThresholdValue() != DevicesAdapter.SIGNAL_DEFAULT) {
+        if (getSignalThresholdValue() == DevicesAdapter.SIGNAL_100) {
             if (sb.length() > 0) sb.append(" | ");
-            sb.append("Signal ≥ ").append(getSignalThresholdValue()).append("%");
+            sb.append("Signal ≥ 100%");
         }
         return sb.length() > 0 ? "Filter: " + sb : "No filter active";
     }
 
     public void resetAllFilters() {
-        clearDeviceNameFilter();
         clearSelectedDevice();
         clearSignalThreshold();
         clearFilteredDevices();
@@ -301,24 +264,21 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     public List<ExtendedBluetoothDevice> applyFilter(List<ExtendedBluetoothDevice> devices) {
         if (devices == null) return new ArrayList<>();
 
-        String nameFilter = !getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)
-                ? getSelectedDeviceValue()
-                : getDeviceNameFilterValue();
-
+        String  nameFilter      = getSelectedDeviceValue();
         int     threshold       = getSignalThresholdValue();
-        boolean hasNameFilter   = !nameFilter.isEmpty();
+        boolean hasDeviceFilter = !nameFilter.equals(DEFAULT_SELECTED_DEVICE);
         boolean hasSignalFilter = threshold != DevicesAdapter.SIGNAL_DEFAULT;
 
-        if (!hasNameFilter && !hasSignalFilter) return new ArrayList<>(devices);
+        if (!hasDeviceFilter && !hasSignalFilter) return new ArrayList<>(devices);
 
         List<ExtendedBluetoothDevice> filtered    = new ArrayList<>();
         String                        lowerFilter = nameFilter.toLowerCase();
 
         for (ExtendedBluetoothDevice device : devices) {
-            boolean nameOk   = !hasNameFilter || (device.getName() != null
+            boolean deviceOk = !hasDeviceFilter || (device.getName() != null
                     && device.getName().toLowerCase().contains(lowerFilter));
             boolean signalOk = !hasSignalFilter || matchesSignalThreshold(device, threshold);
-            if (nameOk && signalOk) filtered.add(device);
+            if (deviceOk && signalOk) filtered.add(device);
         }
         return filtered;
     }

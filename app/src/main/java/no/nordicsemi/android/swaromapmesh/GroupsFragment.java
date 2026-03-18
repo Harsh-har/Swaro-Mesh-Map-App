@@ -1,41 +1,18 @@
-/*
- * Copyright (c) 2018, Nordic Semiconductor
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
- *
- * 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
- *
- * 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- *
- * 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this
- * software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON
- * ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE
- * USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
 package no.nordicsemi.android.swaromapmesh;
 
-import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.SearchView;
 
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
 import com.google.android.material.snackbar.Snackbar;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
@@ -45,156 +22,192 @@ import androidx.recyclerview.widget.ItemTouchHelper;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import no.nordicsemi.android.swaromapmesh.adapter.GroupAdapter;
-import no.nordicsemi.android.swaromapmesh.adapter.GroupItemUIState;
+import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentGroupsBinding;
-import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentCreateGroup;
+import no.nordicsemi.android.swaromapmesh.databinding.FragmentTechnicianBinding;
+import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentDeleteNode;
+import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentError;
+import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
+import no.nordicsemi.android.swaromapmesh.node.adapter.NodeAdapter;
+import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 import no.nordicsemi.android.swaromapmesh.widgets.ItemTouchHelperAdapter;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableItemTouchHelperCallback;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableViewHolder;
 
+
+import static android.app.Activity.RESULT_OK;
+
+@AndroidEntryPoint
 public class GroupsFragment extends Fragment implements
+        NodeAdapter.OnItemClickListener,
         ItemTouchHelperAdapter,
-        GroupAdapter.OnItemClickListener,
-        GroupCallbacks {
+        DialogFragmentDeleteNode.DialogFragmentDeleteNodeListener {
+
     private FragmentGroupsBinding binding;
     private SharedViewModel mViewModel;
+    private NodeAdapter mNodeAdapter;
+
+    private final ActivityResultLauncher<Intent> provisioner =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    this::handleProvisioningResult);
+
+    private final ActivityResultLauncher<Intent> proxyConnector =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    this::handleProxyConnectResult);
 
     @Nullable
     @Override
-    public View onCreateView(@NonNull final LayoutInflater inflater, @Nullable final ViewGroup viewGroup, @Nullable final Bundle savedInstanceState) {
-        mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
+    public View onCreateView(@NonNull final LayoutInflater inflater,
+                             @Nullable final ViewGroup viewGroup,
+                             @Nullable final Bundle savedInstanceState) {
+
         binding = FragmentGroupsBinding.inflate(getLayoutInflater());
+        mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 
-        final ExtendedFloatingActionButton fab = binding.fabAddGroup;
+        final ExtendedFloatingActionButton fab = binding.fabAddNode;
+        final RecyclerView mRecyclerViewNodes = binding.recyclerViewProvisionedNodes;
+        final View noNetworksConfiguredView = binding.noNetworksConfigured.getRoot();
 
-        // Configure the recycler view
-        final RecyclerView recyclerViewGroups = binding.recyclerViewGroups;
-        recyclerViewGroups.setLayoutManager(new LinearLayoutManager(requireContext()));
-        final DividerItemDecoration dividerItemDecoration = new DividerItemDecoration(recyclerViewGroups.getContext(), DividerItemDecoration.VERTICAL);
-        recyclerViewGroups.addItemDecoration(dividerItemDecoration);
-        final ItemTouchHelper.Callback itemTouchHelperCallback = new RemovableItemTouchHelperCallback(this);
+        mNodeAdapter = new NodeAdapter(this, mViewModel.getNodes());
+        mNodeAdapter.setOnItemClickListener(this);
+
+        mRecyclerViewNodes.setLayoutManager(new LinearLayoutManager(getContext()));
+        mRecyclerViewNodes.addItemDecoration(
+                new DividerItemDecoration(requireContext(), DividerItemDecoration.VERTICAL)
+        );
+
+        final ItemTouchHelper.Callback itemTouchHelperCallback =
+                new RemovableItemTouchHelperCallback(this);
         final ItemTouchHelper itemTouchHelper = new ItemTouchHelper(itemTouchHelperCallback);
-        itemTouchHelper.attachToRecyclerView(recyclerViewGroups);
-        final GroupAdapter adapter = new GroupAdapter();
-        adapter.setOnItemClickListener(this);
-        recyclerViewGroups.setAdapter(adapter);
+        itemTouchHelper.attachToRecyclerView(mRecyclerViewNodes);
+        mRecyclerViewNodes.setAdapter(mNodeAdapter);
 
-        mViewModel.getNetworkLiveData().observe(getViewLifecycleOwner(), meshNetworkLiveData -> {
-            if (meshNetworkLiveData != null) {
-                final MeshNetwork network = meshNetworkLiveData.getMeshNetwork();
-                if (network.getGroups().isEmpty()) {
-                    binding.empty.getRoot().setVisibility(View.VISIBLE);
-                } else {
-                    binding.empty.getRoot().setVisibility(View.INVISIBLE);
-                }
-                adapter.updateAdapter(populateGroups(network));
+        mViewModel.getNodes().observe(getViewLifecycleOwner(), nodes -> {
+            noNetworksConfiguredView.setVisibility(nodes != null && !nodes.isEmpty()
+                    ? View.GONE : View.VISIBLE);
+            requireActivity().invalidateOptionsMenu();
+        });
+
+        mViewModel.isConnectedToProxy().observe(getViewLifecycleOwner(),
+                isConnected -> requireActivity().invalidateOptionsMenu());
+
+        mRecyclerViewNodes.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull final RecyclerView recyclerView, final int dx, final int dy) {
+                super.onScrolled(recyclerView, dx, dy);
+                final LinearLayoutManager m =
+                        (LinearLayoutManager) recyclerView.getLayoutManager();
+                if (m != null) fab.setExtended(m.findFirstCompletelyVisibleItemPosition() == 0);
             }
         });
 
         fab.setOnClickListener(v -> {
-            if (mViewModel.getNetworkLiveData().getProvisioner().getAllocatedGroupRanges().isEmpty()) {
-                displaySnackBar(getString(R.string.error_allocate_group_range), null);
-                return;
-            }
-            DialogFragmentCreateGroup fragmentCreateGroup = DialogFragmentCreateGroup.newInstance();
-            fragmentCreateGroup.show(getChildFragmentManager(), null);
+            final Intent intent = new Intent(requireContext(), ScannerActivity.class);
+            intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
+            provisioner.launch(intent);
         });
 
-        recyclerViewGroups.addOnScrollListener(new RecyclerView.OnScrollListener() {
-            @Override
-            public void onScrolled(@NonNull final RecyclerView recyclerView, final int dx, final int dy) {
-                super.onScrolled(recyclerView, dx, dy);
-                final LinearLayoutManager m = (LinearLayoutManager) recyclerView.getLayoutManager();
-                if (m != null) {
-                    if (m.findFirstCompletelyVisibleItemPosition() == 0) {
-                        fab.extend();
-                    } else {
-                        fab.shrink();
-                    }
-                }
+        binding.searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
+            @Override public boolean onQueryTextSubmit(String query) { mNodeAdapter.filter(query); return true; }
+            @Override public boolean onQueryTextChange(String newText) { mNodeAdapter.filter(newText); return true; }
+        });
+
+        mNodeAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
+            @Override public void onChanged() {
+                noNetworksConfiguredView.setVisibility(mNodeAdapter.getItemCount() == 0
+                        ? View.VISIBLE : View.GONE);
             }
         });
 
         return binding.getRoot();
-
     }
+
+
 
     @Override
-    public void onItemClick(final int address) {
-        mViewModel.setSelectedGroup(address);
-        startActivity(new Intent(requireContext(), GroupControlsActivity.class));
+    public void onConfigureClicked(final ProvisionedMeshNode node) {
+        mViewModel.setSelectedMeshNode(node);
+
+        if (!mViewModel.isProxyEnabled()) {
+            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
+            return;
+        }
+
+        final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
+
+        if (Boolean.TRUE.equals(isConnected)) {
+            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
+        } else {
+            startProxyConnectInBackground(node.getMacAddress());
+        }
     }
+
+    private void startProxyConnectInBackground(@Nullable String macAddress) {
+        final Intent intent = new Intent(requireContext(), ScannerActivity.class);
+        intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
+        intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
+        intent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, macAddress); // ⭐ IMPORTANT
+        proxyConnector.launch(intent);
+    }
+
 
     @Override
     public void onItemDismiss(final RemovableViewHolder viewHolder) {
-        final int position = viewHolder.getAbsoluteAdapterPosition();
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        final Group group = network.getGroups().get(position);
-        if (network.getModels(group).size() == 0) {
-            network.removeGroup(group);
-            final View.OnClickListener action = v -> {
-                binding.empty.getRoot().setVisibility(View.INVISIBLE);
-                final MeshNetwork network1 = mViewModel.getNetworkLiveData().getMeshNetwork();
-                if (network1 != null) {
-                    network1.addGroup(group);
-                }
-            };
-            displaySnackBar(getString(R.string.group_deleted, group.getName()), action);
+        final int position = viewHolder.getAdapterPosition();
+        if (!mNodeAdapter.isEmpty()) {
+            DialogFragmentDeleteNode.newInstance(position)
+                    .show(getChildFragmentManager(), null);
         }
     }
 
     @Override
-    public void onItemDismissFailed(final RemovableViewHolder viewHolder) {
-        final String message = getString(R.string.error_group_unsubscribe_to_delete);
-        mViewModel.displaySnackBar(requireActivity(), binding.container, message, Snackbar.LENGTH_LONG);
-    }
+    public void onItemDismissFailed(final RemovableViewHolder viewHolder) {}
 
     @Override
-    public Group createGroup() {
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        return network.createGroup(network.getSelectedProvisioner(), "Mesh Group");
-    }
-
-    @Override
-    public Group createGroup(@NonNull final String name) {
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        return network.createGroup(network.getSelectedProvisioner(), name);
-    }
-
-    @Override
-    public Group createGroup(@NonNull final UUID uuid, final String name) {
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        return network.createGroup(uuid, null, name);
-    }
-
-    @Override
-    public boolean onGroupAdded(@NonNull final String name, final int address) {
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        return network.addGroup(network.createGroup(network.getSelectedProvisioner(), address, name));
-    }
-
-    @Override
-    public boolean onGroupAdded(@NonNull final Group group) {
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        return network.addGroup(group);
-    }
-
-    @SuppressLint("ShowToast")
-    private void displaySnackBar(final String message, final View.OnClickListener action) {
-        Snackbar snack = Snackbar.make(binding.container, message, Snackbar.LENGTH_LONG);
-        if (action != null)
-            snack = snack.setActionTextColor(getResources().getColor(R.color.colorSecondary))
-                    .setAction(R.string.undo, action);
-        snack.show();
-    }
-
-    private List<GroupItemUIState> populateGroups(final MeshNetwork network) {
-        final List<GroupItemUIState> groups = new ArrayList<>();
-        for (Group group : network.getGroups()) {
-            groups.add(new GroupItemUIState(group.getName(), group.getAddress(), network.getModels(group).size()));
+    public void onNodeDeleteConfirmed(final int position) {
+        final ProvisionedMeshNode node = mNodeAdapter.getItem(position);
+        if (mViewModel.getNetworkLiveData().getMeshNetwork().deleteNode(node)) {
+            mViewModel.displaySnackBar(requireActivity(),
+                    binding.container,
+                    getString(R.string.node_deleted),
+                    Snackbar.LENGTH_LONG);
         }
-        return groups;
+    }
+
+    @Override
+    public void onNodeDeleteCancelled(final int position) {
+        mNodeAdapter.notifyItemChanged(position);
+    }
+
+    private void handleProvisioningResult(final ActivityResult result) {
+        final Intent data = result.getData();
+        if (result.getResultCode() == RESULT_OK && data != null) {
+            final boolean provisioningSuccess =
+                    data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
+
+            if (provisioningSuccess) {
+                final Intent intent = new Intent(requireContext(), ScannerActivity.class);
+                intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
+                intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
+                intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
+                proxyConnector.launch(intent);
+            }
+            requireActivity().invalidateOptionsMenu();
+        }
+    }
+
+    private void handleProxyConnectResult(final ActivityResult result) {
+        if (result.getResultCode() == RESULT_OK) {
+            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
+        }
+    }
+
+    private void showErrorDialog(@NonNull final String title, @NonNull final String message) {
+        DialogFragmentError.newInstance(title, message)
+                .show(getChildFragmentManager(), null);
     }
 }
+

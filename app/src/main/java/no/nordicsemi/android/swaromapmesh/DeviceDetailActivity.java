@@ -1,15 +1,22 @@
 package no.nordicsemi.android.swaromapmesh;
 
+import static androidx.core.content.ContentProviderCompat.requireContext;
+
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityDeviceDetailBinding;
+import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
+import no.nordicsemi.android.swaromapmesh.utils.Utils;
 
 /**
  * Shows device details and operations when a device is tapped on the SVG map.
@@ -33,6 +40,17 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private String deviceId;
     private String elementId;
     private String deviceName;
+    private final ActivityResultLauncher<Intent> provisioner =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    this::handleProvisioningResult);
+
+    private final ActivityResultLauncher<Intent> proxyConnector =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    this::handleProxyConnectResult);
+
+
+
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -100,8 +118,9 @@ public class DeviceDetailActivity extends AppCompatActivity {
                     "Start Add to Network: " + deviceId,
                     Toast.LENGTH_SHORT).show();
 
-            Intent intent = new Intent(DeviceDetailActivity.this, ScannerActivity.class);
-            startActivity(intent);
+            final Intent intent = new Intent(this, ScannerActivity.class);
+            intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
+            provisioner.launch(intent);
         });
 
         // Turn OFF
@@ -109,11 +128,35 @@ public class DeviceDetailActivity extends AppCompatActivity {
             Log.d(TAG, "Test Device: " + deviceId);
             Toast.makeText(this,
                     "Start Testing Device: " + deviceId, Toast.LENGTH_SHORT).show();
-            // TODO: send BLE command via ViewModel / repository
+
         });
 
 
     }
+
+    private void handleProvisioningResult(final ActivityResult result) {
+        final Intent data = result.getData();
+        if (result.getResultCode() == RESULT_OK && data != null) {
+            final boolean provisioningSuccess =
+                    data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
+
+            if (provisioningSuccess) {
+                final Intent intent = new Intent(this, ScannerActivity.class);
+                intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
+                intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
+                intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
+                proxyConnector.launch(intent);
+            }
+            this.invalidateOptionsMenu();
+        }
+    }
+
+    private void handleProxyConnectResult(final ActivityResult result) {
+        if (result.getResultCode() == RESULT_OK) {
+            startActivity(new Intent(this, NodeConfigurationActivity.class));
+        }
+    }
+
 
     // ==================== NAVIGATION ====================
 
