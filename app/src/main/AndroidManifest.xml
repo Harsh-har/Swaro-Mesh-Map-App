@@ -39,6 +39,9 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".DeviceDetailActivity"
+            android:exported="false" />
+        <activity
             android:name=".Map.DeviceDebugOverlay"
             android:exported="false" />
         <activity

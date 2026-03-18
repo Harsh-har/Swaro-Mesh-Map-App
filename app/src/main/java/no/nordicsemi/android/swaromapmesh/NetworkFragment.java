@@ -53,7 +53,6 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
 import dagger.hilt.android.AndroidEntryPoint;
-import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -112,8 +111,8 @@ public class NetworkFragment extends Fragment {
     private float tapDownX, tapDownY;
     private long tapDownTime;
     private boolean hasMoved = false;
-    private static final float TAP_MOVE_SLOP = 10f;   // px — movement beyond this = drag, not tap
-    private static final long TAP_MAX_DURATION = 250;  // ms — longer = long-press, not tap
+    private static final float TAP_MOVE_SLOP = 10f;
+    private static final long TAP_MAX_DURATION = 250;
 
     // ==================== SVG STATE ====================
 
@@ -137,7 +136,7 @@ public class NetworkFragment extends Fragment {
 
         setupZoomAndPan();
         showPlaceholder(true);
-        loadSVGFromAssets("officetest.svg");
+        loadSVGFromAssets("Test_Map_dark.svg");
 
         return binding.getRoot();
     }
@@ -287,11 +286,9 @@ public class NetworkFragment extends Fragment {
 
     private void logDeviceMap() {
         if (deviceMap.isEmpty()) {
-            Toast.makeText(requireContext(), "No devices found", Toast.LENGTH_SHORT).show();
             Log.w(TAG, "No devices found in SVG");
         } else {
-            Toast.makeText(requireContext(),
-                    deviceMap.size() + " devices found", Toast.LENGTH_SHORT).show();
+            Log.d(TAG, deviceMap.size() + " devices found");
             for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
                 DeviceInfo d = e.getValue();
                 Log.d(TAG, "Device: " + d.id
@@ -327,11 +324,6 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    /**
-     * Parses the viewBox attribute from the root SVG element.
-     * Sets vbX, vbY, vbW, vbH accurately.
-     * Your SVG has viewBox="100 0 1000 640" — this is critical for tap mapping.
-     */
     private void parseViewBox(Document document) {
         Element root = document.getDocumentElement();
         String vb = root.getAttribute("viewBox");
@@ -350,7 +342,6 @@ public class NetworkFragment extends Fragment {
                 }
             }
         } else {
-            // Fallback: use width/height attributes
             try {
                 String w = root.getAttribute("width");
                 String h = root.getAttribute("height");
@@ -364,18 +355,6 @@ public class NetworkFragment extends Fragment {
 
     // ==================== DEVICE EXTRACTION ====================
 
-    /**
-     * Core fix: Only extracts elements that are DIRECT children of the "Devices" group
-     * or immediate children of sub-groups inside "Devices".
-     *
-     * Strategy:
-     * 1. Find <g id="Devices">
-     * 2. For each child group (e.g. <g id="Kitchen">), collect its direct shape children
-     *    that have an id AND contain <metadata><elementId>
-     * 3. Also collect any direct shape children of "Devices" itself
-     *
-     * This avoids picking up wall/furniture elements from other groups.
-     */
     private Map<String, DeviceInfo> extractDevices(Document document) {
         Map<String, DeviceInfo> devices = new LinkedHashMap<>();
         if (document == null) return devices;
@@ -384,12 +363,10 @@ public class NetworkFragment extends Fragment {
             Element devicesGroup = findElementById(document.getDocumentElement(), "Devices");
             if (devicesGroup == null) {
                 Log.w(TAG, "No <g id='Devices'> found, scanning entire document");
-                // Fallback: scan everything but require metadata/elementId
                 collectDevicesRequiringMetadata(document.getDocumentElement(), devices, false);
                 return devices;
             }
 
-            // Iterate direct children of Devices group
             NodeList children = devicesGroup.getChildNodes();
             for (int i = 0; i < children.getLength(); i++) {
                 Node child = children.item(i);
@@ -399,10 +376,8 @@ public class NetworkFragment extends Fragment {
                 String id = el.getAttribute("id");
 
                 if ("g".equals(tag)) {
-                    // Sub-group like <g id="Kitchen"> — scan ITS direct children
                     collectDirectShapeChildren(el, devices);
                 } else if (!id.isEmpty()) {
-                    // Direct shape in Devices group
                     processDeviceElement(el, devices);
                 }
             }
@@ -414,10 +389,6 @@ public class NetworkFragment extends Fragment {
         return devices;
     }
 
-    /**
-     * Collects direct shape children (path, rect, circle, ellipse, polygon, polyline, line)
-     * from a group element. Only adds elements that have a non-empty id.
-     */
     private void collectDirectShapeChildren(Element groupEl, Map<String, DeviceInfo> devices) {
         NodeList children = groupEl.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -427,13 +398,10 @@ public class NetworkFragment extends Fragment {
             String tag = el.getTagName().toLowerCase();
 
             if ("g".equals(tag)) {
-                // Nested group — recurse one more level
                 String id = el.getAttribute("id");
                 if (!id.isEmpty()) {
-                    // Try the group itself first
                     processDeviceElement(el, devices);
                 }
-                // Also check its children
                 collectDirectShapeChildren(el, devices);
             } else {
                 processDeviceElement(el, devices);
@@ -441,16 +409,9 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    /**
-     * Processes a single element as a potential device.
-     * Requires: non-empty id attribute.
-     * Computes bounds and extracts metadata elementId.
-     */
     private void processDeviceElement(Element el, Map<String, DeviceInfo> devices) {
         String id = el.getAttribute("id");
         if (id == null || id.isEmpty()) return;
-
-        // Skip if already added (avoid duplicates from nested group + child)
         if (devices.containsKey(id)) return;
 
         RectF bounds = computeBounds(el);
@@ -465,9 +426,6 @@ public class NetworkFragment extends Fragment {
                 + " bounds=" + bounds.toShortString());
     }
 
-    /**
-     * Fallback scan that requires a <metadata><elementId> to consider an element a device.
-     */
     private void collectDevicesRequiringMetadata(Element element,
                                                  Map<String, DeviceInfo> devices,
                                                  boolean insideDevices) {
@@ -514,19 +472,18 @@ public class NetworkFragment extends Fragment {
 
     private RectF computeBounds(Element element) {
         String tag = element.getTagName().toLowerCase();
-        // Strip namespace prefix if present (e.g. "svg:path" -> "path")
         if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
 
         switch (tag) {
-            case "g":       return computeGroupBounds(element);
-            case "rect":    return computeRectBounds(element);
-            case "circle":  return computeCircleBounds(element);
-            case "ellipse": return computeEllipseBounds(element);
-            case "path":    return computePathBounds(element);
+            case "g":        return computeGroupBounds(element);
+            case "rect":     return computeRectBounds(element);
+            case "circle":   return computeCircleBounds(element);
+            case "ellipse":  return computeEllipseBounds(element);
+            case "path":     return computePathBounds(element);
             case "polygon":
-            case "polyline":return computePolyBounds(element);
-            case "line":    return computeLineBounds(element);
-            case "use":     return computeUseBounds(element);
+            case "polyline": return computePolyBounds(element);
+            case "line":     return computeLineBounds(element);
+            case "use":      return computeUseBounds(element);
             default:
                 Log.v(TAG, "Unsupported shape tag for bounds: " + tag);
                 return null;
@@ -605,7 +562,6 @@ public class NetworkFragment extends Fragment {
     }
 
     private RectF computeUseBounds(Element el) {
-        // Basic: use x/y/width/height if present
         Float x = parseFloat(el, "x");
         Float y = parseFloat(el, "y");
         Float w = parseFloat(el, "width");
@@ -618,29 +574,22 @@ public class NetworkFragment extends Fragment {
 
     // ==================== PATH BOUNDS PARSER ====================
 
-    /**
-     * Accurate absolute-coordinate path bounds extraction.
-     * Handles M/L/H/V/C/S/Q/T/A commands (absolute and relative).
-     * Tracks current position for relative commands.
-     */
     private RectF parsePathBounds(String d) {
         if (d == null || d.isEmpty()) return null;
 
         List<Float> xs = new ArrayList<>();
         List<Float> ys = new ArrayList<>();
 
-        // Tokenize: insert space before each command letter
         String cleaned = d.replaceAll("([MmLlHhVvCcSsQqTtAaZz])", " $1 ")
-                .replaceAll("([0-9])-", "$1 -")  // handle "10-5" as "10 -5"
+                .replaceAll("([0-9])-", "$1 -")
                 .trim();
         String[] tokens = cleaned.split("[\\s,]+");
 
         char cmd = 'M';
         int argIdx = 0;
         float curX = 0, curY = 0;
-        float startX = 0, startY = 0; // for Z command
+        float startX = 0, startY = 0;
 
-        // We'll accumulate args then process per-command
         List<Float> args = new ArrayList<>();
 
         for (String token : tokens) {
@@ -648,11 +597,9 @@ public class NetworkFragment extends Fragment {
             char first = token.charAt(0);
 
             if (Character.isLetter(first)) {
-                // Process any accumulated args for previous command
                 processPathCommand(cmd, args, xs, ys,
                         new float[]{curX}, new float[]{curY},
                         new float[]{startX}, new float[]{startY});
-                // Update curX/curY from last processed command if possible
                 if (!xs.isEmpty()) curX = xs.get(xs.size() - 1);
                 if (!ys.isEmpty()) curY = ys.get(ys.size() - 1);
 
@@ -666,7 +613,6 @@ public class NetworkFragment extends Fragment {
                 } catch (NumberFormatException ignored) {}
             }
         }
-        // Process last command
         processPathCommand(cmd, args, xs, ys,
                 new float[]{curX}, new float[]{curY},
                 new float[]{startX}, new float[]{startY});
@@ -682,10 +628,6 @@ public class NetworkFragment extends Fragment {
         return new RectF(minX, minY, maxX, maxY);
     }
 
-    /**
-     * Processes path command arguments and extracts absolute x/y coordinates.
-     * curX[0] and curY[0] are read/written as current pen position.
-     */
     private void processPathCommand(char cmd, List<Float> args,
                                     List<Float> xs, List<Float> ys,
                                     float[] curX, float[] curY,
@@ -693,7 +635,7 @@ public class NetworkFragment extends Fragment {
         if (args.isEmpty()) return;
 
         switch (cmd) {
-            case 'M': // absolute moveto
+            case 'M':
                 for (int i = 0; i + 1 < args.size(); i += 2) {
                     float x = args.get(i), y = args.get(i + 1);
                     xs.add(x); ys.add(y);
@@ -701,51 +643,39 @@ public class NetworkFragment extends Fragment {
                     if (i == 0) { startX[0] = x; startY[0] = y; }
                 }
                 break;
-            case 'm': // relative moveto
+            case 'm':
                 for (int i = 0; i + 1 < args.size(); i += 2) {
                     curX[0] += args.get(i); curY[0] += args.get(i + 1);
                     xs.add(curX[0]); ys.add(curY[0]);
                     if (i == 0) { startX[0] = curX[0]; startY[0] = curY[0]; }
                 }
                 break;
-            case 'L': // absolute lineto
+            case 'L':
                 for (int i = 0; i + 1 < args.size(); i += 2) {
                     float x = args.get(i), y = args.get(i + 1);
                     xs.add(x); ys.add(y);
                     curX[0] = x; curY[0] = y;
                 }
                 break;
-            case 'l': // relative lineto
+            case 'l':
                 for (int i = 0; i + 1 < args.size(); i += 2) {
                     curX[0] += args.get(i); curY[0] += args.get(i + 1);
                     xs.add(curX[0]); ys.add(curY[0]);
                 }
                 break;
-            case 'H': // absolute horizontal
-                for (float v : args) {
-                    xs.add(v); ys.add(curY[0]);
-                    curX[0] = v;
-                }
+            case 'H':
+                for (float v : args) { xs.add(v); ys.add(curY[0]); curX[0] = v; }
                 break;
-            case 'h': // relative horizontal
-                for (float v : args) {
-                    curX[0] += v;
-                    xs.add(curX[0]); ys.add(curY[0]);
-                }
+            case 'h':
+                for (float v : args) { curX[0] += v; xs.add(curX[0]); ys.add(curY[0]); }
                 break;
-            case 'V': // absolute vertical
-                for (float v : args) {
-                    xs.add(curX[0]); ys.add(v);
-                    curY[0] = v;
-                }
+            case 'V':
+                for (float v : args) { xs.add(curX[0]); ys.add(v); curY[0] = v; }
                 break;
-            case 'v': // relative vertical
-                for (float v : args) {
-                    curY[0] += v;
-                    xs.add(curX[0]); ys.add(curY[0]);
-                }
+            case 'v':
+                for (float v : args) { curY[0] += v; xs.add(curX[0]); ys.add(curY[0]); }
                 break;
-            case 'C': // absolute cubic bezier (6 args each)
+            case 'C':
                 for (int i = 0; i + 5 < args.size(); i += 6) {
                     xs.add(args.get(i));     ys.add(args.get(i + 1));
                     xs.add(args.get(i + 2)); ys.add(args.get(i + 3));
@@ -753,7 +683,7 @@ public class NetworkFragment extends Fragment {
                     curX[0] = args.get(i + 4); curY[0] = args.get(i + 5);
                 }
                 break;
-            case 'c': // relative cubic bezier
+            case 'c':
                 for (int i = 0; i + 5 < args.size(); i += 6) {
                     xs.add(curX[0] + args.get(i));     ys.add(curY[0] + args.get(i + 1));
                     xs.add(curX[0] + args.get(i + 2)); ys.add(curY[0] + args.get(i + 3));
@@ -761,62 +691,59 @@ public class NetworkFragment extends Fragment {
                     xs.add(curX[0]); ys.add(curY[0]);
                 }
                 break;
-            case 'S': // absolute smooth cubic (4 args)
+            case 'S':
                 for (int i = 0; i + 3 < args.size(); i += 4) {
                     xs.add(args.get(i));     ys.add(args.get(i + 1));
                     xs.add(args.get(i + 2)); ys.add(args.get(i + 3));
                     curX[0] = args.get(i + 2); curY[0] = args.get(i + 3);
                 }
                 break;
-            case 's': // relative smooth cubic
+            case 's':
                 for (int i = 0; i + 3 < args.size(); i += 4) {
                     xs.add(curX[0] + args.get(i));     ys.add(curY[0] + args.get(i + 1));
                     curX[0] += args.get(i + 2); curY[0] += args.get(i + 3);
                     xs.add(curX[0]); ys.add(curY[0]);
                 }
                 break;
-            case 'Q': // absolute quadratic bezier (4 args)
+            case 'Q':
                 for (int i = 0; i + 3 < args.size(); i += 4) {
                     xs.add(args.get(i));     ys.add(args.get(i + 1));
                     xs.add(args.get(i + 2)); ys.add(args.get(i + 3));
                     curX[0] = args.get(i + 2); curY[0] = args.get(i + 3);
                 }
                 break;
-            case 'q': // relative quadratic bezier
+            case 'q':
                 for (int i = 0; i + 3 < args.size(); i += 4) {
                     xs.add(curX[0] + args.get(i));     ys.add(curY[0] + args.get(i + 1));
                     curX[0] += args.get(i + 2); curY[0] += args.get(i + 3);
                     xs.add(curX[0]); ys.add(curY[0]);
                 }
                 break;
-            case 'T': // absolute smooth quadratic (2 args)
+            case 'T':
                 for (int i = 0; i + 1 < args.size(); i += 2) {
                     float x = args.get(i), y = args.get(i + 1);
-                    xs.add(x); ys.add(y);
-                    curX[0] = x; curY[0] = y;
+                    xs.add(x); ys.add(y); curX[0] = x; curY[0] = y;
                 }
                 break;
-            case 't': // relative smooth quadratic
+            case 't':
                 for (int i = 0; i + 1 < args.size(); i += 2) {
                     curX[0] += args.get(i); curY[0] += args.get(i + 1);
                     xs.add(curX[0]); ys.add(curY[0]);
                 }
                 break;
-            case 'A': // absolute arc (7 args: rx ry x-rot large-arc sweep x y)
+            case 'A':
                 for (int i = 0; i + 6 < args.size(); i += 7) {
                     float x = args.get(i + 5), y = args.get(i + 6);
-                    xs.add(x); ys.add(y);
-                    curX[0] = x; curY[0] = y;
+                    xs.add(x); ys.add(y); curX[0] = x; curY[0] = y;
                 }
                 break;
-            case 'a': // relative arc
+            case 'a':
                 for (int i = 0; i + 6 < args.size(); i += 7) {
                     curX[0] += args.get(i + 5); curY[0] += args.get(i + 6);
                     xs.add(curX[0]); ys.add(curY[0]);
                 }
                 break;
-            case 'Z':
-            case 'z':
+            case 'Z': case 'z':
                 xs.add(startX[0]); ys.add(startY[0]);
                 curX[0] = startX[0]; curY[0] = startY[0];
                 break;
@@ -851,7 +778,6 @@ public class NetworkFragment extends Fragment {
     // ==================== METADATA EXTRACTION ====================
 
     private String extractElementId(Element element) {
-        // Search recursively for <metadata><elementId> inside this element
         return findElementIdInNode(element);
     }
 
@@ -859,9 +785,7 @@ public class NetworkFragment extends Fragment {
         if (node instanceof Element) {
             Element el = (Element) node;
             String tagName = el.getTagName();
-            // Strip namespace
             if (tagName.contains(":")) tagName = tagName.substring(tagName.indexOf(':') + 1);
-
             if ("elementId".equalsIgnoreCase(tagName)) {
                 String text = el.getTextContent();
                 return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
@@ -879,8 +803,6 @@ public class NetworkFragment extends Fragment {
 
     private void renderSvg(SVG svg) {
         try {
-            // Render at exact viewBox pixel size → drawable pixel == SVG unit (offset by vbX/vbY)
-            // This makes coordinate mapping zoom-invariant and always accurate.
             int renderW = Math.max(1, (int) vbW);
             int renderH = Math.max(1, (int) vbH);
             Picture picture = svg.renderToPicture(renderW, renderH);
@@ -914,14 +836,11 @@ public class NetworkFragment extends Fragment {
         float vH = binding.svgView.getHeight();
 
         if (dW <= 0 || dH <= 0 || vW <= 0 || vH <= 0) {
-            Log.e(TAG, "fitToView: invalid dimensions dW=" + dW + " dH=" + dH
-                    + " vW=" + vW + " vH=" + vH);
+            Log.e(TAG, "fitToView: invalid dimensions");
             return;
         }
 
         minZoom = Math.min(vW / dW, vH / dH);
-        Log.d(TAG, "fitToView: minZoom=" + minZoom);
-
         matrix.reset();
         matrix.postScale(minZoom, minZoom);
         matrix.postTranslate((vW - dW * minZoom) / 2f, (vH - dH * minZoom) / 2f);
@@ -983,14 +902,11 @@ public class NetworkFragment extends Fragment {
                     }
                 });
 
-        // GestureDetector only handles double-tap zoom + fling.
-        // Single tap is handled instantly in ACTION_UP — no 300ms double-tap wait.
         gestureDetector = new GestureDetector(requireContext(),
                 new GestureDetector.SimpleOnGestureListener() {
                     @Override
                     public boolean onDoubleTap(MotionEvent e) {
-                        // Cancel any pending tap — this is actually a double tap
-                        hasMoved = true; // prevents ACTION_UP from also firing a tap
+                        hasMoved = true;
                         float target = (getScale() > minZoom + 0.5f) ? minZoom : DOUBLE_TAP_ZOOM;
                         animateZoomTo(target, e.getX(), e.getY());
                         return true;
@@ -1011,9 +927,7 @@ public class NetworkFragment extends Fragment {
         if (velocityTracker == null) velocityTracker = VelocityTracker.obtain();
         velocityTracker.addMovement(event);
 
-        // GestureDetector handles double-tap + fling
         gestureDetector.onTouchEvent(event);
-        // ScaleGestureDetector handles pinch-zoom
         scaleDetector.onTouchEvent(event);
 
         switch (event.getActionMasked()) {
@@ -1021,13 +935,10 @@ public class NetworkFragment extends Fragment {
                 if (flingAnimator != null) flingAnimator.cancel();
                 if (zoomAnimator != null) zoomAnimator.cancel();
                 scroller.forceFinished(true);
-
                 activePointerId = event.getPointerId(0);
                 lastTouchX = event.getX();
                 lastTouchY = event.getY();
                 isDragging = true;
-
-                // Record tap-down for instant tap detection on ACTION_UP
                 tapDownX = event.getX();
                 tapDownY = event.getY();
                 tapDownTime = event.getEventTime();
@@ -1035,7 +946,6 @@ public class NetworkFragment extends Fragment {
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
-                // Multi-finger — cancel any tap intent
                 isDragging = false;
                 hasMoved = true;
                 break;
@@ -1048,7 +958,6 @@ public class NetworkFragment extends Fragment {
                     float dx = event.getX(idx) - lastTouchX;
                     float dy = event.getY(idx) - lastTouchY;
 
-                    // Track total displacement from tap-down for slop check
                     float totalDx = event.getX(idx) - tapDownX;
                     float totalDy = event.getY(idx) - tapDownY;
                     if ((float) Math.sqrt(totalDx * totalDx + totalDy * totalDy) > TAP_MOVE_SLOP) {
@@ -1067,14 +976,11 @@ public class NetworkFragment extends Fragment {
                 break;
 
             case MotionEvent.ACTION_UP:
-                // Instant tap check — no double-tap wait
                 if (!hasMoved
                         && !scaleDetector.isInProgress()
                         && (event.getEventTime() - tapDownTime) < TAP_MAX_DURATION) {
-                    // It's a tap — fire immediately
                     handleSvgTap(tapDownX, tapDownY);
                 }
-
                 activePointerId = MotionEvent.INVALID_POINTER_ID;
                 isDragging = false;
                 hasMoved = false;
@@ -1087,7 +993,7 @@ public class NetworkFragment extends Fragment {
             case MotionEvent.ACTION_CANCEL:
                 activePointerId = MotionEvent.INVALID_POINTER_ID;
                 isDragging = false;
-                hasMoved = true; // cancel tap
+                hasMoved = true;
                 if (velocityTracker != null) {
                     velocityTracker.recycle();
                     velocityTracker = null;
@@ -1127,17 +1033,7 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    /**
-     * Converts touch screen coordinates to SVG document coordinates.
-     *
-     * Pipeline:
-     *   touch (screen px) → drawable px (via inverse matrix) → SVG units (via viewBox)
-     *
-     * The SVG renderer maps viewBox onto the drawable 1:1 in pixel space,
-     * so we map drawable pixels back to SVG coordinates using the viewBox.
-     */
     private float[] touchToSvgCoords(float touchX, float touchY) {
-        // Step 1: invert zoom/pan matrix → get drawable-space pixel coordinates
         Matrix inverse = new Matrix();
         if (!matrix.invert(inverse)) {
             Log.e(TAG, "Matrix inversion failed");
@@ -1146,9 +1042,6 @@ public class NetworkFragment extends Fragment {
         float[] pt = {touchX, touchY};
         inverse.mapPoints(pt);
 
-        // Step 2: drawable was rendered at exactly (vbW x vbH) pixels
-        // so drawable pixel (px, py) maps directly to SVG unit (vbX + px, vbY + py).
-        // No division needed — it's a direct 1:1 mapping plus the viewBox origin offset.
         float svgX = vbX + pt[0];
         float svgY = vbY + pt[1];
 
@@ -1159,11 +1052,6 @@ public class NetworkFragment extends Fragment {
         return new float[]{svgX, svgY};
     }
 
-    /**
-     * Finds the device whose bounds contain (svgX, svgY).
-     * If multiple match, picks the one with smallest area (most specific hit).
-     * Uses TAP_TOLERANCE inset to make small elements easier to tap.
-     */
     private String findDeviceAt(float svgX, float svgY) {
         String bestId = null;
         float smallestArea = Float.MAX_VALUE;
@@ -1171,10 +1059,8 @@ public class NetworkFragment extends Fragment {
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             RectF bounds = entry.getValue().bounds;
 
-            // Expand small bounds for easier tapping
             RectF expanded = new RectF(bounds);
             float inset = -TAP_TOLERANCE;
-            // For very small elements, expand even more
             if (bounds.width() < 20 || bounds.height() < 20) {
                 inset = -Math.max(TAP_TOLERANCE, 15f);
             }
@@ -1193,7 +1079,6 @@ public class NetworkFragment extends Fragment {
             Log.d(TAG, "Hit: " + bestId);
         } else {
             Log.d(TAG, "No device hit at svgX=" + svgX + " svgY=" + svgY);
-            // Debug: log all device bounds
             for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
                 Log.v(TAG, "  " + e.getKey() + " bounds=" + e.getValue().bounds.toShortString());
             }
@@ -1202,32 +1087,28 @@ public class NetworkFragment extends Fragment {
         return bestId;
     }
 
+    // ==================== DEVICE SELECTION (color change intact) ====================
+
     private void onDeviceSelected(String deviceId) {
-        // Tapping selected device deselects it
+        // Same device tapped again → deselect and open detail
         if (deviceId.equals(selectedDeviceId)) {
             deselectCurrentDevice();
-            Toast.makeText(requireContext(), "Deselected: " + deviceId, Toast.LENGTH_SHORT).show();
-            return;
         }
 
-        // Special navigation
-        if ("l_10".equals(deviceId)) {
-            Intent intent = new Intent(requireContext(), ScannerActivity.class);
-            intent.putExtra("device_id", deviceId);
-            startActivity(intent);
-            return;
-        }
-
+        // Highlight on map first, then open detail screen
         deselectCurrentDevice();
         selectDevice(deviceId);
 
+        // Open DeviceDetailActivity — Toast logic lives there
         DeviceInfo device = deviceMap.get(deviceId);
-        String msg = "Device: " + deviceId;
-        if (device != null && device.elementId != null) {
-            msg += " | ID: " + device.elementId;
-        }
-        Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show();
-        Log.d(TAG, "Selected: " + deviceId);
+        Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
+                device != null ? device.elementId : null);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
+        startActivity(intent);
+
+        Log.d(TAG, "Opened detail for: " + deviceId);
     }
 
     private void selectDevice(String deviceId) {
@@ -1254,16 +1135,10 @@ public class NetworkFragment extends Fragment {
         reRenderSvg();
     }
 
-    /**
-     * Gets the fill color of an element, checking the element itself first,
-     * then its children, then falling back to default.
-     */
     private String getElementFill(Element element) {
-        // Check fill attribute
         String fill = element.getAttribute("fill");
         if (fill != null && !fill.isEmpty() && !"none".equals(fill)) return fill;
 
-        // Check style attribute for fill
         String style = element.getAttribute("style");
         if (style != null && style.contains("fill:")) {
             int idx = style.indexOf("fill:") + 5;
@@ -1272,7 +1147,6 @@ public class NetworkFragment extends Fragment {
             if (!f.isEmpty() && !"none".equals(f)) return f;
         }
 
-        // Check children
         NodeList children = element.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
@@ -1282,27 +1156,20 @@ public class NetworkFragment extends Fragment {
             }
         }
 
-        return "#fb0"; // Default amber (matches SVG devices)
+        return "#fb0";
     }
 
-    /**
-     * Sets fill color on element AND all descendant shape elements.
-     * This ensures groups with nested shapes are fully recolored.
-     */
     private void setElementFillDeep(Element element, String color) {
         String tag = element.getTagName().toLowerCase();
         if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
 
-        // Set fill on shape elements directly
         if (!"g".equals(tag) && !"metadata".equals(tag) && !"defs".equals(tag)) {
             String existing = element.getAttribute("fill");
-            // Don't recolor elements with fill="none" (they're strokes/outlines)
             if (!"none".equals(existing)) {
                 element.setAttribute("fill", color);
             }
         }
 
-        // Recurse into children
         NodeList children = element.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
