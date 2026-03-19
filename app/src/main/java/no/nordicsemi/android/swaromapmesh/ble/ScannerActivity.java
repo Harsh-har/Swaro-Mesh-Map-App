@@ -76,6 +76,11 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private long     mScanStartTime;
 
     // -----------------------------------------------------------------------
+    // Auto-click flag — set true when SW-RL01-006 (or any specific device) is selected
+    // -----------------------------------------------------------------------
+    private boolean mAutoClickEnabled = false;
+
+    // -----------------------------------------------------------------------
     // Activity Result Launchers
     // -----------------------------------------------------------------------
 
@@ -237,11 +242,27 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     String.format("Looking for device: %s...", formatMacForDisplay(targetProxyMac)));
         }
 
+        // -----------------------------------------------------------------------
         // Observe selected device (spinner) from SharedViewModel
+        // Enables auto-click when a specific device filter is selected
+        // -----------------------------------------------------------------------
         mSharedViewModel.getSelectedDevice().observe(this, device -> {
             mCurrentDeviceFilter = (device != null && !device.equals("All Device")) ? device : "";
-            Log.d(TAG, "Device filter changed: '" + mCurrentDeviceFilter + "'");
+
+            // Enable auto-click ONLY when a specific device is selected (not "All Device")
+            mAutoClickEnabled = device != null
+                    && !device.equals("All Device")
+                    && !device.isEmpty();
+
+            Log.d(TAG, "Device filter changed: '" + mCurrentDeviceFilter
+                    + "' | autoClick=" + mAutoClickEnabled);
+
             applyFilterToAdapter();
+
+            // Try immediately in case device is already in the scan list
+            if (mAutoClickEnabled) {
+                tryAutoClickTargetDevice();
+            }
         });
 
         // Observe signal threshold from SharedViewModel — Default or 100% only
@@ -251,10 +272,61 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             applyFilterToAdapter();
         });
 
+        // -----------------------------------------------------------------------
         // Re-apply filters when new scan results arrive
+        // Also triggers auto-click check on every new result
+        // -----------------------------------------------------------------------
         mViewModel.getScannerRepository().getScannerResults().observe(this, scannerLiveData -> {
             applyFilterToAdapter();
+
+            // Auto-click if a specific device filter is active and device is found
+            if (mAutoClickEnabled) {
+                tryAutoClickTargetDevice();
+            }
         });
+    }
+
+    // -----------------------------------------------------------------------
+    // Auto-click logic
+    // Scans current results for the filtered device and auto-triggers onItemClick
+    // -----------------------------------------------------------------------
+
+    /**
+     * Searches current BLE scan results for a device matching {@code mCurrentDeviceFilter}.
+     * If found, automatically triggers {@link #onItemClick(ExtendedBluetoothDevice)}
+     * exactly as if the user had tapped the device row manually.
+     *
+     * Guards:
+     *  - Only runs when {@code mAutoClickEnabled} is true
+     *  - Skipped if a reconnect or proxy connect is already in progress
+     *  - Resets {@code mAutoClickEnabled} to false after firing to prevent repeated clicks
+     */
+    private void tryAutoClickTargetDevice() {
+        if (!mAutoClickEnabled) return;
+        if (mReconnectLaunched || mProxyConnected) return;
+        if (mCurrentDeviceFilter == null || mCurrentDeviceFilter.isEmpty()) return;
+
+        ScannerLiveData results = mViewModel.getScannerRepository().getScannerResults();
+        if (results == null || results.getDevices() == null) return;
+
+        for (ExtendedBluetoothDevice device : results.getDevices()) {
+            String name = device.getName();
+            if (name != null
+                    && name.toLowerCase().contains(mCurrentDeviceFilter.toLowerCase())) {
+
+                Log.i(TAG, "Auto-click triggered for device: "
+                        + name + " [" + device.getAddress() + "]");
+
+                // Disable auto-click before calling onItemClick to prevent re-entry
+                mAutoClickEnabled = false;
+
+                // Reuse exact same logic as a manual tap
+                onItemClick(device);
+                return;
+            }
+        }
+
+        Log.d(TAG, "Auto-click: '" + mCurrentDeviceFilter + "' not found yet, waiting for next scan result...");
     }
 
     // -----------------------------------------------------------------------
@@ -327,7 +399,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     }
 
     // -----------------------------------------------------------------------
-    // Device click
+    // Device click — manual OR auto-triggered
     // -----------------------------------------------------------------------
 
     @Override
