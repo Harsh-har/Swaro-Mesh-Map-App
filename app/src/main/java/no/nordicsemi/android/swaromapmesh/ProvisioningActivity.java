@@ -490,7 +490,13 @@ public class ProvisioningActivity extends AppCompatActivity implements
     private void setResultIntent() {
         final Intent returnIntent = new Intent();
 
-        // Add device info for auto-connect
+        // ✅ Pass SVG device ID back up the chain to DeviceDetailActivity
+        String svgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
+        if (svgDeviceId != null) {
+            returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, svgDeviceId);
+            Log.d(TAG, "Returning svgDeviceId: " + svgDeviceId);
+        }
+
         returnIntent.putExtra(Utils.EXTRA_DEVICE, mDevice);
         returnIntent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, mDevice.getAddress());
         returnIntent.putExtra(Utils.EXTRA_AUTO_CONNECT_AFTER_PROVISIONING, true);
@@ -499,25 +505,27 @@ public class ProvisioningActivity extends AppCompatActivity implements
             returnIntent.putExtra(Utils.PROVISIONING_COMPLETED, true);
             returnIntent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
 
-            final ProvisionerProgress progress = mViewModel.getProvisioningStatus().getProvisionerProgress();
-            if (progress != null && progress.getState() == ProvisionerStates.PROVISIONER_UNASSIGNED) {
+            final ProvisionerProgress progress =
+                    mViewModel.getProvisioningStatus().getProvisionerProgress();
+            if (progress != null
+                    && progress.getState() == ProvisionerStates.PROVISIONER_UNASSIGNED) {
                 returnIntent.putExtra(Utils.PROVISIONER_UNASSIGNED, true);
             } else {
                 if (mViewModel.isCompositionDataStatusReceived()) {
                     returnIntent.putExtra(Utils.COMPOSITION_DATA_COMPLETED, true);
                     if (mViewModel.isDefaultTtlReceived()) {
                         returnIntent.putExtra(Utils.DEFAULT_GET_COMPLETED, true);
-                        if (mViewModel.getNetworkLiveData().getMeshNetwork().getAppKeys().isEmpty() || mViewModel.isAppKeyAddCompleted()) {
+                        if (mViewModel.getNetworkLiveData().getMeshNetwork()
+                                .getAppKeys().isEmpty() || mViewModel.isAppKeyAddCompleted()) {
                             returnIntent.putExtra(Utils.APP_KEY_ADD_COMPLETED, true);
                         }
                     }
                 }
             }
 
-            // Log the final unicast address
             MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
             if (network != null) {
-                Log.d(TAG, "PROVISIONING COMPLETED with unicast address: " +
+                Log.d(TAG, "PROVISIONING COMPLETED unicast: " +
                         String.format("0x%04X", network.getUnicastAddress()));
             }
         }
@@ -525,7 +533,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
         setResult(Activity.RESULT_OK, returnIntent);
         finish();
     }
-
     @Override
     public void onPublicKeyAdded(@Nullable final byte[] publicKey) {
         final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();

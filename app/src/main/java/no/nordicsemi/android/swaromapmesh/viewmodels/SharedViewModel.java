@@ -10,7 +10,9 @@ import androidx.lifecycle.MutableLiveData;
 
 import java.io.OutputStream;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import javax.inject.Inject;
 
@@ -26,12 +28,13 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     private final ScannerRepository mScannerRepository;
     private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 
-    private static final String PREFS_NAME              = "mesh_prefs";
-    private static final String KEY_PROXY_ENABLED       = "proxy_enabled";
-    private static final String KEY_SELECTED_DEVICE     = "selected_device";
-    private static final String KEY_SIGNAL_THRESHOLD    = "signal_threshold";
-    private static final String KEY_SVG_URI             = "svg_uri";
-    private static final String DEFAULT_SELECTED_DEVICE = "All Device";
+    private static final String PREFS_NAME               = "mesh_prefs";
+    private static final String KEY_PROXY_ENABLED        = "proxy_enabled";
+    private static final String KEY_SELECTED_DEVICE      = "selected_device";
+    private static final String KEY_SIGNAL_THRESHOLD     = "signal_threshold";
+    private static final String KEY_SVG_URI              = "svg_uri";
+    private static final String KEY_PROVISIONED_DEVICES  = "provisioned_devices";
+    private static final String DEFAULT_SELECTED_DEVICE  = "All Device";
 
     private final SharedPreferences prefs;
 
@@ -40,6 +43,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     private final MutableLiveData<Integer>  signalThreshold  = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
     private final MutableLiveData<Uri>      svgUri           = new MutableLiveData<>();
     private final MutableLiveData<String>   selectedDeviceId = new MutableLiveData<>();
+    private final MutableLiveData<Set<String>> provisionedDeviceIds = new MutableLiveData<>(new HashSet<>());
     private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices         = new MutableLiveData<>(new ArrayList<>());
     private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices = new MutableLiveData<>(new ArrayList<>());
 
@@ -64,6 +68,12 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         if (savedSvgUri != null) {
             svgUri.setValue(Uri.parse(savedSvgUri));
         }
+
+        // Load persisted provisioned device IDs
+        // Must copy the returned set — SharedPreferences holds the reference internally
+        // and mutating it directly causes undefined behaviour
+        Set<String> savedProvisioned = prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
+        provisionedDeviceIds.setValue(new HashSet<>(savedProvisioned));
     }
 
     @Override
@@ -75,7 +85,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         mScannerRepository.unregisterBroadcastReceivers();
     }
 
-    // ---------------- NETWORK ----------------
+    // ==================== NETWORK ====================
 
     public LiveData<String> getNetworkLoadState() {
         return mNrfMeshRepository.getNetworkLoadState();
@@ -109,7 +119,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         networkExportState.postValue(error);
     }
 
-    // ---------------- SVG URI (PERSISTENT) ----------------
+    // ==================== SVG URI (PERSISTENT) ====================
 
     public LiveData<Uri> getSvgUri() { return svgUri; }
 
@@ -131,7 +141,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         prefs.edit().remove(KEY_SVG_URI).apply();
     }
 
-    // ---------------- PROXY BUTTON STATE (PERSISTENT) ----------------
+    // ==================== PROXY BUTTON STATE (PERSISTENT) ====================
 
     public LiveData<Boolean> getProxyEnabled() { return proxyEnabled; }
 
@@ -145,16 +155,15 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         return v != null && v;
     }
 
-    // ---------------- DEVICE NAME FILTER (stub — field removed from UI) ----------------
+    // ==================== DEVICE NAME FILTER (stub) ====================
 
     public void setDeviceNameFilter(String filter) {
-        // Name filter field removed from UI; always store empty
         prefs.edit().putString("device_name_filter", "").apply();
     }
 
     public String getDeviceNameFilterValue() { return ""; }
 
-    // ---------------- SELECTED DEVICE (PERSISTENT) ----------------
+    // ==================== SELECTED DEVICE (PERSISTENT) ====================
 
     public LiveData<String> getSelectedDevice() { return selectedDevice; }
 
@@ -175,12 +184,11 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void clearSelectedDevice() { setSelectedDevice(DEFAULT_SELECTED_DEVICE); }
 
-    // ---------------- SIGNAL STRENGTH THRESHOLD (PERSISTENT) — Default or 100% only ----------------
+    // ==================== SIGNAL STRENGTH THRESHOLD (PERSISTENT) ====================
 
     public LiveData<Integer> getSignalThreshold() { return signalThreshold; }
 
     public void setSignalThreshold(int threshold) {
-        // Sanitize: only SIGNAL_DEFAULT or SIGNAL_100 allowed
         int sanitized = (threshold == DevicesAdapter.SIGNAL_100)
                 ? DevicesAdapter.SIGNAL_100
                 : DevicesAdapter.SIGNAL_DEFAULT;
@@ -195,7 +203,65 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void clearSignalThreshold() { setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT); }
 
-    // ---------------- FILTERED DEVICES ----------------
+    // ==================== PROVISIONED DEVICE IDs (PERSISTENT) ====================
+
+    /**
+     * Observe this to react when any device becomes provisioned.
+     * NetworkFragment uses this to turn SVG icons green.
+     */
+    public LiveData<Set<String>> getProvisionedDeviceIds() {
+        return provisionedDeviceIds;
+    }
+
+    /**
+     * Returns true if the given SVG device ID has been successfully provisioned.
+     */
+    public boolean isDeviceProvisioned(String svgDeviceId) {
+        if (svgDeviceId == null) return false;
+        Set<String> set = provisionedDeviceIds.getValue();
+        return set != null && set.contains(svgDeviceId);
+    }
+
+    /**
+     * Call this after a successful provisioning flow.
+     * Adds the SVG device ID to the persisted set and notifies observers.
+     */
+    public void markDeviceProvisioned(String svgDeviceId) {
+        if (svgDeviceId == null) return;
+        // Always work on a fresh copy — never mutate the set held by LiveData directly
+        Set<String> current = new HashSet<>();
+        if (provisionedDeviceIds.getValue() != null) {
+            current.addAll(provisionedDeviceIds.getValue());
+        }
+        current.add(svgDeviceId);
+        provisionedDeviceIds.setValue(current);
+        // Persist — pass a copy because SharedPreferences may hold the reference
+        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
+    }
+
+    /**
+     * Remove a single device from the provisioned set (e.g. after reset/deprovisioning).
+     */
+    public void unmarkDeviceProvisioned(String svgDeviceId) {
+        if (svgDeviceId == null) return;
+        Set<String> current = new HashSet<>();
+        if (provisionedDeviceIds.getValue() != null) {
+            current.addAll(provisionedDeviceIds.getValue());
+        }
+        current.remove(svgDeviceId);
+        provisionedDeviceIds.setValue(current);
+        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
+    }
+
+    /**
+     * Clear all provisioned devices (e.g. full network reset).
+     */
+    public void clearProvisionedDevices() {
+        provisionedDeviceIds.setValue(new HashSet<>());
+        prefs.edit().remove(KEY_PROVISIONED_DEVICES).apply();
+    }
+
+    // ==================== FILTERED DEVICES ====================
 
     public LiveData<List<ExtendedBluetoothDevice>> getFilteredDevices() { return filteredDevices; }
 
@@ -211,7 +277,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void clearFilteredDevices() { filteredDevices.setValue(new ArrayList<>()); }
 
-    // ---------------- ALL UNPROVISIONED DEVICES ----------------
+    // ==================== ALL UNPROVISIONED DEVICES ====================
 
     public LiveData<List<ExtendedBluetoothDevice>> getAllUnprovisionedDevices() { return allUnprovisionedDevices; }
 
@@ -236,7 +302,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void clearAllUnprovisionedDevices() { allUnprovisionedDevices.setValue(new ArrayList<>()); }
 
-    // ---------------- FILTER UTILITY ----------------
+    // ==================== FILTER UTILITY ====================
 
     public boolean isFilterActive() {
         return !getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)
@@ -292,7 +358,7 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         setFilteredDevices(applyFilter(getAllUnprovisionedDevicesValue()));
     }
 
-    // ---------------- SCANNER REPOSITORY ACCESS ----------------
+    // ==================== SCANNER REPOSITORY ACCESS ====================
 
     public ScannerRepository getScannerRepository() { return mScannerRepository; }
 

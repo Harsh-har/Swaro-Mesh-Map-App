@@ -1,7 +1,9 @@
 package no.nordicsemi.android.swaromapmesh;
 
 import android.animation.ValueAnimator;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.graphics.Matrix;
 import android.graphics.Picture;
 import android.graphics.RectF;
@@ -26,7 +28,6 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
 
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
@@ -39,9 +40,12 @@ import org.w3c.dom.NodeList;
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -55,27 +59,29 @@ import javax.xml.transform.stream.StreamResult;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
-import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
 public class NetworkFragment extends Fragment {
 
     private static final String TAG = "NetworkFragment";
-    private static final float MAX_ZOOM = 10f;
-    private static final float DOUBLE_TAP_ZOOM = 2.5f;
-    private static final float TAP_TOLERANCE = 8f;
-    private static final long ANIMATION_DURATION = 280L;
-    private static final int FLING_DURATION = 2000;
+    private static final float  MAX_ZOOM        = 10f;
+    private static final float  DOUBLE_TAP_ZOOM = 2.5f;
+    private static final float  TAP_TOLERANCE   = 8f;
+    private static final long   ANIMATION_DURATION = 280L;
+    private static final int    FLING_DURATION     = 2000;
+
+    private static final String COLOR_SELECTED    = "#ff0000";
+    private static final String COLOR_PROVISIONED = "#00aa00";
+
+    // SharedPreferences keys — same as SharedViewModel
+    private static final String PREFS_NAME              = "mesh_prefs";
+    private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
 
     private FragmentNetworkBinding binding;
-    private SharedViewModel mViewModel;
 
-    // Use TWO threads: one for heavy load, one dedicated for fast re-render
     private final ExecutorService loadExecutor   = Executors.newSingleThreadExecutor();
     private final ExecutorService renderExecutor = Executors.newSingleThreadExecutor();
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
-
-    // Cancels any pending re-render if a new tap comes in before the previous finishes
     private Future<?> pendingRender;
 
     // ==================== DATA MODEL ====================
@@ -87,40 +93,49 @@ public class NetworkFragment extends Fragment {
         String elementId;
 
         DeviceInfo(String id, Element element, RectF bounds, String elementId) {
-            this.id = id;
-            this.element = element;
-            this.bounds = bounds;
+            this.id        = id;
+            this.element   = element;
+            this.bounds    = bounds;
             this.elementId = elementId;
         }
     }
 
     // ==================== ZOOM / PAN STATE ====================
 
-    private final Matrix matrix = new Matrix();
+    private final Matrix  matrix       = new Matrix();
     private final float[] matrixValues = new float[9];
     private float minZoom = 1f;
     private float lastTouchX, lastTouchY;
-    private boolean isDragging = false;
-    private int activePointerId = MotionEvent.INVALID_POINTER_ID;
+    private boolean isDragging     = false;
+    private int     activePointerId = MotionEvent.INVALID_POINTER_ID;
 
     private ScaleGestureDetector scaleDetector;
-    private GestureDetector gestureDetector;
-    private OverScroller scroller;
-    private VelocityTracker velocityTracker;
-    private ValueAnimator flingAnimator;
-    private ValueAnimator zoomAnimator;
+    private GestureDetector      gestureDetector;
+    private OverScroller         scroller;
+    private VelocityTracker      velocityTracker;
+    private ValueAnimator        flingAnimator;
+    private ValueAnimator        zoomAnimator;
 
-    private float tapDownX, tapDownY;
-    private long tapDownTime;
+    private float   tapDownX, tapDownY;
+    private long    tapDownTime;
     private boolean hasMoved = false;
-    private static final float TAP_MOVE_SLOP = 10f;
-    private static final long TAP_MAX_DURATION = 250;
+    private static final float TAP_MOVE_SLOP    = 10f;
+    private static final long  TAP_MAX_DURATION = 250;
 
     // ==================== SVG STATE ====================
 
-    private SVG currentSvg;
+    private SVG      currentSvg;
     private Document svgDocument;
     private final Map<String, DeviceInfo> deviceMap = new LinkedHashMap<>();
+
+    /**
+     * KEY: System.identityHashCode(element)       → fill attribute value
+     * KEY: -(System.identityHashCode(element))    → style attribute value
+     * Saved ONCE after SVG load, NEVER modified again.
+     */
+    private final Map<Integer, String> originalFillMap = new HashMap<>();
+
+    // Currently red-highlighted device
     private String selectedDeviceId;
 
     private float vbX = 0f, vbY = 0f, vbW = 1200f, vbH = 640f;
@@ -133,31 +148,57 @@ public class NetworkFragment extends Fragment {
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
         binding = FragmentNetworkBinding.inflate(inflater, container, false);
-        mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
         setupZoomAndPan();
         showPlaceholder(true);
         loadSVGFromAssets("output.svg");
         return binding.getRoot();
     }
 
+    /**
+     * Called every time user returns to this screen.
+     * Reads provisioned devices DIRECTLY from SharedPreferences —
+     * avoids ViewModel scope mismatch between DeviceDetailActivity and NetworkFragment.
+     */
     @Override
-    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
-        super.onViewCreated(view, savedInstanceState);
-        mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
-            if (uri != null) loadSvg(uri);
-        });
+    public void onResume() {
+        super.onResume();
+        if (svgDocument == null || deviceMap.isEmpty()) return;
+
+        selectedDeviceId = null;
+
+        Set<String> provisioned = getProvisionedFromPrefs();
+        Log.d(TAG, "onResume — provisioned from prefs: " + provisioned);
+        refreshAllColors(provisioned);
+        reRenderSvg();
     }
 
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        if (flingAnimator != null) flingAnimator.cancel();
-        if (zoomAnimator != null) zoomAnimator.cancel();
-        if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
+        if (flingAnimator  != null) flingAnimator.cancel();
+        if (zoomAnimator   != null) zoomAnimator.cancel();
+        if (velocityTracker != null) {
+            velocityTracker.recycle();
+            velocityTracker = null;
+        }
         if (pendingRender != null) pendingRender.cancel(true);
         loadExecutor.shutdownNow();
         renderExecutor.shutdownNow();
         binding = null;
+    }
+
+    // ==================== PREFS HELPER ====================
+
+    /**
+     * Read provisioned device IDs directly from SharedPreferences.
+     * Returns a fresh defensive copy — never returns the internal set reference.
+     */
+    private Set<String> getProvisionedFromPrefs() {
+        if (getContext() == null) return new HashSet<>();
+        SharedPreferences prefs = requireContext()
+                .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        Set<String> raw = prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
+        return new HashSet<>(raw); // defensive copy
     }
 
     // ==================== UI STATE ====================
@@ -200,32 +241,49 @@ public class NetworkFragment extends Fragment {
                 }
                 if (!found) {
                     mainHandler.post(() -> {
-                        showLoading(false); showPlaceholder(true);
+                        showLoading(false);
+                        showPlaceholder(true);
                         Toast.makeText(requireContext(),
-                                "SVG not found: " + assetFileName, Toast.LENGTH_LONG).show();
+                                "SVG not found: " + assetFileName,
+                                Toast.LENGTH_LONG).show();
                     });
                     return;
                 }
-                InputStream is1 = requireContext().getAssets().open(assetFileName);
-                Document document = parseDocument(is1);
+
+                InputStream is1      = requireContext().getAssets().open(assetFileName);
+                Document    document = parseDocument(is1);
                 is1.close();
 
                 InputStream is2 = requireContext().getAssets().open(assetFileName);
-                SVG svg = SVG.getFromInputStream(is2);
+                SVG         svg = SVG.getFromInputStream(is2);
                 is2.close();
 
                 if (document != null) parseViewBox(document);
                 Map<String, DeviceInfo> devices = extractDevices(document);
 
                 mainHandler.post(() -> {
-                    currentSvg = svg;
+                    currentSvg  = svg;
                     svgDocument = document;
                     deviceMap.clear();
                     deviceMap.putAll(devices);
+
+                    // Snapshot original colors ONCE
+                    originalFillMap.clear();
+                    for (DeviceInfo info : deviceMap.values()) {
+                        snapshotOriginalColors(info.element);
+                    }
+                    Log.d(TAG, "Snapshotted " + originalFillMap.size()
+                            + " fills for " + deviceMap.size() + " devices");
+
+                    // Apply colors from SharedPreferences
+                    Set<String> provisioned = getProvisionedFromPrefs();
+                    refreshAllColors(provisioned);
+
                     renderSvg(svg);
                     showLoading(false);
                     logDeviceMap();
                 });
+
             } catch (SVGParseException e) {
                 Log.e(TAG, "SVG parse error", e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
@@ -248,22 +306,32 @@ public class NetworkFragment extends Fragment {
                 SVG svg = SVG.getFromInputStream(is1);
                 is1.close();
 
-                InputStream is2 = requireContext().getContentResolver().openInputStream(uri);
-                Document document = parseDocument(is2);
+                InputStream is2      = requireContext().getContentResolver().openInputStream(uri);
+                Document    document = parseDocument(is2);
                 if (is2 != null) is2.close();
 
                 if (document != null) parseViewBox(document);
                 Map<String, DeviceInfo> devices = extractDevices(document);
 
                 mainHandler.post(() -> {
-                    currentSvg = svg;
+                    currentSvg  = svg;
                     svgDocument = document;
                     deviceMap.clear();
                     deviceMap.putAll(devices);
+
+                    originalFillMap.clear();
+                    for (DeviceInfo info : deviceMap.values()) {
+                        snapshotOriginalColors(info.element);
+                    }
+
+                    Set<String> provisioned = getProvisionedFromPrefs();
+                    refreshAllColors(provisioned);
+
                     renderSvg(svg);
                     showLoading(false);
                     logDeviceMap();
                 });
+
             } catch (Exception e) {
                 Log.e(TAG, "Error loading SVG from URI", e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
@@ -272,12 +340,12 @@ public class NetworkFragment extends Fragment {
     }
 
     private void logDeviceMap() {
-        if (deviceMap.isEmpty()) { Log.w(TAG, "No devices found in SVG"); return; }
+        if (deviceMap.isEmpty()) { Log.w(TAG, "No devices found"); return; }
         Log.d(TAG, deviceMap.size() + " devices found");
         for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
             DeviceInfo d = e.getValue();
-            Log.d(TAG, "Device: " + d.id + " | elementId=" + d.elementId
-                    + " | bounds=" + d.bounds.toShortString());
+            Log.d(TAG, "Device: " + d.id + " elementId=" + d.elementId
+                    + " bounds=" + d.bounds.toShortString());
         }
     }
 
@@ -290,9 +358,12 @@ public class NetworkFragment extends Fragment {
             factory.setNamespaceAware(false);
             factory.setValidating(false);
             try {
-                factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-                factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+                factory.setFeature(
+                        "http://xml.org/sax/features/external-general-entities", false);
+                factory.setFeature(
+                        "http://xml.org/sax/features/external-parameter-entities", false);
+                factory.setFeature(
+                        "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
             } catch (Exception ignored) {}
             DocumentBuilder builder = factory.newDocumentBuilder();
             builder.setEntityResolver((pub, sys) ->
@@ -308,15 +379,18 @@ public class NetworkFragment extends Fragment {
 
     private void parseViewBox(Document document) {
         Element root = document.getDocumentElement();
-        String vb = root.getAttribute("viewBox");
+        String  vb   = root.getAttribute("viewBox");
         if (vb != null && !vb.isEmpty()) {
             String[] parts = vb.trim().split("[\\s,]+");
             if (parts.length == 4) {
                 try {
-                    vbX = Float.parseFloat(parts[0]); vbY = Float.parseFloat(parts[1]);
-                    vbW = Float.parseFloat(parts[2]); vbH = Float.parseFloat(parts[3]);
-                    Log.d(TAG, "ViewBox: x=" + vbX + " y=" + vbY + " w=" + vbW + " h=" + vbH);
-                } catch (NumberFormatException e) { Log.e(TAG, "Invalid viewBox", e); }
+                    vbX = Float.parseFloat(parts[0]);
+                    vbY = Float.parseFloat(parts[1]);
+                    vbW = Float.parseFloat(parts[2]);
+                    vbH = Float.parseFloat(parts[3]);
+                } catch (NumberFormatException e) {
+                    Log.e(TAG, "Invalid viewBox", e);
+                }
             }
         } else {
             try {
@@ -335,29 +409,31 @@ public class NetworkFragment extends Fragment {
         Map<String, DeviceInfo> devices = new LinkedHashMap<>();
         if (document == null) return devices;
         try {
-            Element devicesGroup = findElementById(document.getDocumentElement(), "Devices");
+            Element devicesGroup =
+                    findElementById(document.getDocumentElement(), "Devices");
             if (devicesGroup == null) {
                 Log.w(TAG, "No <g id='Devices'> found — scanning full document");
                 recurseForDevices(document.getDocumentElement(), devices);
             } else {
                 recurseForDevices(devicesGroup, devices);
             }
-        } catch (Exception e) { Log.e(TAG, "Error extracting devices", e); }
+        } catch (Exception e) {
+            Log.e(TAG, "Error extracting devices", e);
+        }
         return devices;
     }
 
     private void recurseForDevices(Element el, Map<String, DeviceInfo> devices) {
-        String id = el.getAttribute("id");
-        boolean isContainer = "Devices".equals(id) || "ENGRS".equals(id);
+        String  id          = el.getAttribute("id");
+        boolean isContainer = "Devices".equals(id) || "ENGRS".equals(id)
+                || "ENGRD".equals(id);
         if (!isContainer && !id.isEmpty()) {
             processDeviceElement(el, devices);
         }
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
-            if (child instanceof Element) {
-                recurseForDevices((Element) child, devices);
-            }
+            if (child instanceof Element) recurseForDevices((Element) child, devices);
         }
     }
 
@@ -369,11 +445,9 @@ public class NetworkFragment extends Fragment {
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
         devices.put(id, new DeviceInfo(id, el, bounds, elementId));
-        Log.d(TAG, "Registered: id=" + id + " elementId=" + elementId
+        Log.d(TAG, "Registered device: id=" + id + " elementId=" + elementId
                 + " bounds=" + bounds.toShortString());
     }
-
-    // ==================== ELEMENT SEARCH ====================
 
     private Element findElementById(Element root, String targetId) {
         if (targetId.equals(root.getAttribute("id"))) return root;
@@ -408,14 +482,15 @@ public class NetworkFragment extends Fragment {
     }
 
     private RectF computeGroupBounds(Element element) {
-        RectF union = null;
+        RectF    union    = null;
         NodeList children = element.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element) {
                 RectF b = computeBounds((Element) child);
                 if (b != null && !b.isEmpty()) {
-                    if (union == null) union = new RectF(b); else union.union(b);
+                    if (union == null) union = new RectF(b);
+                    else union.union(b);
                 }
             }
         }
@@ -423,31 +498,39 @@ public class NetworkFragment extends Fragment {
     }
 
     private RectF computeRectBounds(Element el) {
-        Float x = fa(el,"x"), y = fa(el,"y"), w = fa(el,"width"), h = fa(el,"height");
+        Float x = fa(el,"x"), y = fa(el,"y"),
+                w = fa(el,"width"), h = fa(el,"height");
         if (w == null || h == null || w <= 0 || h <= 0) return null;
-        float xv = x!=null?x:0f, yv = y!=null?y:0f;
-        return new RectF(xv, yv, xv+w, yv+h);
+        float xv = x != null ? x : 0f, yv = y != null ? y : 0f;
+        return new RectF(xv, yv, xv + w, yv + h);
     }
 
     private RectF computeCircleBounds(Element el) {
         Float cx = fa(el,"cx"), cy = fa(el,"cy"), r = fa(el,"r");
         if (r == null || r <= 0) return null;
-        float cxv = cx!=null?cx:0f, cyv = cy!=null?cy:0f;
-        return new RectF(cxv-r, cyv-r, cxv+r, cyv+r);
+        float cxv = cx != null ? cx : 0f, cyv = cy != null ? cy : 0f;
+        return new RectF(cxv - r, cyv - r, cxv + r, cyv + r);
     }
 
     private RectF computeEllipseBounds(Element el) {
-        Float cx = fa(el,"cx"), cy = fa(el,"cy"), rx = fa(el,"rx"), ry = fa(el,"ry");
+        Float cx = fa(el,"cx"), cy = fa(el,"cy"),
+                rx = fa(el,"rx"), ry = fa(el,"ry");
         if (rx == null || ry == null) return null;
-        float cxv = cx!=null?cx:0f, cyv = cy!=null?cy:0f;
-        return new RectF(cxv-rx, cyv-ry, cxv+rx, cyv+ry);
+        float cxv = cx != null ? cx : 0f, cyv = cy != null ? cy : 0f;
+        return new RectF(cxv - rx, cyv - ry, cxv + rx, cyv + ry);
     }
 
-    private RectF computePathBounds(Element el)  { return parsePathBounds(el.getAttribute("d")); }
-    private RectF computePolyBounds(Element el)  { return parsePointsBounds(el.getAttribute("points")); }
+    private RectF computePathBounds(Element el) {
+        return parsePathBounds(el.getAttribute("d"));
+    }
+
+    private RectF computePolyBounds(Element el) {
+        return parsePointsBounds(el.getAttribute("points"));
+    }
 
     private RectF computeLineBounds(Element el) {
-        Float x1=fa(el,"x1"), y1=fa(el,"y1"), x2=fa(el,"x2"), y2=fa(el,"y2");
+        Float x1 = fa(el,"x1"), y1 = fa(el,"y1"),
+                x2 = fa(el,"x2"), y2 = fa(el,"y2");
         float x1v=x1!=null?x1:0f, y1v=y1!=null?y1:0f,
                 x2v=x2!=null?x2:0f, y2v=y2!=null?y2:0f;
         return new RectF(Math.min(x1v,x2v), Math.min(y1v,y2v),
@@ -455,48 +538,55 @@ public class NetworkFragment extends Fragment {
     }
 
     private RectF computeUseBounds(Element el) {
-        Float x=fa(el,"x"), y=fa(el,"y"), w=fa(el,"width"), h=fa(el,"height");
-        if (w==null||h==null) return null;
+        Float x = fa(el,"x"), y = fa(el,"y"),
+                w = fa(el,"width"), h = fa(el,"height");
+        if (w == null || h == null) return null;
         float xv=x!=null?x:0f, yv=y!=null?y:0f;
-        return new RectF(xv, yv, xv+w, yv+h);
+        return new RectF(xv, yv, xv + w, yv + h);
     }
 
     private Float fa(Element el, String attr) {
         String v = el.getAttribute(attr);
-        if (v==null||v.isEmpty()) return null;
-        try { return Float.parseFloat(v.trim()); } catch (NumberFormatException e) { return null; }
+        if (v == null || v.isEmpty()) return null;
+        try { return Float.parseFloat(v.trim()); }
+        catch (NumberFormatException e) { return null; }
     }
 
     // ==================== PATH BOUNDS ====================
 
     private RectF parsePathBounds(String d) {
-        if (d==null||d.isEmpty()) return null;
-        List<Float> xs=new ArrayList<>(), ys=new ArrayList<>();
-        String cleaned = d.replaceAll("([MmLlHhVvCcSsQqTtAaZz])"," $1 ")
-                .replaceAll("([0-9])-","$1 -").trim();
-        String[] tokens = cleaned.split("[\\s,]+");
-        char cmd='M'; float curX=0,curY=0,startX=0,startY=0;
-        List<Float> args = new ArrayList<>();
+        if (d == null || d.isEmpty()) return null;
+        List<Float> xs = new ArrayList<>(), ys = new ArrayList<>();
+        String cleaned = d.replaceAll("([MmLlHhVvCcSsQqTtAaZz])", " $1 ")
+                .replaceAll("([0-9])-", "$1 -").trim();
+        String[]    tokens = cleaned.split("[\\s,]+");
+        char        cmd    = 'M';
+        float       curX = 0, curY = 0, startX = 0, startY = 0;
+        List<Float> args   = new ArrayList<>();
         for (String token : tokens) {
             if (token.isEmpty()) continue;
             if (Character.isLetter(token.charAt(0))) {
-                ppCmd(cmd, args, xs, ys, new float[]{curX}, new float[]{curY},
+                ppCmd(cmd, args, xs, ys,
+                        new float[]{curX}, new float[]{curY},
                         new float[]{startX}, new float[]{startY});
-                if (!xs.isEmpty()) curX=xs.get(xs.size()-1);
-                if (!ys.isEmpty()) curY=ys.get(ys.size()-1);
-                cmd=token.charAt(0); args.clear();
+                if (!xs.isEmpty()) curX = xs.get(xs.size() - 1);
+                if (!ys.isEmpty()) curY = ys.get(ys.size() - 1);
+                cmd = token.charAt(0);
+                args.clear();
             } else {
-                try { args.add(Float.parseFloat(token)); } catch (NumberFormatException ignored) {}
+                try { args.add(Float.parseFloat(token)); }
+                catch (NumberFormatException ignored) {}
             }
         }
-        ppCmd(cmd, args, xs, ys, new float[]{curX}, new float[]{curY},
+        ppCmd(cmd, args, xs, ys,
+                new float[]{curX}, new float[]{curY},
                 new float[]{startX}, new float[]{startY});
-        if (xs.isEmpty()||ys.isEmpty()) return null;
+        if (xs.isEmpty() || ys.isEmpty()) return null;
         float minX=Float.MAX_VALUE, maxX=-Float.MAX_VALUE,
                 minY=Float.MAX_VALUE, maxY=-Float.MAX_VALUE;
-        for (float x:xs){if(x<minX)minX=x;if(x>maxX)maxX=x;}
-        for (float y:ys){if(y<minY)minY=y;if(y>maxY)maxY=y;}
-        return minX==Float.MAX_VALUE ? null : new RectF(minX, minY, maxX, maxY);
+        for (float x : xs) { if (x<minX) minX=x; if (x>maxX) maxX=x; }
+        for (float y : ys) { if (y<minY) minY=y; if (y>maxY) maxY=y; }
+        return minX == Float.MAX_VALUE ? null : new RectF(minX, minY, maxX, maxY);
     }
 
     private void ppCmd(char cmd, List<Float> args, List<Float> xs, List<Float> ys,
@@ -520,29 +610,33 @@ public class NetworkFragment extends Fragment {
     }
 
     private RectF parsePointsBounds(String points) {
-        if (points==null||points.isEmpty()) return null;
-        String[] tokens = points.trim().split("[\\s,]+");
-        List<Float> xs=new ArrayList<>(), ys=new ArrayList<>();
-        for(int i=0;i+1<tokens.length;i+=2){
-            try{xs.add(Float.parseFloat(tokens[i]));ys.add(Float.parseFloat(tokens[i+1]));}
-            catch(NumberFormatException ignored){}
+        if (points == null || points.isEmpty()) return null;
+        String[]    tokens = points.trim().split("[\\s,]+");
+        List<Float> xs = new ArrayList<>(), ys = new ArrayList<>();
+        for (int i = 0; i + 1 < tokens.length; i += 2) {
+            try {
+                xs.add(Float.parseFloat(tokens[i]));
+                ys.add(Float.parseFloat(tokens[i + 1]));
+            } catch (NumberFormatException ignored) {}
         }
         if (xs.isEmpty()) return null;
         float minX=Float.MAX_VALUE, maxX=-Float.MAX_VALUE,
                 minY=Float.MAX_VALUE, maxY=-Float.MAX_VALUE;
-        for(float x:xs){if(x<minX)minX=x;if(x>maxX)maxX=x;}
-        for(float y:ys){if(y<minY)minY=y;if(y>maxY)maxY=y;}
+        for (float x : xs) { if (x<minX) minX=x; if (x>maxX) maxX=x; }
+        for (float y : ys) { if (y<minY) minY=y; if (y>maxY) maxY=y; }
         return new RectF(minX, minY, maxX, maxY);
     }
 
     // ==================== METADATA ====================
 
-    private String extractElementId(Element element) { return findElementIdInNode(element); }
+    private String extractElementId(Element element) {
+        return findElementIdInNode(element);
+    }
 
     private String findElementIdInNode(Node node) {
         if (node instanceof Element) {
-            Element el = (Element) node;
-            String tag = el.getTagName();
+            Element el  = (Element) node;
+            String  tag = el.getTagName();
             if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
             if ("elementId".equalsIgnoreCase(tag)) {
                 String text = el.getTextContent();
@@ -563,7 +657,7 @@ public class NetworkFragment extends Fragment {
         try {
             int renderW = Math.max(1, (int) vbW);
             int renderH = Math.max(1, (int) vbH);
-            Picture picture = svg.renderToPicture(renderW, renderH);
+            Picture         picture  = svg.renderToPicture(renderW, renderH);
             PictureDrawable drawable = new PictureDrawable(picture);
             binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
             binding.svgView.setImageDrawable(drawable);
@@ -594,41 +688,24 @@ public class NetworkFragment extends Fragment {
         binding.svgView.setImageMatrix(matrix);
     }
 
-    /**
-     * KEY FIX: All heavy work (DOM→String, SVG.getFromString, renderToPicture)
-     * is now done on a background thread. Only the final setImageDrawable +
-     * setImageMatrix is posted to the main thread.
-     *
-     * A pending render is cancelled before starting a new one so rapid taps
-     * never queue up and feel sluggish.
-     */
     private void reRenderSvg() {
         if (svgDocument == null) return;
+        if (pendingRender != null && !pendingRender.isDone()) pendingRender.cancel(true);
 
-        // Cancel any in-flight render from a previous tap
-        if (pendingRender != null && !pendingRender.isDone()) {
-            pendingRender.cancel(true);
-        }
-
-        // Snapshot the current matrix so the background thread can use it safely
-        final float[] matrixSnapshot = new float[9];
-        matrix.getValues(matrixSnapshot);
+        final float[] snap = new float[9];
+        matrix.getValues(snap);
         final Matrix frozenMatrix = new Matrix();
-        frozenMatrix.setValues(matrixSnapshot);
+        frozenMatrix.setValues(snap);
 
         pendingRender = renderExecutor.submit(() -> {
             try {
-                // --- background: heavy work ---
                 String svgStr = documentToString(svgDocument);
                 if (svgStr.isEmpty()) return;
-
-                SVG svg = SVG.getFromString(svgStr);
-                int renderW = Math.max(1, (int) vbW);
-                int renderH = Math.max(1, (int) vbH);
-                Picture picture = svg.renderToPicture(renderW, renderH);
+                SVG  svg     = SVG.getFromString(svgStr);
+                int  renderW = Math.max(1, (int) vbW);
+                int  renderH = Math.max(1, (int) vbH);
+                Picture         picture  = svg.renderToPicture(renderW, renderH);
                 PictureDrawable drawable = new PictureDrawable(picture);
-
-                // --- main thread: just swap drawable + matrix (< 1 ms) ---
                 mainHandler.post(() -> {
                     if (binding == null) return;
                     binding.svgView.setImageDrawable(drawable);
@@ -636,7 +713,7 @@ public class NetworkFragment extends Fragment {
                     binding.svgView.invalidate();
                 });
             } catch (Exception e) {
-                Log.e(TAG, "Error re-rendering SVG", e);
+                Log.e(TAG, "reRenderSvg error", e);
             }
         });
     }
@@ -644,14 +721,123 @@ public class NetworkFragment extends Fragment {
     private String documentToString(Document doc) {
         if (doc == null) return "";
         try {
-            TransformerFactory tf = TransformerFactory.newInstance();
-            Transformer t = tf.newTransformer();
+            Transformer  t  = TransformerFactory.newInstance().newTransformer();
             StringWriter sw = new StringWriter();
             t.transform(new DOMSource(doc), new StreamResult(sw));
             return sw.toString();
         } catch (Exception e) {
             Log.e(TAG, "documentToString error", e);
             return "";
+        }
+    }
+
+    // ==================== COLOR MANAGEMENT ====================
+
+    private void snapshotOriginalColors(Element el) {
+        String tag = el.getTagName().toLowerCase();
+        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+        if ("metadata".equals(tag) || "defs".equals(tag)
+                || "title".equals(tag) || "desc".equals(tag)) return;
+
+        int key = System.identityHashCode(el);
+
+        String fill = el.getAttribute("fill");
+        if (fill != null && !fill.isEmpty() && !"none".equals(fill)) {
+            if (!originalFillMap.containsKey(key)) {
+                originalFillMap.put(key, fill);
+            }
+        }
+
+        String style = el.getAttribute("style");
+        if (style != null && style.contains("fill:")) {
+            int styleKey = -(System.identityHashCode(el));
+            if (!originalFillMap.containsKey(styleKey)) {
+                originalFillMap.put(styleKey, style);
+            }
+        }
+
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) snapshotOriginalColors((Element) child);
+        }
+    }
+
+    private void applyColorToDevice(Element el, String color) {
+        String tag = el.getTagName().toLowerCase();
+        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+        if ("metadata".equals(tag) || "defs".equals(tag)
+                || "title".equals(tag) || "desc".equals(tag)) return;
+
+        int key = System.identityHashCode(el);
+
+        if (originalFillMap.containsKey(key)) {
+            el.setAttribute("fill", color);
+        }
+
+        int styleKey = -(System.identityHashCode(el));
+        if (originalFillMap.containsKey(styleKey)) {
+            String origStyle = originalFillMap.get(styleKey);
+            String newStyle  = origStyle.replaceAll(
+                    "fill\\s*:\\s*[^;\"']+", "fill: " + color);
+            el.setAttribute("style", newStyle);
+        }
+
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) applyColorToDevice((Element) child, color);
+        }
+    }
+
+    private void restoreOriginalColors(Element el) {
+        String tag = el.getTagName().toLowerCase();
+        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+        if ("metadata".equals(tag) || "defs".equals(tag)
+                || "title".equals(tag) || "desc".equals(tag)) return;
+
+        int    key      = System.identityHashCode(el);
+        String origFill = originalFillMap.get(key);
+        if (origFill != null) {
+            el.setAttribute("fill", origFill);
+        }
+
+        int    styleKey  = -(System.identityHashCode(el));
+        String origStyle = originalFillMap.get(styleKey);
+        if (origStyle != null) {
+            el.setAttribute("style", origStyle);
+        }
+
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) restoreOriginalColors((Element) child);
+        }
+    }
+
+    /**
+     * Master color refresh — single source of truth.
+     * Provisioned → GREEN, Selected → RED, else → original color.
+     */
+    private void refreshAllColors(Set<String> provisionedIds) {
+        if (deviceMap.isEmpty()) return;
+
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String     id   = entry.getKey();
+            DeviceInfo info = entry.getValue();
+
+            boolean isProvisioned = provisionedIds != null && provisionedIds.contains(id);
+            boolean isSelected    = id.equals(selectedDeviceId);
+
+            if (isProvisioned) {
+                applyColorToDevice(info.element, COLOR_PROVISIONED);
+                Log.d(TAG, "GREEN → " + id);
+            } else if (isSelected) {
+                applyColorToDevice(info.element, COLOR_SELECTED);
+                Log.d(TAG, "RED   → " + id);
+            } else {
+                restoreOriginalColors(info.element);
+            }
         }
     }
 
@@ -664,10 +850,10 @@ public class NetworkFragment extends Fragment {
         scaleDetector = new ScaleGestureDetector(requireContext(),
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     @Override public boolean onScale(ScaleGestureDetector d) {
-                        float current = getScale();
+                        float cur  = getScale();
                         float next = Math.max(minZoom, Math.min(MAX_ZOOM,
-                                current * d.getScaleFactor()));
-                        matrix.postScale(next / current, next / current,
+                                cur * d.getScaleFactor()));
+                        matrix.postScale(next / cur, next / cur,
                                 d.getFocusX(), d.getFocusY());
                         clampMatrix();
                         binding.svgView.setImageMatrix(matrix);
@@ -703,12 +889,12 @@ public class NetworkFragment extends Fragment {
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
                 if (flingAnimator != null) flingAnimator.cancel();
-                if (zoomAnimator != null) zoomAnimator.cancel();
+                if (zoomAnimator  != null) zoomAnimator.cancel();
                 scroller.forceFinished(true);
                 activePointerId = event.getPointerId(0);
                 lastTouchX = event.getX(); lastTouchY = event.getY();
-                isDragging = true;
-                tapDownX = event.getX(); tapDownY = event.getY();
+                isDragging  = true;
+                tapDownX    = event.getX(); tapDownY = event.getY();
                 tapDownTime = event.getEventTime(); hasMoved = false;
                 break;
 
@@ -720,8 +906,8 @@ public class NetworkFragment extends Fragment {
                 if (!scaleDetector.isInProgress()) {
                     int idx = event.findPointerIndex(activePointerId);
                     if (idx == -1) { activePointerId = event.getPointerId(0); break; }
-                    float dx = event.getX(idx) - lastTouchX;
-                    float dy = event.getY(idx) - lastTouchY;
+                    float dx  = event.getX(idx) - lastTouchX;
+                    float dy  = event.getY(idx) - lastTouchY;
                     float tdx = event.getX(idx) - tapDownX;
                     float tdy = event.getY(idx) - tapDownY;
                     if ((float) Math.sqrt(tdx * tdx + tdy * tdy) > TAP_MOVE_SLOP)
@@ -756,7 +942,7 @@ public class NetworkFragment extends Fragment {
                 break;
 
             case MotionEvent.ACTION_POINTER_UP:
-                int pi = event.getActionIndex();
+                int pi  = event.getActionIndex();
                 int pid = event.getPointerId(pi);
                 if (pid == activePointerId) {
                     int ni = (pi == 0) ? 1 : 0;
@@ -773,10 +959,10 @@ public class NetworkFragment extends Fragment {
 
     private void handleSvgTap(float touchX, float touchY) {
         if (svgDocument == null || deviceMap.isEmpty()) return;
-        float[] c = touchToSvgCoords(touchX, touchY);
-        Log.d(TAG, "Tap SVG=(" + c[0] + "," + c[1] + ")");
-        String hitId = findDeviceAt(c[0], c[1]);
-        if (hitId != null) onDeviceSelected(hitId); else deselectCurrentDevice();
+        float[] c     = touchToSvgCoords(touchX, touchY);
+        String  hitId = findDeviceAt(c[0], c[1]);
+        if (hitId != null) onDeviceTapped(hitId);
+        else               deselectCurrentDevice();
     }
 
     private float[] touchToSvgCoords(float touchX, float touchY) {
@@ -788,126 +974,75 @@ public class NetworkFragment extends Fragment {
     }
 
     private String findDeviceAt(float svgX, float svgY) {
-        String bestId = null; float smallestArea = Float.MAX_VALUE;
+        String bestId = null;
+        float  smallestArea = Float.MAX_VALUE;
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-            RectF bounds = entry.getValue().bounds;
+            RectF bounds   = entry.getValue().bounds;
             RectF expanded = new RectF(bounds);
-            float inset = (bounds.width() < 20 || bounds.height() < 20)
+            float inset    = (bounds.width() < 20 || bounds.height() < 20)
                     ? -Math.max(TAP_TOLERANCE, 15f) : -TAP_TOLERANCE;
             expanded.inset(inset, inset);
             if (expanded.contains(svgX, svgY)) {
                 float area = bounds.width() * bounds.height();
-                if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
+                if (area < smallestArea) {
+                    smallestArea = area;
+                    bestId = entry.getKey();
+                }
             }
         }
-        if (bestId != null) Log.d(TAG, "Hit: " + bestId);
         return bestId;
     }
 
-    // ==================== DEVICE SELECTION ====================
+    // ==================== DEVICE TAP LOGIC ====================
 
-    private void onDeviceSelected(String deviceId) {
+    private void onDeviceTapped(String deviceId) {
+
+        // Already provisioned — toast only
+        Set<String> provisioned = getProvisionedFromPrefs();
+        if (provisioned.contains(deviceId)) {
+            Toast.makeText(requireContext(),
+                    deviceId + " is already provisioned",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Same device tapped again — deselect
         if (deviceId.equals(selectedDeviceId)) {
             deselectCurrentDevice();
             return;
         }
+
+        // New device — deselect previous, select this one RED
         deselectCurrentDevice();
-        selectDevice(deviceId);
+        selectedDeviceId = deviceId;
 
         DeviceInfo device = deviceMap.get(deviceId);
+        if (device != null) {
+            applyColorToDevice(device.element, COLOR_SELECTED);
+        }
+        reRenderSvg();
+
+        // Open DeviceDetailActivity
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                 device != null ? device.elementId : null);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
         startActivity(intent);
-        Log.d(TAG, "Opened detail for: " + deviceId);
-    }
-
-    private void selectDevice(String deviceId) {
-        DeviceInfo device = deviceMap.get(deviceId);
-        if (device == null) return;
-        snapshotColors(device.element);
-        applyColor(device.element, "#ff0000");
-        selectedDeviceId = deviceId;
-        reRenderSvg();   // now async — returns immediately
     }
 
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
         DeviceInfo device = deviceMap.get(selectedDeviceId);
-        if (device != null) restoreColors(device.element);
+        Set<String> provisioned = getProvisionedFromPrefs();
+        if (device != null && !provisioned.contains(selectedDeviceId)) {
+            restoreOriginalColors(device.element);
+            reRenderSvg();
+        }
         selectedDeviceId = null;
-        reRenderSvg();   // now async — returns immediately
     }
 
-    // ── snapshot / restore / applyColor (unchanged logic) ────────────────────
-
-    private void snapshotColors(Element el) {
-        String tag = el.getTagName().toLowerCase();
-        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-        if (!"g".equals(tag) && !"metadata".equals(tag) && !"defs".equals(tag)) {
-            String fill  = el.getAttribute("fill");
-            String style = el.getAttribute("style");
-            if (!fill.isEmpty()  && el.getAttribute("data-orig-fill").isEmpty())
-                el.setAttribute("data-orig-fill", fill);
-            if (!style.isEmpty() && el.getAttribute("data-orig-style").isEmpty())
-                el.setAttribute("data-orig-style", style);
-        }
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) snapshotColors((Element) child);
-        }
-    }
-
-    private void restoreColors(Element el) {
-        String tag = el.getTagName().toLowerCase();
-        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-        if (!"g".equals(tag) && !"metadata".equals(tag) && !"defs".equals(tag)) {
-            String origFill  = el.getAttribute("data-orig-fill");
-            String origStyle = el.getAttribute("data-orig-style");
-            if (!origFill.isEmpty()) {
-                el.setAttribute("fill", origFill);
-                el.removeAttribute("data-orig-fill");
-            } else {
-                if ("#ff0000".equals(el.getAttribute("fill")))
-                    el.removeAttribute("fill");
-            }
-            if (!origStyle.isEmpty()) {
-                el.setAttribute("style", origStyle);
-                el.removeAttribute("data-orig-style");
-            }
-        }
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) restoreColors((Element) child);
-        }
-    }
-
-    private void applyColor(Element el, String color) {
-        String tag = el.getTagName().toLowerCase();
-        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-        if (!"g".equals(tag) && !"metadata".equals(tag) && !"defs".equals(tag)) {
-            String fill = el.getAttribute("fill");
-            if (!fill.isEmpty() && !"none".equals(fill))
-                el.setAttribute("fill", color);
-            String style = el.getAttribute("style");
-            if (style != null && style.contains("fill:")) {
-                String updated = style.replaceAll(
-                        "fill\\s*:\\s*[^;\"']+", "fill: " + color);
-                el.setAttribute("style", updated);
-            }
-        }
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) applyColor((Element) child, color);
-        }
-    }
-
-    // ==================== ZOOM & PAN UTILITIES ====================
+    // ==================== ZOOM & PAN ====================
 
     private float getScale() {
         matrix.getValues(matrixValues);
@@ -918,14 +1053,16 @@ public class NetworkFragment extends Fragment {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
         float scale = Math.max(minZoom, Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
-        float dW = binding.svgView.getDrawable().getIntrinsicWidth() * scale;
-        float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
-        float vW = binding.svgView.getWidth(), vH = binding.svgView.getHeight();
-        float transX = matrixValues[Matrix.MTRANS_X], transY = matrixValues[Matrix.MTRANS_Y];
-        float minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0f, vW - dW);
-        float maxTX = (dW < vW) ? (vW - dW) / 2f : 0f;
-        float minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0f, vH - dH);
-        float maxTY = (dH < vH) ? (vH - dH) / 2f : 0f;
+        float dW    = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
+        float dH    = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+        float vW    = binding.svgView.getWidth();
+        float vH    = binding.svgView.getHeight();
+        float transX = matrixValues[Matrix.MTRANS_X];
+        float transY = matrixValues[Matrix.MTRANS_Y];
+        float minTX  = (dW < vW) ? (vW-dW)/2f : Math.min(0f, vW-dW);
+        float maxTX  = (dW < vW) ? (vW-dW)/2f : 0f;
+        float minTY  = (dH < vH) ? (vH-dH)/2f : Math.min(0f, vH-dH);
+        float maxTY  = (dH < vH) ? (vH-dH)/2f : 0f;
         matrixValues[Matrix.MSCALE_X] = scale;
         matrixValues[Matrix.MSCALE_Y] = scale;
         matrixValues[Matrix.MTRANS_X] = Math.max(minTX, Math.min(maxTX, transX));
@@ -952,17 +1089,18 @@ public class NetworkFragment extends Fragment {
     private void startFling(float velocityX, float velocityY) {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
-        float scale = matrixValues[Matrix.MSCALE_X];
-        float dW = binding.svgView.getDrawable().getIntrinsicWidth() * scale;
-        float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
-        float vW = binding.svgView.getWidth(), vH = binding.svgView.getHeight();
-        int startX = (int) matrixValues[Matrix.MTRANS_X];
-        int startY = (int) matrixValues[Matrix.MTRANS_Y];
-        int minX = (dW < vW) ? (int) ((vW - dW) / 2f) : (int) (vW - dW);
-        int maxX = (dW < vW) ? (int) ((vW - dW) / 2f) : 0;
-        int minY = (dH < vH) ? (int) ((vH - dH) / 2f) : (int) (vH - dH);
-        int maxY = (dH < vH) ? (int) ((vH - dH) / 2f) : 0;
-        scroller.fling(startX, startY, (int) velocityX, (int) velocityY,
+        float scale  = matrixValues[Matrix.MSCALE_X];
+        float dW     = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
+        float dH     = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+        float vW     = binding.svgView.getWidth();
+        float vH     = binding.svgView.getHeight();
+        int   startX = (int) matrixValues[Matrix.MTRANS_X];
+        int   startY = (int) matrixValues[Matrix.MTRANS_Y];
+        int   minX   = (dW < vW) ? (int)((vW-dW)/2f) : (int)(vW-dW);
+        int   maxX   = (dW < vW) ? (int)((vW-dW)/2f) : 0;
+        int   minY   = (dH < vH) ? (int)((vH-dH)/2f) : (int)(vH-dH);
+        int   maxY   = (dH < vH) ? (int)((vH-dH)/2f) : 0;
+        scroller.fling(startX, startY, (int)velocityX, (int)velocityY,
                 minX, maxX, minY, maxY, 0, 0);
         if (flingAnimator != null) flingAnimator.cancel();
         flingAnimator = ValueAnimator.ofFloat(0f, 1f);

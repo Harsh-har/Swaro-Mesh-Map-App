@@ -296,6 +296,8 @@ public class Utils {
         final SharedPreferences sp = context.getSharedPreferences(PREFS_AUTO, Context.MODE_PRIVATE);
         sp.edit().putBoolean(KEY_APPKEY_DONE_PREFIX + unicastAddress, done).apply();
     }
-
+  // for map provision
+  // Add alongside existing EXTRA_ constants
+  public static final String EXTRA_SVG_DEVICE_ID = "svg_device_id";
 
 }
