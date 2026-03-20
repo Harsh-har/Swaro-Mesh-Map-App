@@ -73,7 +73,6 @@ public class NetworkFragment extends Fragment {
     private static final String COLOR_SELECTED    = "#ff0000";
     private static final String COLOR_PROVISIONED = "#00aa00";
 
-    // SharedPreferences keys — same as SharedViewModel
     private static final String PREFS_NAME              = "mesh_prefs";
     private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
 
@@ -128,14 +127,9 @@ public class NetworkFragment extends Fragment {
     private Document svgDocument;
     private final Map<String, DeviceInfo> deviceMap = new LinkedHashMap<>();
 
-    /**
-     * KEY: System.identityHashCode(element)       → fill attribute value
-     * KEY: -(System.identityHashCode(element))    → style attribute value
-     * Saved ONCE after SVG load, NEVER modified again.
-     */
+    // Key = System.identityHashCode(rectElement) → original fill
     private final Map<Integer, String> originalFillMap = new HashMap<>();
 
-    // Currently red-highlighted device
     private String selectedDeviceId;
 
     private float vbX = 0f, vbY = 0f, vbW = 1200f, vbH = 640f;
@@ -154,20 +148,13 @@ public class NetworkFragment extends Fragment {
         return binding.getRoot();
     }
 
-    /**
-     * Called every time user returns to this screen.
-     * Reads provisioned devices DIRECTLY from SharedPreferences —
-     * avoids ViewModel scope mismatch between DeviceDetailActivity and NetworkFragment.
-     */
     @Override
     public void onResume() {
         super.onResume();
         if (svgDocument == null || deviceMap.isEmpty()) return;
-
         selectedDeviceId = null;
-
         Set<String> provisioned = getProvisionedFromPrefs();
-        Log.d(TAG, "onResume — provisioned from prefs: " + provisioned);
+        Log.d(TAG, "onResume — provisioned: " + provisioned);
         refreshAllColors(provisioned);
         reRenderSvg();
     }
@@ -175,30 +162,23 @@ public class NetworkFragment extends Fragment {
     @Override
     public void onDestroyView() {
         super.onDestroyView();
-        if (flingAnimator  != null) flingAnimator.cancel();
-        if (zoomAnimator   != null) zoomAnimator.cancel();
-        if (velocityTracker != null) {
-            velocityTracker.recycle();
-            velocityTracker = null;
-        }
-        if (pendingRender != null) pendingRender.cancel(true);
+        if (flingAnimator   != null) flingAnimator.cancel();
+        if (zoomAnimator    != null) zoomAnimator.cancel();
+        if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
+        if (pendingRender   != null) pendingRender.cancel(true);
         loadExecutor.shutdownNow();
         renderExecutor.shutdownNow();
         binding = null;
     }
 
-    // ==================== PREFS HELPER ====================
+    // ==================== PREFS ====================
 
-    /**
-     * Read provisioned device IDs directly from SharedPreferences.
-     * Returns a fresh defensive copy — never returns the internal set reference.
-     */
     private Set<String> getProvisionedFromPrefs() {
         if (getContext() == null) return new HashSet<>();
         SharedPreferences prefs = requireContext()
                 .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         Set<String> raw = prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
-        return new HashSet<>(raw); // defensive copy
+        return new HashSet<>(raw);
     }
 
     // ==================== UI STATE ====================
@@ -244,8 +224,7 @@ public class NetworkFragment extends Fragment {
                         showLoading(false);
                         showPlaceholder(true);
                         Toast.makeText(requireContext(),
-                                "SVG not found: " + assetFileName,
-                                Toast.LENGTH_LONG).show();
+                                "SVG not found: " + assetFileName, Toast.LENGTH_LONG).show();
                     });
                     return;
                 }
@@ -267,18 +246,15 @@ public class NetworkFragment extends Fragment {
                     deviceMap.clear();
                     deviceMap.putAll(devices);
 
-                    // Snapshot original colors ONCE
                     originalFillMap.clear();
                     for (DeviceInfo info : deviceMap.values()) {
-                        snapshotOriginalColors(info.element);
+                        snapshotRectFill(info.element);
                     }
                     Log.d(TAG, "Snapshotted " + originalFillMap.size()
-                            + " fills for " + deviceMap.size() + " devices");
+                            + " rect fills for " + deviceMap.size() + " icon devices");
 
-                    // Apply colors from SharedPreferences
                     Set<String> provisioned = getProvisionedFromPrefs();
                     refreshAllColors(provisioned);
-
                     renderSvg(svg);
                     showLoading(false);
                     logDeviceMap();
@@ -288,7 +264,7 @@ public class NetworkFragment extends Fragment {
                 Log.e(TAG, "SVG parse error", e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
             } catch (Exception e) {
-                Log.e(TAG, "Error loading SVG from assets", e);
+                Log.e(TAG, "Error loading SVG", e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
             }
         });
@@ -321,12 +297,11 @@ public class NetworkFragment extends Fragment {
 
                     originalFillMap.clear();
                     for (DeviceInfo info : deviceMap.values()) {
-                        snapshotOriginalColors(info.element);
+                        snapshotRectFill(info.element);
                     }
 
                     Set<String> provisioned = getProvisionedFromPrefs();
                     refreshAllColors(provisioned);
-
                     renderSvg(svg);
                     showLoading(false);
                     logDeviceMap();
@@ -340,11 +315,11 @@ public class NetworkFragment extends Fragment {
     }
 
     private void logDeviceMap() {
-        if (deviceMap.isEmpty()) { Log.w(TAG, "No devices found"); return; }
-        Log.d(TAG, deviceMap.size() + " devices found");
+        if (deviceMap.isEmpty()) { Log.w(TAG, "No icon devices found"); return; }
+        Log.d(TAG, deviceMap.size() + " icon devices found:");
         for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
             DeviceInfo d = e.getValue();
-            Log.d(TAG, "Device: " + d.id + " elementId=" + d.elementId
+            Log.d(TAG, "  Icon: " + d.id + " elementId=" + d.elementId
                     + " bounds=" + d.bounds.toShortString());
         }
     }
@@ -358,12 +333,9 @@ public class NetworkFragment extends Fragment {
             factory.setNamespaceAware(false);
             factory.setValidating(false);
             try {
-                factory.setFeature(
-                        "http://xml.org/sax/features/external-general-entities", false);
-                factory.setFeature(
-                        "http://xml.org/sax/features/external-parameter-entities", false);
-                factory.setFeature(
-                        "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+                factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+                factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
             } catch (Exception ignored) {}
             DocumentBuilder builder = factory.newDocumentBuilder();
             builder.setEntityResolver((pub, sys) ->
@@ -405,36 +377,102 @@ public class NetworkFragment extends Fragment {
 
     // ==================== DEVICE EXTRACTION ====================
 
+    /**
+     * Scans <g id="Icons"> and registers only TRUE LEAF icon groups.
+     *
+     * A TRUE LEAF icon group = a <g> element that:
+     *   1. Has a non-empty id
+     *   2. Has at least one <rect> as a direct child
+     *   3. Has NO <g> children (i.e., it is not a container of other groups)
+     *
+     * This correctly skips:
+     *   - BCD, STD, ENGRD, ACDD, RCAD, VCRD etc. (containers with child <g> elements)
+     * And registers:
+     *   - BCRN6AMD_3, VCRSFD_1, ENGRSOS_1, RCAPSD_1 etc. (true leaf icons)
+     */
     private Map<String, DeviceInfo> extractDevices(Document document) {
         Map<String, DeviceInfo> devices = new LinkedHashMap<>();
         if (document == null) return devices;
         try {
-            Element devicesGroup =
-                    findElementById(document.getDocumentElement(), "Devices");
-            if (devicesGroup == null) {
-                Log.w(TAG, "No <g id='Devices'> found — scanning full document");
-                recurseForDevices(document.getDocumentElement(), devices);
+            Element iconsGroup = findElementById(document.getDocumentElement(), "Icons");
+            if (iconsGroup == null) {
+                Log.w(TAG, "No <g id='Icons'> found — scanning full document");
+                scanForLeafIcons(document.getDocumentElement(), devices);
             } else {
-                recurseForDevices(devicesGroup, devices);
+                scanForLeafIcons(iconsGroup, devices);
             }
         } catch (Exception e) {
-            Log.e(TAG, "Error extracting devices", e);
+            Log.e(TAG, "Error extracting icon devices", e);
         }
         return devices;
     }
 
-    private void recurseForDevices(Element el, Map<String, DeviceInfo> devices) {
-        String  id          = el.getAttribute("id");
-        boolean isContainer = "Devices".equals(id) || "ENGRS".equals(id)
-                || "ENGRD".equals(id);
-        if (!isContainer && !id.isEmpty()) {
-            processDeviceElement(el, devices);
+    /**
+     * Recursively walks the element tree.
+     * Registers a <g> as a device ONLY IF:
+     *   1. It has a non-empty id
+     *   2. It has at least one direct <rect> child  → it IS an icon
+     *   3. It has NO direct <g> children            → it is NOT a container
+     *
+     * If condition 3 fails (has child <g>), we recurse deeper to find leaf icons inside.
+     */
+    private void scanForLeafIcons(Element el, Map<String, DeviceInfo> devices) {
+        String id = el.getAttribute("id");
+
+        if (!id.isEmpty() && hasDirectRectChild(el)) {
+            if (!hasDirectGChild(el)) {
+                // TRUE LEAF: has rect, no child groups → register it
+                processDeviceElement(el, devices);
+                return; // Don't recurse further
+            }
+            // Has rect AND child groups → it's a container, recurse into children
         }
+
+        // Recurse into children to find leaf icons deeper
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
-            if (child instanceof Element) recurseForDevices((Element) child, devices);
+            if (child instanceof Element) {
+                String tag = ((Element) child).getTagName().toLowerCase();
+                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+                if ("g".equals(tag)) {
+                    scanForLeafIcons((Element) child, devices);
+                }
+            }
         }
+    }
+
+    /**
+     * Returns true if this element has at least one <rect> as a DIRECT child.
+     */
+    private boolean hasDirectRectChild(Element el) {
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                String tag = ((Element) child).getTagName().toLowerCase();
+                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+                if ("rect".equals(tag)) return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if this element has at least one <g> as a DIRECT child.
+     * Used to distinguish leaf icons from container groups.
+     */
+    private boolean hasDirectGChild(Element el) {
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                String tag = ((Element) child).getTagName().toLowerCase();
+                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+                if ("g".equals(tag)) return true;
+            }
+        }
+        return false;
     }
 
     private void processDeviceElement(Element el, Map<String, DeviceInfo> devices) {
@@ -445,7 +483,8 @@ public class NetworkFragment extends Fragment {
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
         devices.put(id, new DeviceInfo(id, el, bounds, elementId));
-        Log.d(TAG, "Registered device: id=" + id + " elementId=" + elementId
+        Log.d(TAG, "Registered leaf icon: id=" + id
+                + " elementId=" + elementId
                 + " bounds=" + bounds.toShortString());
     }
 
@@ -733,95 +772,77 @@ public class NetworkFragment extends Fragment {
 
     // ==================== COLOR MANAGEMENT ====================
 
-    private void snapshotOriginalColors(Element el) {
-        String tag = el.getTagName().toLowerCase();
-        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-        if ("metadata".equals(tag) || "defs".equals(tag)
-                || "title".equals(tag) || "desc".equals(tag)) return;
-
-        int key = System.identityHashCode(el);
-
-        String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty() && !"none".equals(fill)) {
-            if (!originalFillMap.containsKey(key)) {
-                originalFillMap.put(key, fill);
+    /**
+     * Snapshot the fill of the FIRST direct <rect> child of the icon group.
+     */
+    private void snapshotRectFill(Element iconGroup) {
+        NodeList children = iconGroup.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                String tag = ((Element) child).getTagName().toLowerCase();
+                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+                if ("rect".equals(tag)) {
+                    int    key  = System.identityHashCode((Element) child);
+                    String fill = ((Element) child).getAttribute("fill");
+                    if (fill != null && !fill.isEmpty()) {
+                        originalFillMap.put(key, fill);
+                        Log.d(TAG, "Snapshotted rect fill for "
+                                + iconGroup.getAttribute("id") + " = " + fill);
+                    }
+                    return; // Only snapshot first rect
+                }
             }
-        }
-
-        String style = el.getAttribute("style");
-        if (style != null && style.contains("fill:")) {
-            int styleKey = -(System.identityHashCode(el));
-            if (!originalFillMap.containsKey(styleKey)) {
-                originalFillMap.put(styleKey, style);
-            }
-        }
-
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) snapshotOriginalColors((Element) child);
-        }
-    }
-
-    private void applyColorToDevice(Element el, String color) {
-        String tag = el.getTagName().toLowerCase();
-        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-        if ("metadata".equals(tag) || "defs".equals(tag)
-                || "title".equals(tag) || "desc".equals(tag)) return;
-
-        int key = System.identityHashCode(el);
-
-        if (originalFillMap.containsKey(key)) {
-            el.setAttribute("fill", color);
-        }
-
-        int styleKey = -(System.identityHashCode(el));
-        if (originalFillMap.containsKey(styleKey)) {
-            String origStyle = originalFillMap.get(styleKey);
-            String newStyle  = origStyle.replaceAll(
-                    "fill\\s*:\\s*[^;\"']+", "fill: " + color);
-            el.setAttribute("style", newStyle);
-        }
-
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) applyColorToDevice((Element) child, color);
-        }
-    }
-
-    private void restoreOriginalColors(Element el) {
-        String tag = el.getTagName().toLowerCase();
-        if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-        if ("metadata".equals(tag) || "defs".equals(tag)
-                || "title".equals(tag) || "desc".equals(tag)) return;
-
-        int    key      = System.identityHashCode(el);
-        String origFill = originalFillMap.get(key);
-        if (origFill != null) {
-            el.setAttribute("fill", origFill);
-        }
-
-        int    styleKey  = -(System.identityHashCode(el));
-        String origStyle = originalFillMap.get(styleKey);
-        if (origStyle != null) {
-            el.setAttribute("style", origStyle);
-        }
-
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) restoreOriginalColors((Element) child);
         }
     }
 
     /**
-     * Master color refresh — single source of truth.
+     * Apply color ONLY to the first direct <rect> child (background) of the icon group.
+     * Inner paths/symbols are NOT touched.
+     */
+    private void applyColorToDevice(Element iconGroup, String color) {
+        NodeList children = iconGroup.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                String tag = ((Element) child).getTagName().toLowerCase();
+                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+                if ("rect".equals(tag)) {
+                    ((Element) child).setAttribute("fill", color);
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Restore ONLY the first direct <rect> child to its original snapshotted fill.
+     */
+    private void restoreOriginalColors(Element iconGroup) {
+        NodeList children = iconGroup.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                String tag = ((Element) child).getTagName().toLowerCase();
+                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+                if ("rect".equals(tag)) {
+                    int    key      = System.identityHashCode((Element) child);
+                    String origFill = originalFillMap.get(key);
+                    if (origFill != null) {
+                        ((Element) child).setAttribute("fill", origFill);
+                    }
+                    return;
+                }
+            }
+        }
+    }
+
+    /**
+     * Master color refresh.
      * Provisioned → GREEN, Selected → RED, else → original color.
      */
     private void refreshAllColors(Set<String> provisionedIds) {
         if (deviceMap.isEmpty()) return;
-
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
@@ -974,7 +995,7 @@ public class NetworkFragment extends Fragment {
     }
 
     private String findDeviceAt(float svgX, float svgY) {
-        String bestId = null;
+        String bestId      = null;
         float  smallestArea = Float.MAX_VALUE;
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             RectF bounds   = entry.getValue().bounds;
@@ -996,9 +1017,8 @@ public class NetworkFragment extends Fragment {
     // ==================== DEVICE TAP LOGIC ====================
 
     private void onDeviceTapped(String deviceId) {
-
-        // Already provisioned — toast only
         Set<String> provisioned = getProvisionedFromPrefs();
+
         if (provisioned.contains(deviceId)) {
             Toast.makeText(requireContext(),
                     deviceId + " is already provisioned",
@@ -1006,13 +1026,11 @@ public class NetworkFragment extends Fragment {
             return;
         }
 
-        // Same device tapped again — deselect
         if (deviceId.equals(selectedDeviceId)) {
             deselectCurrentDevice();
             return;
         }
 
-        // New device — deselect previous, select this one RED
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
 
@@ -1022,7 +1040,6 @@ public class NetworkFragment extends Fragment {
         }
         reRenderSvg();
 
-        // Open DeviceDetailActivity
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
@@ -1033,7 +1050,7 @@ public class NetworkFragment extends Fragment {
 
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
-        DeviceInfo device = deviceMap.get(selectedDeviceId);
+        DeviceInfo  device      = deviceMap.get(selectedDeviceId);
         Set<String> provisioned = getProvisionedFromPrefs();
         if (device != null && !provisioned.contains(selectedDeviceId)) {
             restoreOriginalColors(device.element);
