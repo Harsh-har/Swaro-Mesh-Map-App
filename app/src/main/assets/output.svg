@@ -1889,7 +1889,7 @@
 
             <g id="ENGRTHS_2">
 
-                    <metadata><elementId>ENGRTHS_2</elementId></metadata>
+                <metadata><elementId>ENGRTHS_2</elementId></metadata>
 
                 <path d="M713.65,494.26c.3,0,.55.25.55.55v1.68c.25.18.41.47.41.8,0,.54-.44.99-.99.99-.54,0-.99-.44-.99-.99,0-.35.18-.66.46-.83v-1.65c0-.3.25-.55.55-.55Z" fill="#fff"/>
 
@@ -1908,7 +1908,7 @@
                 <metadata><elementId>ENGRTHS_1</elementId></metadata>
                 <g id="path-6-inside-1_258_600-3">
                     <metadata><elementId>path-6-inside-1_258_600-3</elementId></metadata>
-                <path d="M713.65,361.57c.3,0,.55.25.55.55v1.68c.25.18.41.47.41.8,0,.54-.44.99-.99.99-.54,0-.99-.44-.99-.99,0-.35.18-.66.46-.83v-1.65c0-.3.25-.55.55-.55Z" fill="#fff"/>
+                    <path d="M713.65,361.57c.3,0,.55.25.55.55v1.68c.25.18.41.47.41.8,0,.54-.44.99-.99.99-.54,0-.99-.44-.99-.99,0-.35.18-.66.46-.83v-1.65c0-.3.25-.55.55-.55Z" fill="#fff"/>
                 </g>
                 <rect x="711.32" y="360.24" width="6.68" height="6.68" rx=".89" ry=".89" fill="#b5e6a1" stroke="#000" stroke-width=".11"/>
                 <path d="M715.78,362.91c-.53.79-.88,1.28-.88,1.76s.39.87.88.87.88-.39.88-.87-.34-.97-.88-1.76Z" fill="none" stroke="#000" stroke-miterlimit="10" stroke-width=".11"/>
@@ -3144,8 +3144,6 @@
             </g>
         </g>
     </g>
-
-
     <g id="Devices">
 
         <g id="Engineering">
@@ -3598,4 +3596,51 @@
 
 
     </g>
+
+    <g id="Relation">
+
+        <!-- VCRSFD (Security Feed Sensors) → Fans they monitor -->
+        (VCRSFD_1 casting_f_1)
+        (VCRSFD_3 casting_f_2)
+
+        (VCRSFD_2 casting_f_13)
+
+        <!-- VCRRN6AM (Motion/Sensor Nodes) → Zones they cover -->
+        (VCRRN6AM_1  casting_r_15)
+        (VCRRN6AM_2  casting_r_9)
+        (VCRRN6AM_3  casting_r_14)
+        (VCRRN6AM_4  casting_r_10)
+        (VCRRN6AM_5  casting_r_11)
+        (VCRRN6AM_6  casting_r_12)
+        (VCRRN6AM_7  casting_r_7)
+        (VCRRN6AM_8  casting_r_11)
+        (VCRRN6AM_9  casting_r_9)
+        (VCRRN6AM_10 casting_r_10)
+
+        <!-- VCRSOS (SOS/Emergency) → Light strip alert device -->
+        (VCRSOS_1 casting_st_3)
+        (VCRSOS_2 casting_st_3)
+        (VCRSOS_3 casting_st_3)
+
+        <!-- VCRACD (AC Drive/Motor) → AC unit -->
+        (VCRACD casting_ac_6)
+
+        <!-- VCRPSD (Power Supply) → Exhaust fan it powers -->
+        (VCRPSD_1 casting_ex_4)
+        (VCRPSD_2 casting_ex_4)
+        (VCRPSD_3 casting_ex_4)
+
+        <!-- VCRSRLD (Reader/Display) → Zones they read -->
+        (VCRSRLD_1 casting_r_14)
+        (VCRSRLD_2 casting_r_7)
+
+        <!-- VCRED (Controller/Settings) → AC unit it controls -->
+        (VCRED casting_ac_6)
+
+        <!-- VCRDD (Display/Monitor) → All zones it displays -->
+        (VCRDD casting_r_14)
+        (VCRDD casting_r_15)
+
+    </g>
+
 </svg>

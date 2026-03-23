@@ -24,19 +24,15 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 import android.widget.OverScroller;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
-
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
-
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.ArrayList;
@@ -49,7 +45,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.Transformer;
@@ -70,8 +65,10 @@ public class NetworkFragment extends Fragment {
     private static final long   ANIMATION_DURATION = 280L;
     private static final int    FLING_DURATION     = 2000;
 
-    private static final String COLOR_SELECTED    = "#ff0000";
-    private static final String COLOR_PROVISIONED = "#00aa00";
+    private static final String COLOR_SELECTED       = "#ff0000";
+    private static final String COLOR_PROVISIONED    = "#00aa00";
+    private static final String COLOR_DEVICE_ACTIVE  = "#ff00bb";
+    private static final String COLOR_TRANSPARENT    = "transparent";
 
     private static final String PREFS_NAME              = "mesh_prefs";
     private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
@@ -127,8 +124,10 @@ public class NetworkFragment extends Fragment {
     private Document svgDocument;
     private final Map<String, DeviceInfo> deviceMap = new LinkedHashMap<>();
 
-    // Key = System.identityHashCode(rectElement) → original fill
-    private final Map<Integer, String> originalFillMap = new HashMap<>();
+    private final Map<Integer, String> originalFillMap     = new HashMap<>();
+    private final Map<Integer, String> devicesOriginalFill = new HashMap<>();
+
+    private final Map<String, Set<String>> iconToDeviceRelations = new HashMap<>();
 
     private String selectedDeviceId;
 
@@ -240,22 +239,35 @@ public class NetworkFragment extends Fragment {
                 if (document != null) parseViewBox(document);
                 Map<String, DeviceInfo> devices = extractDevices(document);
 
+                // ── NEW: parse Relations ────────────────────────────────────
+                Map<String, Set<String>> relations = parseRelations(document);
+
                 mainHandler.post(() -> {
                     currentSvg  = svg;
                     svgDocument = document;
                     deviceMap.clear();
                     deviceMap.putAll(devices);
 
+                    // ── NEW: store relations ────────────────────────────────
+                    iconToDeviceRelations.clear();
+                    iconToDeviceRelations.putAll(relations);
+                    Log.d(TAG, "Relations parsed: " + iconToDeviceRelations);
+
                     originalFillMap.clear();
                     for (DeviceInfo info : deviceMap.values()) {
                         snapshotRectFill(info.element);
                     }
+
+                    devicesOriginalFill.clear();
+                    snapshotDevicesGroupFills(document);
+
                     Log.d(TAG, "Snapshotted " + originalFillMap.size()
-                            + " rect fills for " + deviceMap.size() + " icon devices");
+                            + " icon fills, " + devicesOriginalFill.size()
+                            + " device fills");
 
                     Set<String> provisioned = getProvisionedFromPrefs();
                     refreshAllColors(provisioned);
-                    renderSvg(svg);
+                    renderSvg(svg, true);
                     showLoading(false);
                     logDeviceMap();
                 });
@@ -288,6 +300,7 @@ public class NetworkFragment extends Fragment {
 
                 if (document != null) parseViewBox(document);
                 Map<String, DeviceInfo> devices = extractDevices(document);
+                Map<String, Set<String>> relations = parseRelations(document);
 
                 mainHandler.post(() -> {
                     currentSvg  = svg;
@@ -295,14 +308,20 @@ public class NetworkFragment extends Fragment {
                     deviceMap.clear();
                     deviceMap.putAll(devices);
 
+                    iconToDeviceRelations.clear();
+                    iconToDeviceRelations.putAll(relations);
+
                     originalFillMap.clear();
                     for (DeviceInfo info : deviceMap.values()) {
                         snapshotRectFill(info.element);
                     }
 
+                    devicesOriginalFill.clear();
+                    snapshotDevicesGroupFills(document);
+
                     Set<String> provisioned = getProvisionedFromPrefs();
                     refreshAllColors(provisioned);
-                    renderSvg(svg);
+                    renderSvg(svg, true);
                     showLoading(false);
                     logDeviceMap();
                 });
@@ -375,21 +394,54 @@ public class NetworkFragment extends Fragment {
         }
     }
 
+    // ==================== RELATION PARSING ====================
+    private Map<String, Set<String>> parseRelations(Document document) {
+        Map<String, Set<String>> result = new HashMap<>();
+        if (document == null) return result;
+
+        Element relationGroup = findElementById(
+                document.getDocumentElement(), "Relation");
+        if (relationGroup == null) {
+            Log.w(TAG, "No <g id='Relation'> found — no relations loaded");
+            return result;
+        }
+
+        // Get all text content inside the Relation group
+        String rawText = relationGroup.getTextContent();
+        if (rawText == null || rawText.isEmpty()) return result;
+
+        // Parse each (iconId deviceId) pair using regex-style matching
+        // Matches: (  WORD1   WORD2  )  with any whitespace inside
+        java.util.regex.Pattern pattern =
+                java.util.regex.Pattern.compile(
+                        "\\(\\s*([\\w]+)\\s+([\\w]+)\\s*\\)");
+        java.util.regex.Matcher matcher = pattern.matcher(rawText);
+
+        while (matcher.find()) {
+            String iconId   = matcher.group(1).trim();
+            String deviceId = matcher.group(2).trim();
+            if (!iconId.isEmpty() && !deviceId.isEmpty()) {
+                Set<String> related = result.get(iconId);
+                if (related == null) {
+                    related = new HashSet<>();
+                    result.put(iconId, related);
+                }
+                related.add(deviceId);
+                Log.d(TAG, "Relation parsed: " + iconId + " → " + deviceId);
+            }
+        }
+
+        return result;
+    }
+
+
+    private Set<String> getRelatedDeviceIds(String iconId) {
+        Set<String> related = iconToDeviceRelations.get(iconId);
+        return related != null ? related : new HashSet<>();
+    }
+
     // ==================== DEVICE EXTRACTION ====================
 
-    /**
-     * Scans <g id="Icons"> and registers only TRUE LEAF icon groups.
-     *
-     * A TRUE LEAF icon group = a <g> element that:
-     *   1. Has a non-empty id
-     *   2. Has at least one <rect> as a direct child
-     *   3. Has NO <g> children (i.e., it is not a container of other groups)
-     *
-     * This correctly skips:
-     *   - BCD, STD, ENGRD, ACDD, RCAD, VCRD etc. (containers with child <g> elements)
-     * And registers:
-     *   - BCRN6AMD_3, VCRSFD_1, ENGRSOS_1, RCAPSD_1 etc. (true leaf icons)
-     */
     private Map<String, DeviceInfo> extractDevices(Document document) {
         Map<String, DeviceInfo> devices = new LinkedHashMap<>();
         if (document == null) return devices;
@@ -407,28 +459,16 @@ public class NetworkFragment extends Fragment {
         return devices;
     }
 
-    /**
-     * Recursively walks the element tree.
-     * Registers a <g> as a device ONLY IF:
-     *   1. It has a non-empty id
-     *   2. It has at least one direct <rect> child  → it IS an icon
-     *   3. It has NO direct <g> children            → it is NOT a container
-     *
-     * If condition 3 fails (has child <g>), we recurse deeper to find leaf icons inside.
-     */
     private void scanForLeafIcons(Element el, Map<String, DeviceInfo> devices) {
         String id = el.getAttribute("id");
 
         if (!id.isEmpty() && hasDirectRectChild(el)) {
             if (!hasDirectGChild(el)) {
-                // TRUE LEAF: has rect, no child groups → register it
                 processDeviceElement(el, devices);
-                return; // Don't recurse further
+                return;
             }
-            // Has rect AND child groups → it's a container, recurse into children
         }
 
-        // Recurse into children to find leaf icons deeper
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
@@ -442,9 +482,6 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    /**
-     * Returns true if this element has at least one <rect> as a DIRECT child.
-     */
     private boolean hasDirectRectChild(Element el) {
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -458,10 +495,6 @@ public class NetworkFragment extends Fragment {
         return false;
     }
 
-    /**
-     * Returns true if this element has at least one <g> as a DIRECT child.
-     * Used to distinguish leaf icons from container groups.
-     */
     private boolean hasDirectGChild(Element el) {
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -693,6 +726,15 @@ public class NetworkFragment extends Fragment {
     // ==================== SVG RENDERING ====================
 
     private void renderSvg(SVG svg) {
+        renderSvg(svg, false);
+    }
+
+    /**
+     * @param applyDomChanges true hone pe fitToView ke baad reRenderSvg() call hoga
+     *                        taaki DOM changes (hide/show) sahi matrix ke saath reflect hon.
+     *                        App open / SVG load ke time true pass karo.
+     */
+    private void renderSvg(SVG svg, boolean applyDomChanges) {
         try {
             int renderW = Math.max(1, (int) vbW);
             int renderH = Math.max(1, (int) vbH);
@@ -704,8 +746,12 @@ public class NetworkFragment extends Fragment {
             binding.svgPlaceholder.setVisibility(View.GONE);
             binding.progressBar.setVisibility(View.GONE);
             binding.svgView.post(() -> {
-                fitToView();
+                fitToView();               // pehle matrix fit hogi
                 binding.svgView.invalidate();
+                if (applyDomChanges) {
+                    // fitToView ke baad matrix ready hai — ab DOM changes render karo
+                    reRenderSvg();
+                }
             });
         } catch (Exception e) {
             Log.e(TAG, "Error rendering SVG", e);
@@ -770,11 +816,8 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    // ==================== COLOR MANAGEMENT ====================
+    // ==================== COLOR & DEVICES VISIBILITY ====================
 
-    /**
-     * Snapshot the fill of the FIRST direct <rect> child of the icon group.
-     */
     private void snapshotRectFill(Element iconGroup) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -787,19 +830,58 @@ public class NetworkFragment extends Fragment {
                     String fill = ((Element) child).getAttribute("fill");
                     if (fill != null && !fill.isEmpty()) {
                         originalFillMap.put(key, fill);
-                        Log.d(TAG, "Snapshotted rect fill for "
-                                + iconGroup.getAttribute("id") + " = " + fill);
                     }
-                    return; // Only snapshot first rect
+                    return;
                 }
             }
         }
     }
 
-    /**
-     * Apply color ONLY to the first direct <rect> child (background) of the icon group.
-     * Inner paths/symbols are NOT touched.
-     */
+    private void snapshotDevicesGroupFills(Document document) {
+        if (document == null) return;
+        Element devicesGroup = findElementById(
+                document.getDocumentElement(), "Devices");
+        if (devicesGroup == null) {
+            Log.w(TAG, "No <g id='Devices'> found for snapshot");
+            return;
+        }
+        snapshotElementFillsRecursive(devicesGroup);
+        Log.d(TAG, "Devices group snapshot complete: "
+                + devicesOriginalFill.size() + " elements");
+    }
+
+    private void snapshotElementFillsRecursive(Element el) {
+        String fill = el.getAttribute("fill");
+        if (fill != null && !fill.isEmpty()) {
+            devicesOriginalFill.put(System.identityHashCode(el), fill);
+        }
+        String style = el.getAttribute("style");
+        if (style != null && style.contains("fill")) {
+            devicesOriginalFill.put(System.identityHashCode(el),
+                    extractFillFromStyle(style));
+        }
+
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                snapshotElementFillsRecursive((Element) child);
+            }
+        }
+    }
+
+    private String extractFillFromStyle(String style) {
+        if (style == null) return COLOR_TRANSPARENT;
+        String[] parts = style.split(";");
+        for (String part : parts) {
+            part = part.trim();
+            if (part.startsWith("fill:")) {
+                return part.substring(5).trim();
+            }
+        }
+        return COLOR_TRANSPARENT;
+    }
+
     private void applyColorToDevice(Element iconGroup, String color) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -815,9 +897,6 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    /**
-     * Restore ONLY the first direct <rect> child to its original snapshotted fill.
-     */
     private void restoreOriginalColors(Element iconGroup) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -837,12 +916,112 @@ public class NetworkFragment extends Fragment {
         }
     }
 
+    // ==================== SELECTIVE DEVICE VISIBILITY ====================
+
     /**
-     * Master color refresh.
-     * Provisioned → GREEN, Selected → RED, else → original color.
+     * Devices group ke sabhi elements ko pehle transparent karo,
+     * phir sirf jinke deviceIds set mein hain unhe COLOR_DEVICE_ACTIVE karo.
+     *
+     * @param activeDeviceIds jo devices dikhani hain (empty = sab hide)
+     */
+    private void showOnlyRelatedDevices(Set<String> activeDeviceIds) {
+        if (svgDocument == null) return;
+
+        Element devicesGroup = findElementById(
+                svgDocument.getDocumentElement(), "Devices");
+        if (devicesGroup == null) {
+            Log.w(TAG, "No <g id='Devices'> found");
+            return;
+        }
+
+        // Step 1: Pehle poore Devices group ko transparent karo
+        applyColorToAllElements(devicesGroup, COLOR_TRANSPARENT);
+
+        // Step 2: Sirf related device sub-groups ko highlight karo
+        for (String deviceId : activeDeviceIds) {
+            Element deviceEl = findElementById(
+                    devicesGroup, deviceId);
+            if (deviceEl != null) {
+                applyColorToAllElements(deviceEl, COLOR_DEVICE_ACTIVE);
+                Log.d(TAG, "Showing device: " + deviceId + " → " + COLOR_DEVICE_ACTIVE);
+            } else {
+                Log.w(TAG, "Device element not found in Devices group: " + deviceId);
+            }
+        }
+    }
+
+    /**
+     * Poore Devices group ko transparent karo.
+     * Use karo jab koi icon provisioned nahi hai.
+     */
+    private void hideAllDevices() {
+        if (svgDocument == null) return;
+        Element devicesGroup = findElementById(
+                svgDocument.getDocumentElement(), "Devices");
+        if (devicesGroup == null) return;
+        applyColorToAllElements(devicesGroup, COLOR_TRANSPARENT);
+        Log.d(TAG, "All devices hidden");
+    }
+
+    /**
+     * Element aur uske SAARE descendants ka fill update karo.
+     */
+    private void applyColorToAllElements(Element el, String color) {
+        String fill = el.getAttribute("fill");
+        if (fill != null && !fill.isEmpty()) {
+            el.setAttribute("fill", color);
+        }
+        String style = el.getAttribute("style");
+        if (style != null && !style.isEmpty() && style.contains("fill")) {
+            String newStyle = style.replaceAll(
+                    "fill\\s*:\\s*[^;]+",
+                    "fill:" + color);
+            el.setAttribute("style", newStyle);
+        }
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                applyColorToAllElements((Element) child, color);
+            }
+        }
+    }
+
+    /**
+     * UNUSED - removed, replaced by per-icon logic in refreshAllColors
+     */
+    private void hideAllIcons_unused() {
+        if (svgDocument == null) return;
+        Element iconsGroup = findElementById(
+                svgDocument.getDocumentElement(), "Icons");
+        if (iconsGroup == null) {
+            Log.w(TAG, "No <g id='Icons'> found for hideAllIcons");
+            return;
+        }
+        // Har registered icon ka rect transparent karo
+        for (DeviceInfo info : deviceMap.values()) {
+            applyColorToDevice(info.element, COLOR_TRANSPARENT);
+        }
+        Log.d(TAG, "All icons hidden");
+    }
+
+    /**
+     * Master color + visibility refresh.
+     *
+     * Per-icon rule:
+     *   Provisioned icon → icon HIDE (transparent) + uske related devices SHOW (#ff00bb)
+     *   Selected icon    → icon RED  (visible)
+     *   Normal icon      → icon original color (visible)
+     *
+     * Devices rule:
+     *   Sirf un devices ko show karo jinke parent icon provisioned hain.
+     *   Baaki sab devices transparent rehte hain.
      */
     private void refreshAllColors(Set<String> provisionedIds) {
         if (deviceMap.isEmpty()) return;
+
+        Set<String> devicesToShow = new HashSet<>();
+
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
@@ -851,14 +1030,28 @@ public class NetworkFragment extends Fragment {
             boolean isSelected    = id.equals(selectedDeviceId);
 
             if (isProvisioned) {
-                applyColorToDevice(info.element, COLOR_PROVISIONED);
-                Log.d(TAG, "GREEN → " + id);
+                // Sirf yahi icon hide karo
+                applyColorToDevice(info.element, COLOR_TRANSPARENT);
+                // Iske related devices collect karo
+                Set<String> related = getRelatedDeviceIds(id);
+                devicesToShow.addAll(related);
+                Log.d(TAG, "HIDE icon (provisioned): " + id + "  related: " + related);
             } else if (isSelected) {
                 applyColorToDevice(info.element, COLOR_SELECTED);
-                Log.d(TAG, "RED   → " + id);
+                Log.d(TAG, "RED (selected): " + id);
             } else {
                 restoreOriginalColors(info.element);
+                Log.d(TAG, "ORIGINAL: " + id);
             }
+        }
+
+        Log.d(TAG, "provisionedIds = " + provisionedIds);
+        Log.d(TAG, "devicesToShow  = " + devicesToShow);
+
+        if (devicesToShow.isEmpty()) {
+            hideAllDevices();
+        } else {
+            showOnlyRelatedDevices(devicesToShow);
         }
     }
 
