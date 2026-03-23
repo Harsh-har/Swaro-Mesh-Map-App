@@ -5,6 +5,7 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
@@ -18,8 +19,12 @@ import javax.inject.Inject;
 
 import dagger.hilt.android.lifecycle.HiltViewModel;
 import dagger.hilt.android.qualifiers.ApplicationContext;
+import no.nordicsemi.android.swaromapmesh.ApplicationKey;
+import no.nordicsemi.android.swaromapmesh.MeshNetwork;
+import no.nordicsemi.android.swaromapmesh.NodeKey;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
+import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
 @HiltViewModel
@@ -28,24 +33,27 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
     private final ScannerRepository mScannerRepository;
     private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 
-    private static final String PREFS_NAME               = "mesh_prefs";
-    private static final String KEY_PROXY_ENABLED        = "proxy_enabled";
-    private static final String KEY_SELECTED_DEVICE      = "selected_device";
-    private static final String KEY_SIGNAL_THRESHOLD     = "signal_threshold";
-    private static final String KEY_SVG_URI              = "svg_uri";
-    private static final String KEY_PROVISIONED_DEVICES  = "provisioned_devices";
-    private static final String DEFAULT_SELECTED_DEVICE  = "All Device";
+    private static final String PREFS_NAME              = "mesh_prefs";
+    private static final String KEY_PROXY_ENABLED       = "proxy_enabled";
+    private static final String KEY_SELECTED_DEVICE     = "selected_device";
+    private static final String KEY_SIGNAL_THRESHOLD    = "signal_threshold";
+    private static final String KEY_SVG_URI             = "svg_uri";
+    private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
+    private static final String DEFAULT_SELECTED_DEVICE = "All Device";
 
     private final SharedPreferences prefs;
 
-    private final MutableLiveData<Boolean>  proxyEnabled     = new MutableLiveData<>();
-    private final MutableLiveData<String>   selectedDevice   = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
-    private final MutableLiveData<Integer>  signalThreshold  = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
-    private final MutableLiveData<Uri>      svgUri           = new MutableLiveData<>();
-    private final MutableLiveData<String>   selectedDeviceId = new MutableLiveData<>();
+    private final MutableLiveData<Boolean>     proxyEnabled         = new MutableLiveData<>();
+    private final MutableLiveData<String>      selectedDevice       = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
+    private final MutableLiveData<Integer>     signalThreshold      = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
+    private final MutableLiveData<Uri>         svgUri               = new MutableLiveData<>();
+    private final MutableLiveData<String>      selectedDeviceId     = new MutableLiveData<>();
     private final MutableLiveData<Set<String>> provisionedDeviceIds = new MutableLiveData<>(new HashSet<>());
-    private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices         = new MutableLiveData<>(new ArrayList<>());
-    private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices = new MutableLiveData<>(new ArrayList<>());
+
+    private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices =
+            new MutableLiveData<>(new ArrayList<>());
+    private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices =
+            new MutableLiveData<>(new ArrayList<>());
 
     @Inject
     SharedViewModel(
@@ -69,9 +77,6 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
             svgUri.setValue(Uri.parse(savedSvgUri));
         }
 
-        // Load persisted provisioned device IDs
-        // Must copy the returned set — SharedPreferences holds the reference internally
-        // and mutating it directly causes undefined behaviour
         Set<String> savedProvisioned = prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
         provisionedDeviceIds.setValue(new HashSet<>(savedProvisioned));
     }
@@ -105,7 +110,8 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public void exportMeshNetwork() {
         final String fileName = getNetworkLiveData().getNetworkName() + ".json";
-        NetworkExportUtils.exportMeshNetwork(getMeshManagerApi(), NrfMeshRepository.EXPORT_PATH, fileName, this);
+        NetworkExportUtils.exportMeshNetwork(getMeshManagerApi(),
+                NrfMeshRepository.EXPORT_PATH, fileName, this);
     }
 
     @Override
@@ -128,13 +134,9 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         prefs.edit().putString(KEY_SVG_URI, uri.toString()).apply();
     }
 
-    public Uri getSvgUriValue() {
-        return svgUri.getValue();
-    }
+    public Uri getSvgUriValue() { return svgUri.getValue(); }
 
-    public boolean hasSvg() {
-        return svgUri.getValue() != null;
-    }
+    public boolean hasSvg() { return svgUri.getValue() != null; }
 
     public void clearSvgUri() {
         svgUri.setValue(null);
@@ -205,43 +207,27 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     // ==================== PROVISIONED DEVICE IDs (PERSISTENT) ====================
 
-    /**
-     * Observe this to react when any device becomes provisioned.
-     * NetworkFragment uses this to turn SVG icons green.
-     */
     public LiveData<Set<String>> getProvisionedDeviceIds() {
         return provisionedDeviceIds;
     }
 
-    /**
-     * Returns true if the given SVG device ID has been successfully provisioned.
-     */
     public boolean isDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return false;
         Set<String> set = provisionedDeviceIds.getValue();
         return set != null && set.contains(svgDeviceId);
     }
 
-    /**
-     * Call this after a successful provisioning flow.
-     * Adds the SVG device ID to the persisted set and notifies observers.
-     */
     public void markDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return;
-        // Always work on a fresh copy — never mutate the set held by LiveData directly
         Set<String> current = new HashSet<>();
         if (provisionedDeviceIds.getValue() != null) {
             current.addAll(provisionedDeviceIds.getValue());
         }
         current.add(svgDeviceId);
         provisionedDeviceIds.setValue(current);
-        // Persist — pass a copy because SharedPreferences may hold the reference
         prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
     }
 
-    /**
-     * Remove a single device from the provisioned set (e.g. after reset/deprovisioning).
-     */
     public void unmarkDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return;
         Set<String> current = new HashSet<>();
@@ -253,12 +239,54 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
     }
 
-    /**
-     * Clear all provisioned devices (e.g. full network reset).
-     */
     public void clearProvisionedDevices() {
         provisionedDeviceIds.setValue(new HashSet<>());
         prefs.edit().remove(KEY_PROVISIONED_DEVICES).apply();
+    }
+
+    // ==================== AUTO APP KEY ====================
+
+    /**
+     * Returns the first AppKey from the network, or null if none exist.
+     */
+    @Nullable
+    public ApplicationKey getDefaultAppKey() {
+        try {
+            final MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+            if (network == null) return null;
+            final List<ApplicationKey> appKeys = network.getAppKeys();
+            if (appKeys == null || appKeys.isEmpty()) return null;
+            return appKeys.get(0);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Returns true if the default AppKey is already bound to this node.
+     */
+    public boolean isDefaultAppKeyBound(@NonNull final ProvisionedMeshNode node) {
+        final ApplicationKey key = getDefaultAppKey();
+        if (key == null) return false;
+        for (NodeKey k : node.getAddedAppKeys()) {
+            if (k.getIndex() == key.getKeyIndex()) return true;
+        }
+        return false;
+    }
+
+    /**
+     * Returns true if AppKey auto-bind has already been done for this node.
+     * Keyed by unicast address — survives app restarts.
+     */
+    public boolean isAutoAppKeyDone(int unicastAddress) {
+        return prefs.getBoolean("app_key_done_" + unicastAddress, false);
+    }
+
+    /**
+     * Marks AppKey auto-bind as done for this node so it never repeats.
+     */
+    public void setAutoAppKeyDone(int unicastAddress) {
+        prefs.edit().putBoolean("app_key_done_" + unicastAddress, true).apply();
     }
 
     // ==================== FILTERED DEVICES ====================
@@ -279,7 +307,9 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     // ==================== ALL UNPROVISIONED DEVICES ====================
 
-    public LiveData<List<ExtendedBluetoothDevice>> getAllUnprovisionedDevices() { return allUnprovisionedDevices; }
+    public LiveData<List<ExtendedBluetoothDevice>> getAllUnprovisionedDevices() {
+        return allUnprovisionedDevices;
+    }
 
     public void setAllUnprovisionedDevices(List<ExtendedBluetoothDevice> devices) {
         if (devices == null) devices = new ArrayList<>();
@@ -300,7 +330,9 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         }
     }
 
-    public void clearAllUnprovisionedDevices() { allUnprovisionedDevices.setValue(new ArrayList<>()); }
+    public void clearAllUnprovisionedDevices() {
+        allUnprovisionedDevices.setValue(new ArrayList<>());
+    }
 
     // ==================== FILTER UTILITY ====================
 
@@ -349,7 +381,8 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
         return filtered;
     }
 
-    private boolean matchesSignalThreshold(@NonNull ExtendedBluetoothDevice device, int threshold) {
+    private boolean matchesSignalThreshold(@NonNull ExtendedBluetoothDevice device,
+                                           int threshold) {
         int rssiPercent = (int) (100.0f * (127.0f + device.getRssi()) / (127.0f + 20.0f));
         return rssiPercent >= threshold;
     }

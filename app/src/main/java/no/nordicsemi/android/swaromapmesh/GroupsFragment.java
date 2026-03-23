@@ -25,7 +25,6 @@ import androidx.recyclerview.widget.RecyclerView;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentGroupsBinding;
-import no.nordicsemi.android.swaromapmesh.databinding.FragmentTechnicianBinding;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentDeleteNode;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentError;
 import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
@@ -36,7 +35,6 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 import no.nordicsemi.android.swaromapmesh.widgets.ItemTouchHelperAdapter;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableItemTouchHelperCallback;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableViewHolder;
-
 
 import static android.app.Activity.RESULT_OK;
 
@@ -96,7 +94,8 @@ public class GroupsFragment extends Fragment implements
 
         mRecyclerViewNodes.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
-            public void onScrolled(@NonNull final RecyclerView recyclerView, final int dx, final int dy) {
+            public void onScrolled(@NonNull final RecyclerView recyclerView,
+                                   final int dx, final int dy) {
                 super.onScrolled(recyclerView, dx, dy);
                 final LinearLayoutManager m =
                         (LinearLayoutManager) recyclerView.getLayoutManager();
@@ -111,33 +110,46 @@ public class GroupsFragment extends Fragment implements
         });
 
         binding.searchView.setOnQueryTextListener(new SearchView.OnQueryTextListener() {
-            @Override public boolean onQueryTextSubmit(String query) { mNodeAdapter.filter(query); return true; }
-            @Override public boolean onQueryTextChange(String newText) { mNodeAdapter.filter(newText); return true; }
+            @Override public boolean onQueryTextSubmit(String query) {
+                mNodeAdapter.filter(query); return true;
+            }
+            @Override public boolean onQueryTextChange(String newText) {
+                mNodeAdapter.filter(newText); return true;
+            }
         });
 
         mNodeAdapter.registerAdapterDataObserver(new RecyclerView.AdapterDataObserver() {
             @Override public void onChanged() {
-                noNetworksConfiguredView.setVisibility(mNodeAdapter.getItemCount() == 0
-                        ? View.VISIBLE : View.GONE);
+                noNetworksConfiguredView.setVisibility(
+                        mNodeAdapter.getItemCount() == 0 ? View.VISIBLE : View.GONE);
             }
         });
 
         return binding.getRoot();
     }
 
-
+    // ─────────────────────────────────────────────────────────────
+    //  Node click — navigate, AppKey bind handled in NodeConfigurationActivity
+    // ─────────────────────────────────────────────────────────────
 
     @Override
     public void onConfigureClicked(final ProvisionedMeshNode node) {
         mViewModel.setSelectedMeshNode(node);
+        navigateToNodeConfig(node);
+    }
 
+    /**
+     * Handles proxy check and navigates to NodeConfigurationActivity.
+     * AppKey auto-bind is handled inside NodeConfigurationActivity via
+     * autoBindDefaultAppKey() which sends ConfigAppKeyAdd mesh message.
+     */
+    private void navigateToNodeConfig(final ProvisionedMeshNode node) {
         if (!mViewModel.isProxyEnabled()) {
             startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
             return;
         }
 
         final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
-
         if (Boolean.TRUE.equals(isConnected)) {
             startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
         } else {
@@ -145,14 +157,17 @@ public class GroupsFragment extends Fragment implements
         }
     }
 
-    private void startProxyConnectInBackground(@Nullable String macAddress) {
+    private void startProxyConnectInBackground(@Nullable final String macAddress) {
         final Intent intent = new Intent(requireContext(), ScannerActivity.class);
         intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
         intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-        intent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, macAddress); // ⭐ IMPORTANT
+        intent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, macAddress);
         proxyConnector.launch(intent);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  Swipe to delete
+    // ─────────────────────────────────────────────────────────────
 
     @Override
     public void onItemDismiss(final RemovableViewHolder viewHolder) {
@@ -182,6 +197,10 @@ public class GroupsFragment extends Fragment implements
         mNodeAdapter.notifyItemChanged(position);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  Activity result handlers
+    // ─────────────────────────────────────────────────────────────
+
     private void handleProvisioningResult(final ActivityResult result) {
         final Intent data = result.getData();
         if (result.getResultCode() == RESULT_OK && data != null) {
@@ -210,4 +229,3 @@ public class GroupsFragment extends Fragment implements
                 .show(getChildFragmentManager(), null);
     }
 }
-

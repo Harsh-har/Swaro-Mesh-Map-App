@@ -13,7 +13,9 @@ import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.ApplicationKey;
 import no.nordicsemi.android.swaromapmesh.MeshNetwork;
+import no.nordicsemi.android.swaromapmesh.NetworkKey;
 import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityNodeConfigurationBinding;
 import no.nordicsemi.android.swaromapmesh.databinding.LayoutContainerBinding;
@@ -28,6 +30,8 @@ import no.nordicsemi.android.swaromapmesh.node.dialog.DialogFragmentElementName;
 import no.nordicsemi.android.swaromapmesh.node.dialog.DialogFragmentNodeName;
 import no.nordicsemi.android.swaromapmesh.node.dialog.DialogFragmentResetNode;
 import no.nordicsemi.android.swaromapmesh.provisioners.dialogs.DialogFragmentTtl;
+import no.nordicsemi.android.swaromapmesh.transport.ConfigAppKeyAdd;
+import no.nordicsemi.android.swaromapmesh.transport.ConfigAppKeyStatus;
 import no.nordicsemi.android.swaromapmesh.transport.ConfigCompositionDataGet;
 import no.nordicsemi.android.swaromapmesh.transport.ConfigCompositionDataStatus;
 import no.nordicsemi.android.swaromapmesh.transport.ConfigDefaultTtlGet;
@@ -45,6 +49,7 @@ import no.nordicsemi.android.swaromapmesh.transport.ProxyConfigFilterStatus;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.BaseActivity;
 import no.nordicsemi.android.swaromapmesh.viewmodels.NodeConfigurationViewModel;
+import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
 public class NodeConfigurationActivity extends BaseActivity implements
@@ -56,18 +61,15 @@ public class NodeConfigurationActivity extends BaseActivity implements
         DialogFragmentResetNode.DialogFragmentNodeResetListener,
         DialogFragmentConfigurationComplete.ConfigurationCompleteListener {
 
-    private static final String PROGRESS_BAR_STATE = "PROGRESS_BAR_STATE";
-    private static final String PROXY_STATE = "PROXY_STATE";
+    private static final String PROGRESS_BAR_STATE   = "PROGRESS_BAR_STATE";
+    private static final String PROXY_STATE           = "PROXY_STATE";
     private static final String REQUESTED_PROXY_STATE = "REQUESTED_PROXY_STATE";
 
     private ActivityNodeConfigurationBinding binding;
-    private boolean mRequestedState = true;
-
-    // ✅ Auto open AppKeys only once per node
-    private boolean appKeyScreenOpenedThisSession = false;
-    private static final long AUTO_OPEN_APPKEY_DELAY_MS = 150;
-
+    private SharedViewModel mSharedViewModel;           // ✅ typed reference for AppKey methods
+    private boolean mRequestedState       = true;
     private boolean mCompositionRequested = false;
+    private boolean mAppKeyBindRequested  = false;
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -77,6 +79,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
         setContentView(binding.getRoot());
 
         mViewModel = new ViewModelProvider(this).get(NodeConfigurationViewModel.class);
+        mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class); // ✅
         initialize();
 
         if (savedInstanceState != null) {
@@ -95,7 +98,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
             return;
         }
 
-        // Toolbar setup
+        // Toolbar
         setSupportActionBar(binding.toolbar);
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
@@ -104,7 +107,8 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
         // ---------------- Node Name Card ----------------
         final LayoutContainerBinding containerNodeName = binding.containerNodeName;
-        containerNodeName.image.setBackground(ContextCompat.getDrawable(this, R.drawable.ic_label));
+        containerNodeName.image.setBackground(
+                ContextCompat.getDrawable(this, R.drawable.ic_label));
         containerNodeName.title.setText(R.string.title_node_name);
 
         final TextView nodeNameView = containerNodeName.text;
@@ -118,7 +122,8 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
         final Button actionDetails = findViewById(R.id.action_show_details);
         actionDetails.setOnClickListener(v ->
-                startActivity(new Intent(NodeConfigurationActivity.this, NodeDetailsActivity.class)));
+                startActivity(new Intent(NodeConfigurationActivity.this,
+                        NodeDetailsActivity.class)));
 
         // ---------------- Elements Recycler ----------------
         binding.recyclerViewElements.setLayoutManager(new LinearLayoutManager(this));
@@ -127,7 +132,8 @@ public class NodeConfigurationActivity extends BaseActivity implements
         binding.recyclerViewElements.setAdapter(adapter);
 
         // ---------------- NetKeys Card ----------------
-        binding.containerNetKeys.image.setBackground(ContextCompat.getDrawable(this, R.drawable.ic_vpn_key_24dp));
+        binding.containerNetKeys.image.setBackground(
+                ContextCompat.getDrawable(this, R.drawable.ic_vpn_key_24dp));
         binding.containerNetKeys.title.setText(R.string.title_net_keys);
 
         final TextView netKeySummary = binding.containerNetKeys.text;
@@ -137,18 +143,19 @@ public class NodeConfigurationActivity extends BaseActivity implements
                 startActivity(new Intent(this, AddNetKeysActivity.class)));
 
         // ---------------- AppKeys Card ----------------
-        binding.containerAppKeys.image.setBackground(ContextCompat.getDrawable(this, R.drawable.ic_vpn_key_24dp));
+        binding.containerAppKeys.image.setBackground(
+                ContextCompat.getDrawable(this, R.drawable.ic_vpn_key_24dp));
         binding.containerAppKeys.title.setText(R.string.title_app_keys);
 
         final TextView appKeySummary = binding.containerAppKeys.text;
         appKeySummary.setVisibility(View.VISIBLE);
 
-        // manual click optional
         binding.containerAppKeys.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(this, AddAppKeysActivity.class)));
 
         // ---------------- TTL Card ----------------
-        binding.containerTtl.image.setBackground(ContextCompat.getDrawable(this, R.drawable.ic_numeric));
+        binding.containerTtl.image.setBackground(
+                ContextCompat.getDrawable(this, R.drawable.ic_numeric));
         binding.containerTtl.title.setText(R.string.title_ttl);
 
         final TextView defaultTtlSummary = binding.containerTtl.text;
@@ -191,7 +198,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
             }
         });
 
-        // ---------------- Actions ----------------
+        // ---------------- Action Buttons ----------------
         binding.actionGetCompositionData.setOnClickListener(v -> {
             if (!checkConnectivity(binding.container)) return;
             sendMessage(new ConfigCompositionDataGet());
@@ -205,8 +212,8 @@ public class NodeConfigurationActivity extends BaseActivity implements
         binding.actionSetDefaultTtl.setOnClickListener(v -> {
             final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
             if (node != null) {
-                DialogFragmentTtl fragmentTtl =
-                        DialogFragmentTtl.newInstance(node.getTtl() == null ? -1 : node.getTtl());
+                DialogFragmentTtl fragmentTtl = DialogFragmentTtl.newInstance(
+                        node.getTtl() == null ? -1 : node.getTtl());
                 fragmentTtl.show(getSupportFragmentManager(), null);
             }
         });
@@ -223,34 +230,18 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
         updateProxySettingsCardUi();
         autoFetchCompositionData();
+        autoBindDefaultAppKey(); // ✅ Auto-bind AppKey on first open
     }
 
-    /**
-     * ✅ Auto open AddAppKeysActivity ONLY ONCE per node (unicast)
-     */
     @Override
     protected void onResume() {
         super.onResume();
-
-        if (appKeyScreenOpenedThisSession) return;
-
-        final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
-        if (node == null) return;
-
-        final int unicast = node.getUnicastAddress();
-
-        // already done for this device? don't auto-open
-        if (Utils.isAutoAppKeyDone(this, unicast)) return;
-
-        // must be connected to proxy
-        if (!checkConnectivity(binding.container)) return;
-
-        appKeyScreenOpenedThisSession = true;
-
-        binding.getRoot().postDelayed(() -> {
-            startActivity(new Intent(NodeConfigurationActivity.this, AddAppKeysActivity.class));
-        }, AUTO_OPEN_APPKEY_DELAY_MS);
+        // AppKey auto-bind is handled via autoBindDefaultAppKey() in onCreate.
     }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Auto-fetch Composition Data
+    // ─────────────────────────────────────────────────────────────
 
     private void autoFetchCompositionData() {
         if (mCompositionRequested) return;
@@ -273,6 +264,56 @@ public class NodeConfigurationActivity extends BaseActivity implements
         sendMessage(new ConfigCompositionDataGet());
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  Auto-bind Default AppKey via ConfigAppKeyAdd mesh message
+    // ─────────────────────────────────────────────────────────────
+
+    private void autoBindDefaultAppKey() {
+        if (mAppKeyBindRequested) return;
+
+        final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+
+        // Already bound — nothing to do
+        if (mSharedViewModel.isDefaultAppKeyBound(node)) {
+            mSharedViewModel.setAutoAppKeyDone(node.getUnicastAddress());
+            return;
+        }
+
+        final ApplicationKey defaultKey = mSharedViewModel.getDefaultAppKey();
+        if (defaultKey == null) return;
+
+        // NetKey object is required for ConfigAppKeyAdd
+        if (node.getAddedNetKeys().isEmpty()) return;
+        final int netKeyIndex = node.getAddedNetKeys().get(0).getIndex();
+
+        // ✅ Get the actual NetworkKey object from the mesh network
+        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+        if (network == null) return;
+
+        NetworkKey netKey = null;
+        for (NetworkKey k : network.getNetKeys()) {
+            if (k.getKeyIndex() == netKeyIndex) {
+                netKey = k;
+                break;
+            }
+        }
+        if (netKey == null) return;
+
+        if (!checkConnectivity(binding.container)) return;
+
+        mAppKeyBindRequested = true;
+
+        Log.d("AUTO_APP_KEY", "Sending ConfigAppKeyAdd for appKey index: "
+                + defaultKey.getKeyIndex());
+
+        // ✅ ConfigAppKeyAdd(NetworkKey, ApplicationKey)
+        sendMessage(new ConfigAppKeyAdd(netKey, defaultKey));
+    }
+    // ─────────────────────────────────────────────────────────────
+    //  Lifecycle
+    // ─────────────────────────────────────────────────────────────
+
     @Override
     protected void onStart() {
         super.onStart();
@@ -291,44 +332,73 @@ public class NodeConfigurationActivity extends BaseActivity implements
     @Override
     protected void onSaveInstanceState(@NonNull final Bundle outState) {
         super.onSaveInstanceState(outState);
-        outState.putBoolean(PROGRESS_BAR_STATE, binding.configurationProgressBar.getVisibility() == View.VISIBLE);
+        outState.putBoolean(PROGRESS_BAR_STATE,
+                binding.configurationProgressBar.getVisibility() == View.VISIBLE);
         outState.putBoolean(REQUESTED_PROXY_STATE, mRequestedState);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  Mesh Message Handling
+    // ─────────────────────────────────────────────────────────────
+
+    protected void updateMeshMessage(final MeshMessage meshMessage) {
+        if (meshMessage instanceof ProxyConfigFilterStatus) {
+            hideProgressBar();
+        }
+        if (meshMessage instanceof ConfigCompositionDataStatus) {
+            hideProgressBar();
+        } else if (meshMessage instanceof ConfigAppKeyStatus) {
+            // ✅ AppKey bind response from node
+            final ConfigAppKeyStatus status = (ConfigAppKeyStatus) meshMessage;
+            final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+            if (node != null) {
+                if (status.isSuccessful()) {
+                    Log.d("AUTO_APP_KEY", "AppKey bound successfully.");
+                    mSharedViewModel.setAutoAppKeyDone(node.getUnicastAddress());
+                } else {
+                    Log.w("AUTO_APP_KEY", "AppKey bind failed: " + status.getStatusCode());
+                    mAppKeyBindRequested = false; // allow retry
+                }
+            }
+            hideProgressBar();
+        } else if (meshMessage instanceof ConfigDefaultTtlStatus) {
+            hideProgressBar();
+        } else if (meshMessage instanceof ConfigNodeResetStatus) {
+            hideProgressBar();
+            finish();
+        } else if (meshMessage instanceof ConfigGattProxyStatus) {
+            updateProxySettingsCardUi();
+            hideProgressBar();
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Element / Model clicks
+    // ─────────────────────────────────────────────────────────────
 
     @Override
     public void onElementClicked(@NonNull final Element element) {
-
         int elementAddress = element.getElementAddress();
-
-        // ✅ Save element object
         mViewModel.setSelectedElement(element);
-
-        // ✅ Save element address globally
         mViewModel.setSelectedElementAddress(elementAddress);
-
-        // ✅ Debug log
-        Log.d(
-                "ELEMENT_CLICKED",
+        Log.d("ELEMENT_CLICKED",
                 "name=" + element.getName() +
-                        ", address=0x" + String.format("%04X", elementAddress)
-        );
+                        ", address=0x" + String.format("%04X", elementAddress));
     }
-
-
 
     @Override
     public void onModelClicked(@NonNull final ProvisionedMeshNode meshNode,
                                @NonNull final Element element,
                                @NonNull final MeshModel model) {
-
         mViewModel.setSelectedElement(element);
         mViewModel.setSelectedElementAddress(element.getElementAddress());
         mViewModel.setSelectedModel(model);
-
         mViewModel.navigateToModelActivity(this, model);
     }
 
+    // ─────────────────────────────────────────────────────────────
+    //  Dialog callbacks
+    // ─────────────────────────────────────────────────────────────
 
     @Override
     public void onNodeReset() {
@@ -356,6 +426,21 @@ public class NodeConfigurationActivity extends BaseActivity implements
         final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
         return network.updateElementName(address, name);
     }
+
+    @Override
+    public boolean setDefaultTtl(final int ttl) {
+        sendMessage(new ConfigDefaultTtlSet(ttl));
+        return true;
+    }
+
+    @Override
+    public void onProxySet(final int state) {
+        sendMessage(new ConfigGattProxySet(state));
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  UI Helpers
+    // ─────────────────────────────────────────────────────────────
 
     private void updateProxySettingsCardUi() {
         final ProvisionedMeshNode meshNode = mViewModel.getSelectedMeshNode().getValue();
@@ -391,23 +476,6 @@ public class NodeConfigurationActivity extends BaseActivity implements
         binding.actionResetNode.setEnabled(false);
     }
 
-    protected void updateMeshMessage(final MeshMessage meshMessage) {
-        if (meshMessage instanceof ProxyConfigFilterStatus) {
-            hideProgressBar();
-        }
-        if (meshMessage instanceof ConfigCompositionDataStatus) {
-            hideProgressBar();
-        } else if (meshMessage instanceof ConfigDefaultTtlStatus) {
-            hideProgressBar();
-        } else if (meshMessage instanceof ConfigNodeResetStatus) {
-            hideProgressBar();
-            finish();
-        } else if (meshMessage instanceof ConfigGattProxyStatus) {
-            updateProxySettingsCardUi();
-            hideProgressBar();
-        }
-    }
-
     protected void updateClickableViews() {
         final ProvisionedMeshNode meshNode = mViewModel.getSelectedMeshNode().getValue();
         if (meshNode != null && meshNode.isConfigured() &&
@@ -433,32 +501,23 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
     private void sendMessage(final MeshMessage meshMessage) {
         try {
-            if (!checkConnectivity(binding.container))
-                return;
+            if (!checkConnectivity(binding.container)) return;
 
             final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
             if (node != null) {
-                mViewModel.getMeshManagerApi().createMeshPdu(node.getUnicastAddress(), meshMessage);
+                mViewModel.getMeshManagerApi().createMeshPdu(
+                        node.getUnicastAddress(), meshMessage);
                 showProgressBar();
             }
         } catch (IllegalArgumentException ex) {
             hideProgressBar();
             final DialogFragmentError message = DialogFragmentError.newInstance(
                     getString(R.string.title_error),
-                    ex.getMessage() == null ? getString(R.string.unknwon_error) : ex.getMessage()
+                    ex.getMessage() == null
+                            ? getString(R.string.unknwon_error)
+                            : ex.getMessage()
             );
             message.show(getSupportFragmentManager(), null);
         }
-    }
-
-    @Override
-    public boolean setDefaultTtl(final int ttl) {
-        sendMessage(new ConfigDefaultTtlSet(ttl));
-        return true;
-    }
-
-    @Override
-    public void onProxySet(final int state) {
-        sendMessage(new ConfigGattProxySet(state));
     }
 }
