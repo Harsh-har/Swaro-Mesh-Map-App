@@ -411,10 +411,10 @@ public class NetworkFragment extends Fragment {
         if (rawText == null || rawText.isEmpty()) return result;
 
         // Parse each (iconId deviceId) pair using regex-style matching
-        // Matches: (  WORD1   WORD2  )  with any whitespace inside
-        java.util.regex.Pattern pattern =
+        // Matches: (  WORD1   WORD2  )  with any whitespace insidejava.util.regex.Pattern pattern =
+                java.util.regex.Pattern pattern =
                 java.util.regex.Pattern.compile(
-                        "\\(\\s*([\\w]+)\\s+([\\w]+)\\s*\\)");
+                        "\\(\\s*([\\w-]+)\\s+([\\w-]+)\\s*\\)");
         java.util.regex.Matcher matcher = pattern.matcher(rawText);
 
         while (matcher.find()) {

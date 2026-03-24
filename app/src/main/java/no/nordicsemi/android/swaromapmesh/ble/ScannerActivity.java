@@ -26,6 +26,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.DeviceDetailActivity;
 import no.nordicsemi.android.swaromapmesh.ProvisioningActivity;
 import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
@@ -139,7 +140,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     returnIntent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, mIsNewlyProvisioned);
                     returnIntent.putExtra(Utils.PROVISIONING_COMPLETED, true);
 
-                    // ✅ Attach svgDeviceId — this is what DeviceDetailActivity needs
+                    // ✅ Attach svgDeviceId
                     if (mSvgDeviceId != null) {
                         returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
                         Log.d(TAG, "reconnect callback — attaching mSvgDeviceId=" + mSvgDeviceId);
@@ -191,7 +192,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         if (getSupportActionBar() != null)
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
-        // ✅ Read svgDeviceId from incoming intent immediately
+        // ✅ Read svgDeviceId from incoming intent
         if (getIntent() != null) {
             mSvgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
             Log.d(TAG, "onCreate — mSvgDeviceId from intent: " + mSvgDeviceId);
@@ -200,6 +201,17 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
             mSilentConnect        = getIntent().getBooleanExtra(
                     Utils.EXTRA_SILENT_CONNECT, false);
+
+            // ✅ AUTO FILTER — DeviceDetailActivity se jo deviceId aaya,
+            //    use SharedViewModel me set karo taaki scanner automatically filter kare
+            String autoFilterDevice = getIntent().getStringExtra(
+                    DeviceDetailActivity.EXTRA_AUTO_FILTER_DEVICE);
+            if (autoFilterDevice != null && !autoFilterDevice.isEmpty()) {
+                Log.d(TAG, "Auto filter set: " + autoFilterDevice);
+                mSharedViewModel.setSelectedDevice(autoFilterDevice);
+                mSharedViewModel.setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
+                mSharedViewModel.setDeviceNameFilter("");
+            }
 
             boolean autoConnectAfterProvisioning =
                     getIntent().getBooleanExtra(

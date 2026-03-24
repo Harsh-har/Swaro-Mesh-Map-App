@@ -16,6 +16,7 @@
         android:enabled="true"
         android:icon="@drawable/ic_proxy"
         android:title="@string/device_filter"
+        android:visible="false"
         app:showAsAction="always"
         tools:ignore="AlwaysShowAction"/>
 

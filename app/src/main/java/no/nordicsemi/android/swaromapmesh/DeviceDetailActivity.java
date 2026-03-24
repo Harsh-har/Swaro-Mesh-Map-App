@@ -33,6 +33,9 @@ public class DeviceDetailActivity extends AppCompatActivity {
     public static final String EXTRA_ELEMENT_ID  = "element_id";
     public static final String EXTRA_DEVICE_NAME = "device_name";
 
+    // ✅ Key for auto filter
+    public static final String EXTRA_AUTO_FILTER_DEVICE = "auto_filter_device";
+
     private ActivityDeviceDetailBinding binding;
 
     private String deviceId;
@@ -101,9 +104,13 @@ public class DeviceDetailActivity extends AppCompatActivity {
             Intent intent = new Intent(this, ScannerActivity.class);
             intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
             intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, deviceId);
+
+            // ✅ Auto filter — deviceId ke base par scanner automatically filter karega
+            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE, deviceId);
+            Log.d(TAG, "Passing auto_filter_device=" + deviceId);
+
             provisioner.launch(intent);
         });
-
     }
 
     // ==================== RESULT HANDLERS ====================
@@ -134,7 +141,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
             Log.w(TAG, "svgDeviceId null, fallback to deviceId=" + deviceId);
         }
 
-        // ✅ Directly SharedPreferences mein save — ViewModel scope bypass
+        // ✅ SharedPreferences mein save
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         Set<String> current = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
@@ -144,7 +151,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         Log.d(TAG, "Saved provisioned device to prefs: " + svgDeviceId);
 
         Toast.makeText(this,
-                deviceId + " provisioned! Icon will turn green.",
+                deviceId + " provisioned successfully!",
                 Toast.LENGTH_LONG).show();
 
         finish();
