@@ -1211,28 +1211,29 @@ public class NetworkFragment extends Fragment {
 
     private void onDeviceTapped(String deviceId) {
         Set<String> provisioned = getProvisionedFromPrefs();
+        DeviceInfo device = deviceMap.get(deviceId);
 
-        if (provisioned.contains(deviceId)) {
-            Toast.makeText(requireContext(),
-                    deviceId + " is already provisioned",
-                    Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        if (deviceId.equals(selectedDeviceId)) {
-            deselectCurrentDevice();
-            return;
-        }
-
+        // ✅ Highlight always (better UX)
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
 
-        DeviceInfo device = deviceMap.get(deviceId);
-        if (device != null) {
+        if (device != null && device.element != null) {
             applyColorToDevice(device.element, COLOR_SELECTED);
         }
         reRenderSvg();
 
+        // ✅ Already provisioned → go to Test screen
+        if (provisioned.contains(deviceId)) {
+            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
+                    device != null ? device.elementId : null);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
+            startActivity(intent);
+            return;
+        }
+
+        // ✅ Not provisioned → go to detail screen
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
@@ -1240,7 +1241,6 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
         startActivity(intent);
     }
-
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
         DeviceInfo  device      = deviceMap.get(selectedDeviceId);

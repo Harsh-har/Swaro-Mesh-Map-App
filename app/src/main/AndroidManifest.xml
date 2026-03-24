@@ -39,6 +39,9 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".TestProvisionActivity"
+            android:exported="false" />
+        <activity
             android:name=".TechnicianActivity"
             android:exported="false" />
         <activity

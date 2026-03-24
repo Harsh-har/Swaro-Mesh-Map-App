@@ -104,10 +104,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
             provisioner.launch(intent);
         });
 
-        binding.btnTest.setOnClickListener(v -> {
-            Log.d(TAG, "Test Device: " + deviceId);
-            Toast.makeText(this, "Testing: " + deviceId, Toast.LENGTH_SHORT).show();
-        });
     }
 
     // ==================== RESULT HANDLERS ====================
