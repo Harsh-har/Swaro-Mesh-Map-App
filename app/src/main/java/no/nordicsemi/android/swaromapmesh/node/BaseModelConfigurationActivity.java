@@ -105,9 +105,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private static final String TAG_TID     = "TID";
     private static final String TAG_MODEL   = "MODEL_CARD";
 
-
     // ─────────────────────────────────────────────────────────────────────────
-    // ✅ FIXED:  separate model IDs (was duplicate GENERIC_ONOFF_CLIENT before)
+    // Model IDs
     // ─────────────────────────────────────────────────────────────────────────
     private static final int GENERIC_ONOFF_SERVER = 0x1000; // → Short + Long commands
     private static final int GENERIC_ONOFF_CLIENT = 0x1001; // → Scene + Stature commands
@@ -119,7 +118,6 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private static final int MIN_BRIGHTNESS = 0;
     private static final int MAX_BRIGHTNESS = 255;
 
-    // ✅ UPDATED: Length range from 0-255 (was 1-8)
     private static final int MIN_LENGTH = 0;
     private static final int MAX_LENGTH = 255;
 
@@ -136,12 +134,10 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
 
     protected ActivityModelConfigurationBinding binding;
 
-    // toh
-
     // Command containers
     private LinearLayout mContainerShortLongCommands;
     private LinearLayout mContainerSceneCommands;
-    private View mGenericStatureCard;  // Added for Generic Stature card
+    private View mGenericStatureCard;
 
     CoordinatorLayout mContainer;
     View    mContainerAppKeyBinding;
@@ -233,7 +229,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         // Containers
         mContainerShortLongCommands = findViewById(R.id.container_short_long_commands);
         mContainerSceneCommands     = findViewById(R.id.container_scene_commands);
-        mGenericStatureCard          = findViewById(R.id.generic_stature_card);  // Initialize Stature card
+        mGenericStatureCard         = findViewById(R.id.generic_stature_card);
 
         // Base views
         mContainer              = binding.container;
@@ -262,7 +258,6 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         mLongReadButton      = binding.actionLongReadState;
         mLengthEditText      = binding.etElementAddress;
         mLongAddressEditText = binding.etLongCommand;
-        // ✅ Set default length to 0
         mLengthEditText.setText(String.valueOf(MIN_LENGTH));
 
         // Scene command
@@ -278,11 +273,11 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         mSceneSendButton    = binding.btnSend;
 
         // Stature command
-        mStatureIncDecEditText        = binding.etStatureIncDec;
-        mStatureUpdateEditText        = binding.etStatureUpdate;
+        mStatureIncDecEditText         = binding.etStatureIncDec;
+        mStatureUpdateEditText         = binding.etStatureUpdate;
         mStatureDeviceCategoryEditText = binding.etStatureDeviceCategory;
-        mStatureValueEditText         = binding.etStatureValue;
-        mStatureSendButton            = binding.actionSendGenericStature;
+        mStatureValueEditText          = binding.etStatureValue;
+        mStatureSendButton             = binding.actionSendGenericStature;
 
         mStatureSendButton.setOnClickListener(v -> sendGenericStatureCommand());
 
@@ -380,14 +375,14 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ✅ UPDATED: updateCommandCardsBasedOnModel — Shows Stature card only for Client model
+    // updateCommandCardsBasedOnModel
     // ─────────────────────────────────────────────────────────────────────────
     private void updateCommandCardsBasedOnModel(MeshModel model) {
         if (model == null) {
             Log.w(TAG_MODEL, "model=null → all cards GONE");
             mContainerShortLongCommands.setVisibility(View.GONE);
             mContainerSceneCommands.setVisibility(View.GONE);
-            mGenericStatureCard.setVisibility(View.GONE);  // Hide stature card
+            mGenericStatureCard.setVisibility(View.GONE);
             return;
         }
 
@@ -396,25 +391,21 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         Log.d(TAG_MODEL, String.format("Model: %s  ID=0x%04X (%d)",
                 model.getModelName(), modelId, modelId));
 
-        // Define which models get which cards
         boolean showShortLong = (modelId == GENERIC_ONOFF_SERVER);
-        boolean showScene = (modelId == GENERIC_ONOFF_CLIENT);
-        boolean showStature = (modelId == GENERIC_ONOFF_CLIENT); // Only client model gets stature
+        boolean showScene     = (modelId == GENERIC_ONOFF_CLIENT);
+        boolean showStature   = (modelId == GENERIC_ONOFF_CLIENT);
 
-        // Apply visibility
         mContainerShortLongCommands.setVisibility(showShortLong ? View.VISIBLE : View.GONE);
         mContainerSceneCommands.setVisibility(showScene ? View.VISIBLE : View.GONE);
         mGenericStatureCard.setVisibility(showStature ? View.VISIBLE : View.GONE);
 
-        // Log what's being shown
         Log.d(TAG_MODEL, "→ Card visibility:");
         Log.d(TAG_MODEL, "   Short/Long: " + (showShortLong ? "VISIBLE" : "GONE"));
-        Log.d(TAG_MODEL, "   Scene: " + (showScene ? "VISIBLE" : "GONE"));
-        Log.d(TAG_MODEL, "   Stature: " + (showStature ? "VISIBLE" : "GONE"));
+        Log.d(TAG_MODEL, "   Scene: "      + (showScene     ? "VISIBLE" : "GONE"));
+        Log.d(TAG_MODEL, "   Stature: "    + (showStature   ? "VISIBLE" : "GONE"));
         Log.d(TAG_MODEL, "══════════════════════════════");
     }
 
-    // Helper method to hide all cards
     private void hideAllCommandCards() {
         mContainerShortLongCommands.setVisibility(View.GONE);
         mContainerSceneCommands.setVisibility(View.GONE);
@@ -434,9 +425,11 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     // Scene Controls
     // ─────────────────────────────────────────────────────────────────────────
     private void initializeSceneControls() {
-        mSceneIdEditText.setText("1");   mTypeEditText.setText("1");
+        mSceneIdEditText.setText("1");
+        mTypeEditText.setText("1");
         mPressEditText.setText(PRESS_TYPE_SINGLE);
-        mModeEditText.setText("2");      mDeviceEditText.setText("1");
+        mModeEditText.setText("2");
+        mDeviceEditText.setText("1");
         mSceneStateEditText.setText("0");
 
         mBtnPressSingle.setOnClickListener(v -> {
@@ -462,11 +455,11 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         mSceneStateEditText.addTextChangedListener(new SimpleTextWatcher(this::validateSceneState));
     }
 
-    private void validateSceneId()   { validateRange(mSceneIdEditText,    1, 240, "Scene ID must be 1–240"); }
-    private void validateType()      { validateRange(mTypeEditText,        1, 39,  "Type must be 1–39");     }
-    private void validateMode()      { validateRange(mModeEditText,        1, 8,   "Mode must be 1–8");      }
-    private void validateDevice()    { validateRange(mDeviceEditText,      1, 8,   "no.nordicsemi.android.swaromesh.Device must be 1–8");    }
-    private void validateSceneState(){ validateRange(mSceneStateEditText,  0, 3,   "State must be 0–3");     }
+    private void validateSceneId()    { validateRange(mSceneIdEditText,    1, 240, "Scene ID must be 1–240"); }
+    private void validateType()       { validateRange(mTypeEditText,        1, 39,  "Type must be 1–39");     }
+    private void validateMode()       { validateRange(mModeEditText,        1, 8,   "Mode must be 1–8");      }
+    private void validateDevice()     { validateRange(mDeviceEditText,      1, 8,   "Device must be 1–8");    }
+    private void validateSceneState() { validateRange(mSceneStateEditText,  0, 3,   "State must be 0–3");     }
 
     private void validateRange(TextInputEditText et, int min, int max, String err) {
         try {
@@ -476,7 +469,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Auto Bind
+    // Auto Bind — ✅ FIX: uses sendAcknowledgedMessageSilent() so NO progress
+    //             bar appears on screen entry
     // ─────────────────────────────────────────────────────────────────────────
     private boolean isAutoBindTriggered = false;
 
@@ -493,12 +487,21 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         if (keys == null || keys.isEmpty()) return;
         isAutoBindTriggered = true;
         Log.d(TAG, "tryAutoBind ▶ binding key index " + keys.get(0).getKeyIndex());
-        sendAcknowledgedMessage(node.getUnicastAddress(),
-                new ConfigModelAppBind(element.getElementAddress(), model.getModelId(), keys.get(0).getKeyIndex()));
+
+        // ✅ CHANGED: was sendAcknowledgedMessage() which called showProgressBar()
+        //    Now uses silent version — no ugly progress bar on first load
+        sendAcknowledgedMessageSilent(
+                node.getUnicastAddress(),
+                new ConfigModelAppBind(
+                        element.getElementAddress(),
+                        model.getModelId(),
+                        keys.get(0).getKeyIndex()
+                )
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // ✅ UPDATED: Long Data Fields - Always show all 8 fields
+    // Long Data Fields
     // ─────────────────────────────────────────────────────────────────────────
     private void initializeLongDataFields() {
         mLongDataFields.add(binding.layoutLongData1);
@@ -519,21 +522,18 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         mLongDataEditTexts.add(binding.etLongData7);
         mLongDataEditTexts.add(binding.etLongData8);
 
-        // ✅ Always show all 8 brightness fields
         for (int i = 0; i < 8; i++) {
             mLongDataEditTexts.get(i).setText(String.valueOf(DEFAULT_BRIGHTNESS_VALUE));
             final int idx = i;
             mLongDataEditTexts.get(i).addTextChangedListener(
                     new SimpleTextWatcher(() -> validateBrightnessField(idx)));
 
-            // Set IME options
             if (i < 7) {
                 mLongDataEditTexts.get(i).setImeOptions(EditorInfo.IME_ACTION_NEXT);
             } else {
                 mLongDataEditTexts.get(i).setImeOptions(EditorInfo.IME_ACTION_DONE);
             }
 
-            // ✅ Always visible
             mLongDataFields.get(i).setVisibility(View.VISIBLE);
         }
     }
@@ -745,6 +745,11 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     // ─────────────────────────────────────────────────────────────────────────
     // Message Senders
     // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Send a mesh PDU and show the progress bar + disable views.
+     * Use for user-initiated operations.
+     */
     protected void sendMessage(@NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
@@ -756,12 +761,18 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
                     .show(getSupportFragmentManager(), null);
         }
     }
+
     protected boolean handleStatuses() {
         MeshMessage m = mViewModel.getMessageQueue().peek();
         if (m != null) { sendMessage(m); return true; }
         mViewModel.displaySnackBar(this, mContainer, getString(R.string.operation_success), Snackbar.LENGTH_SHORT);
         return false;
     }
+
+    /**
+     * Send an acknowledged mesh PDU and show the progress bar.
+     * Use for user-initiated operations.
+     */
     protected void sendAcknowledgedMessage(int address, @NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
@@ -772,6 +783,26 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
                     .show(getSupportFragmentManager(), null);
         }
     }
+
+    /**
+     * ✅ NEW: Send an acknowledged mesh PDU WITHOUT showing the progress bar.
+     * Used by tryAutoBind() so the screen doesn't show a blocking progress bar
+     * on first load when auto-binding the AppKey.
+     */
+    protected void sendAcknowledgedMessageSilent(int address, @NonNull MeshMessage msg) {
+        try {
+            if (!checkConnectivity(mContainer)) return;
+            // No showProgressBar() — intentionally silent
+            mViewModel.getMeshManagerApi().createMeshPdu(address, msg);
+            Log.d(TAG, "sendAcknowledgedMessageSilent ▶ PDU sent silently to 0x" + Integer.toHexString(address));
+        } catch (IllegalArgumentException ex) {
+            DialogFragmentError.newInstance(
+                    getString(R.string.title_error),
+                    ex.getMessage() == null ? getString(R.string.unknwon_error) : ex.getMessage()
+            ).show(getSupportFragmentManager(), null);
+        }
+    }
+
     protected void sendUnacknowledgedMessage(int address, @NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
@@ -781,6 +812,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
                     .show(getSupportFragmentManager(), null);
         }
     }
+
     protected void updateClickableViews() {
         MeshModel m = mViewModel.getSelectedModel().getValue();
         if (m != null && m.getModelId() == SigModelParser.CONFIGURATION_CLIENT) disableClickableViews();
@@ -835,26 +867,14 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         }
         try {
             int cmd = Integer.parseInt(cs), state = Integer.parseInt(ss);
-            if (cmd < 0 || cmd > 255) {
-                mViewModel.displaySnackBar(this, mContainer, "Command 0–255", Snackbar.LENGTH_SHORT);
-                return;
-            }
-            if (state < 0 || state > 255) {
-                mViewModel.displaySnackBar(this, mContainer, "State 0–255", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (cmd < 0 || cmd > 255) { mViewModel.displaySnackBar(this, mContainer, "Command 0–255", Snackbar.LENGTH_SHORT); return; }
+            if (state < 0 || state > 255) { mViewModel.displaySnackBar(this, mContainer, "State 0–255", Snackbar.LENGTH_SHORT); return; }
             List<Integer> keys = model.getBoundAppKeyIndexes();
-            if (keys.isEmpty()) {
-                mViewModel.displaySnackBar(this, mContainer, "Bind AppKey first", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (keys.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Bind AppKey first", Snackbar.LENGTH_SHORT); return; }
             ApplicationKey appKey = null;
             for (ApplicationKey k : mViewModel.getNetworkLiveData().getAppKeys())
                 if (k.getKeyIndex() == keys.get(0)) { appKey = k; break; }
-            if (appKey == null) {
-                mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT); return; }
             int tid = getNextGenericOnOffTid();
             Log.d(TAG_ONOFF, String.format("══ GenericOnOffSet cmd=0x%02X state=0x%02X tid=%d ══", cmd, state, tid));
             sendAcknowledgedMessage(node.getUnicastAddress(), new GenericOnOffSet(appKey, cmd, state, tid));
@@ -863,9 +883,9 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         }
     }
 
-// ─────────────────────────────────────────────────────────────────────────
-// ✅ UPDATED: sendLongBrightnessCommand - Always send 8 brightness values
-// ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // sendLongBrightnessCommand
+    // ─────────────────────────────────────────────────────────────────────────
     private void sendLongBrightnessCommand() {
         final ProvisionedMeshNode node    = mViewModel.getSelectedMeshNode().getValue();
         final Element             element = mViewModel.getSelectedElement().getValue();
@@ -876,74 +896,36 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         }
         try {
             String ls = mLengthEditText.getText().toString().trim();
-            if (ls.isEmpty()) {
-                mViewModel.displaySnackBar(this, mContainer, "Enter length (0–255)", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (ls.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Enter length (0–255)", Snackbar.LENGTH_SHORT); return; }
             int length = Integer.parseInt(ls);
-
-            // ✅ Length validation 0-255
-            if (length < MIN_LENGTH || length > MAX_LENGTH) {
-                mViewModel.displaySnackBar(this, mContainer, "Length must be 0–255", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (length < MIN_LENGTH || length > MAX_LENGTH) { mViewModel.displaySnackBar(this, mContainer, "Length must be 0–255", Snackbar.LENGTH_SHORT); return; }
 
             String cs = mLongAddressEditText.getText().toString().trim();
-            if (cs.isEmpty()) {
-                mViewModel.displaySnackBar(this, mContainer, "Enter command", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (cs.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Enter command", Snackbar.LENGTH_SHORT); return; }
             int command = Integer.parseInt(cs);
-            if (command < 0 || command > 255) {
-                mViewModel.displaySnackBar(this, mContainer, "Command 0–255", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (command < 0 || command > 255) { mViewModel.displaySnackBar(this, mContainer, "Command 0–255", Snackbar.LENGTH_SHORT); return; }
 
-            // ✅ ALWAYS USE 8 BRIGHTNESS VALUES (hardcoded to 8)
-            int[] brightness = new int[8]; // Always 8 values
-
-            // Read values from all 8 UI fields
+            int[] brightness = new int[8];
             for (int i = 0; i < 8; i++) {
                 String vs = mLongDataEditTexts.get(i).getText().toString().trim();
-                if (vs.isEmpty()) {
-                    mViewModel.displaySnackBar(this, mContainer,
-                            "Enter brightness for field " + (i+1), Snackbar.LENGTH_SHORT);
-                    return;
-                }
+                if (vs.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Enter brightness for field " + (i+1), Snackbar.LENGTH_SHORT); return; }
                 brightness[i] = Integer.parseInt(vs);
-
-                if (brightness[i] < 0 || brightness[i] > 255) {
-                    mViewModel.displaySnackBar(this, mContainer,
-                            "Brightness for field " + (i+1) + " must be 0–255", Snackbar.LENGTH_SHORT);
-                    return;
-                }
+                if (brightness[i] < 0 || brightness[i] > 255) { mViewModel.displaySnackBar(this, mContainer, "Brightness for field " + (i+1) + " must be 0–255", Snackbar.LENGTH_SHORT); return; }
             }
 
             List<Integer> bk = model.getBoundAppKeyIndexes();
-            if (bk.isEmpty()) {
-                mViewModel.displaySnackBar(this, mContainer, "No AppKey bound", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (bk.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "No AppKey bound", Snackbar.LENGTH_SHORT); return; }
             ApplicationKey appKey = mViewModel.getNetworkLiveData().getMeshNetwork().getAppKey(bk.get(0));
-            if (appKey == null) {
-                mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT); return; }
 
             int tid = getNextGenericLightTid();
-
-            // ✅ Send ALL 8 brightness values regardless of length
-            // The length parameter tells how many of these values are actually used
             GenericLightSet msg = new GenericLightSet(appKey, length, command, brightness, tid);
 
-            // Log message with clear information
             Log.d(TAG_LIGHT, String.format("══ GenericLightSet len=%d cmd=0x%02X ALL_8_VALUES=%s tid=%d ══",
                     length, command, Arrays.toString(brightness), tid));
-
             mViewModel.displaySnackBar(this, mContainer,
-                    String.format("Sending LEN=%d CMD=0x%02X with all 8 brightness values TID=%d",
-                            length, command, tid), Snackbar.LENGTH_LONG);
-
+                    String.format("Sending LEN=%d CMD=0x%02X with all 8 brightness values TID=%d", length, command, tid),
+                    Snackbar.LENGTH_LONG);
             sendAcknowledgedMessage(node.getUnicastAddress(), msg);
 
         } catch (Exception e) {
@@ -951,6 +933,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             mViewModel.displaySnackBar(this, mContainer, "Failed: " + e.getMessage(), Snackbar.LENGTH_SHORT);
         }
     }
+
     // ─────────────────────────────────────────────────────────────────────────
     // sendSceneCommand
     // ─────────────────────────────────────────────────────────────────────────
@@ -966,34 +949,21 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             int sceneId = parseAndValidateInt(mSceneIdEditText, "Scene ID", 0, 255);
             int type    = parseAndValidateInt(mTypeEditText,    "Type",     0, 63);
             int mode    = parseAndValidateInt(mModeEditText,    "Mode",     0, 7);
-            int device  = parseAndValidateInt(mDeviceEditText,  "no.nordicsemi.android.swaromesh.Device",   0, 7);
+            int device  = parseAndValidateInt(mDeviceEditText,  "Device",   0, 7);
             int state   = parseAndValidateInt(mSceneStateEditText, "State", 0, 3);
             String ps = mPressEditText.getText() != null ? mPressEditText.getText().toString().trim() : "";
             int pressCode = GenericSceneSet.getPressTypeCode(ps);
-            if (pressCode < 0 || pressCode > 3) {
-                mViewModel.displaySnackBar(this, mContainer, "Invalid press type", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (pressCode < 0 || pressCode > 3) { mViewModel.displaySnackBar(this, mContainer, "Invalid press type", Snackbar.LENGTH_SHORT); return; }
             int tid = getNextSceneTid() & 0xFF;
             List<Integer> bk = model.getBoundAppKeyIndexes();
-            if (bk == null || bk.isEmpty()) {
-                mViewModel.displaySnackBar(this, mContainer, "No AppKey bound", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (bk == null || bk.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "No AppKey bound", Snackbar.LENGTH_SHORT); return; }
             ApplicationKey appKey = mViewModel.getNetworkLiveData().getMeshNetwork().getAppKey(bk.get(0));
-            if (appKey == null) {
-                mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT); return; }
             GenericSceneSet sceneMsg = new GenericSceneSet(appKey, sceneId, type, pressCode, mode, device, state, tid);
-            if (!verifyMessageStructure(sceneMsg, sceneId, type, pressCode, mode, device, state, tid)) {
-                mViewModel.displaySnackBar(this, mContainer, "Verification failed", Snackbar.LENGTH_SHORT);
-                return;
-            }
+            if (!verifyMessageStructure(sceneMsg, sceneId, type, pressCode, mode, device, state, tid)) { mViewModel.displaySnackBar(this, mContainer, "Verification failed", Snackbar.LENGTH_SHORT); return; }
             logSceneCommand(sceneMsg, element.getElementAddress(), mViewModel.getNetworkLiveData().getMeshNetwork());
             sendUnacknowledgedMessage(element.getElementAddress(), sceneMsg);
-            mViewModel.displaySnackBar(this, mContainer,
-                    String.format("Scene sent → 0x%04X", element.getElementAddress()), Snackbar.LENGTH_LONG);
+            mViewModel.displaySnackBar(this, mContainer, String.format("Scene sent → 0x%04X", element.getElementAddress()), Snackbar.LENGTH_LONG);
         } catch (NumberFormatException e) {
             mViewModel.displaySnackBar(this, mContainer, "Invalid number", Snackbar.LENGTH_SHORT);
         } catch (IllegalArgumentException e) {
@@ -1005,7 +975,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // sendGenericStatureCommand - Correct bit shifting (1 bit, 1 bit, 6 bit)
+    // sendGenericStatureCommand
     // ─────────────────────────────────────────────────────────────────────────
     private void sendGenericStatureCommand() {
         final ProvisionedMeshNode node    = mViewModel.getSelectedMeshNode().getValue();
@@ -1013,159 +983,61 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         final MeshModel           model   = mViewModel.getSelectedModel().getValue();
 
         if (node == null || element == null || model == null) {
-            mViewModel.displaySnackBar(
-                    this,
-                    mContainer,
-                    "Node / Element / Model not selected",
-                    Snackbar.LENGTH_SHORT
-            );
+            mViewModel.displaySnackBar(this, mContainer, "Node / Element / Model not selected", Snackbar.LENGTH_SHORT);
             return;
         }
 
         try {
-            // 1️⃣ Read and validate inputs from UI
-            int incDec = parseAndValidateInt(
-                    mStatureIncDecEditText,
-                    "Increment/Decrement (0=Dec, 1=Inc)", 0, 1);
-
-            int updateType = parseAndValidateInt(
-                    mStatureUpdateEditText,
-                    "Update Type (0=Category, 1=no.nordicsemi.android.swaromesh.Device)", 0, 1);
-
-            int deviceCategory = parseAndValidateInt(
-                    mStatureDeviceCategoryEditText,
-                    "no.nordicsemi.android.swaromesh.Device/Category ID", 0, 63); // 6 bits
-
-            int stepValue = parseAndValidateInt(
-                    mStatureValueEditText,
-                    "Value/Step", 0, 255); // 8 bits
+            int incDec         = parseAndValidateInt(mStatureIncDecEditText,         "Increment/Decrement (0=Dec, 1=Inc)", 0, 1);
+            int updateType     = parseAndValidateInt(mStatureUpdateEditText,         "Update Type (0=Category, 1=Device)", 0, 1);
+            int deviceCategory = parseAndValidateInt(mStatureDeviceCategoryEditText, "Device/Category ID",                0, 63);
+            int stepValue      = parseAndValidateInt(mStatureValueEditText,          "Value/Step",                        0, 255);
 
             boolean isIncrement = (incDec == 1);
             boolean isUpdate    = (updateType == 1);
 
-            // 2️⃣ Get AppKey
             List<Integer> keys = model.getBoundAppKeyIndexes();
             if (keys == null || keys.isEmpty()) {
-                mViewModel.displaySnackBar(
-                        this,
-                        mContainer,
-                        "No AppKey bound - bind an app key first",
-                        Snackbar.LENGTH_LONG
-                );
+                mViewModel.displaySnackBar(this, mContainer, "No AppKey bound - bind an app key first", Snackbar.LENGTH_LONG);
                 return;
             }
+            ApplicationKey appKey = mViewModel.getNetworkLiveData().getMeshNetwork().getAppKey(keys.get(0));
+            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found in network", Snackbar.LENGTH_SHORT); return; }
 
-            ApplicationKey appKey = mViewModel
-                    .getNetworkLiveData()
-                    .getMeshNetwork()
-                    .getAppKey(keys.get(0));
+            GenericStatureSet msg = new GenericStatureSet(appKey, isIncrement, isUpdate, deviceCategory, stepValue);
 
-            if (appKey == null) {
-                mViewModel.displaySnackBar(
-                        this,
-                        mContainer,
-                        "AppKey not found in network",
-                        Snackbar.LENGTH_SHORT
-                );
-                return;
-            }
-
-            // 3️⃣ Create Generic Stature message
-            GenericStatureSet msg = new GenericStatureSet(
-                    appKey,
-                    isIncrement,
-                    isUpdate,
-                    deviceCategory,
-                    stepValue
-            );
-
-            // 4️⃣ Build control byte (for logging)
             int controlByte = 0;
+            if (isIncrement) controlByte |= (1 << 7);
+            if (isUpdate)    controlByte |= (1 << 6);
+            controlByte |= (deviceCategory & 0x3F);
 
-            if (isIncrement) {
-                controlByte |= (1 << 7); // Bit 7
-            }
-
-            if (isUpdate) {
-                controlByte |= (1 << 6); // Bit 6
-            }
-
-
-            controlByte |= (deviceCategory & 0x3F); // Bits 0–5
-
-            // 5️⃣ LOGGING (ELEMENT ADDRESS)
             int dst = element.getElementAddress();
 
             Log.d(TAG_STATURE, "══════════════════════════════════════");
             Log.d(TAG_STATURE, "🔷 GENERIC STATURE SET COMMAND");
-            Log.d(TAG_STATURE, "══════════════════════════════════════");
-            Log.d(TAG_STATURE, String.format(
-                    "📌 Destination (Element): 0x%04X (%d)", dst, dst));
-            Log.d(TAG_STATURE, String.format(
-                    "📌 Model: %s (0x%04X)",
-                    model.getModelName(), model.getModelId()));
-            Log.d(TAG_STATURE, "══════════════════════════════════════");
-
-            Log.d(TAG_STATURE, "📊 INPUT VALUES:");
-            Log.d(TAG_STATURE, String.format(
-                    "   • Increment/Decrement : %s (%d)",
-                    isIncrement ? "INCREMENT (1)" : "DECREMENT (0)", incDec));
-            Log.d(TAG_STATURE, String.format(
-                    "   • Update Type         : %s (%d)",
-                    isUpdate ? "DEVICE (1)" : "CATEGORY (0)", updateType));
-            Log.d(TAG_STATURE, String.format(
-                    "   • no.nordicsemi.android.swaromesh.Device/Category ID  : %d (0x%02X)",
-                    deviceCategory, deviceCategory));
-            Log.d(TAG_STATURE, String.format(
-                    "   • Value/Step          : %d (0x%02X)",
-                    stepValue, stepValue));
-
-            Log.d(TAG_STATURE, "══════════════════════════════════════");
-            Log.d(TAG_STATURE, "📦 MESSAGE PAYLOAD:");
-            Log.d(TAG_STATURE, String.format(
-                    "   BYTE 0 (Control) : %s (0x%02X)",
-                    toBin8(controlByte), controlByte));
-            Log.d(TAG_STATURE, String.format(
-                    "   BYTE 1 (Value)   : %s (0x%02X)",
-                    toBin8(stepValue), stepValue));
-            Log.d(TAG_STATURE, String.format(
-                    "   📦 Full Payload  : [0x%02X, 0x%02X]",
-                    controlByte, stepValue));
+            Log.d(TAG_STATURE, String.format("📌 Destination (Element): 0x%04X (%d)", dst, dst));
+            Log.d(TAG_STATURE, String.format("📌 Model: %s (0x%04X)", model.getModelName(), model.getModelId()));
+            Log.d(TAG_STATURE, String.format("   • Inc/Dec       : %s (%d)", isIncrement ? "INCREMENT (1)" : "DECREMENT (0)", incDec));
+            Log.d(TAG_STATURE, String.format("   • Update Type   : %s (%d)", isUpdate ? "DEVICE (1)" : "CATEGORY (0)", updateType));
+            Log.d(TAG_STATURE, String.format("   • Device/Cat ID : %d (0x%02X)", deviceCategory, deviceCategory));
+            Log.d(TAG_STATURE, String.format("   • Value/Step    : %d (0x%02X)", stepValue, stepValue));
+            Log.d(TAG_STATURE, String.format("   BYTE 0 (Control): %s (0x%02X)", toBin8(controlByte), controlByte));
+            Log.d(TAG_STATURE, String.format("   BYTE 1 (Value)  : %s (0x%02X)", toBin8(stepValue), stepValue));
             Log.d(TAG_STATURE, "══════════════════════════════════════");
 
-            // 6️⃣ User feedback
-            mViewModel.displaySnackBar(
-                    this,
-                    mContainer,
-                    String.format(
-                            "Sending to element 0x%04X → %s %s #%d by %d",
-                            dst,
-                            isIncrement ? "INC" : "DEC",
-                            isUpdate ? "DEVICE" : "CATEGORY",
-                            deviceCategory,
-                            stepValue),
-                    Snackbar.LENGTH_LONG
-            );
+            mViewModel.displaySnackBar(this, mContainer,
+                    String.format("Sending to element 0x%04X → %s %s #%d by %d",
+                            dst, isIncrement ? "INC" : "DEC", isUpdate ? "DEVICE" : "CATEGORY", deviceCategory, stepValue),
+                    Snackbar.LENGTH_LONG);
 
-            // 7️⃣ SEND MESSAGE → ELEMENT ADDRESS ✅
             sendAcknowledgedMessage(dst, msg);
 
         } catch (IllegalArgumentException e) {
             Log.e(TAG_STATURE, "Validation error", e);
-            mViewModel.displaySnackBar(
-                    this,
-                    mContainer,
-                    "Error: " + e.getMessage(),
-                    Snackbar.LENGTH_LONG
-            );
+            mViewModel.displaySnackBar(this, mContainer, "Error: " + e.getMessage(), Snackbar.LENGTH_LONG);
         } catch (Exception e) {
             Log.e(TAG_STATURE, "Failed to send Generic Stature command", e);
-            mViewModel.displaySnackBar(
-                    this,
-                    mContainer,
-                    "Failed to send: " + e.getMessage(),
-                    Snackbar.LENGTH_SHORT
-            );
+            mViewModel.displaySnackBar(this, mContainer, "Failed to send: " + e.getMessage(), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -1193,15 +1065,13 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private void logSceneCommand(GenericSceneSet msg, int addr, MeshNetwork net) {
         byte[] p = msg.getParameters();
         Log.d(TAG_SCENE, "══ GenericSceneSet ══");
-        Log.d(TAG_SCENE, String.format("Dest=0x%04X  Full=[%02X %02X %02X %02X]",
-                addr, p[0]&0xFF, p[1]&0xFF, p[2]&0xFF, p[3]&0xFF));
-        Log.d(TAG_SCENE, String.format("SceneID=%d Type=%d Press=%d Mode=%d no.nordicsemi.android.swaromesh.Device=%d State=%d TID=%d",
-                p[0]&0xFF, (p[1]>>2)&0x3F, p[1]&0x03,
-                (p[2]>>5)&0x07, (p[2]>>2)&0x07, p[2]&0x03, p[3]&0xFF));
+        Log.d(TAG_SCENE, String.format("Dest=0x%04X  Full=[%02X %02X %02X %02X]", addr, p[0]&0xFF, p[1]&0xFF, p[2]&0xFF, p[3]&0xFF));
+        Log.d(TAG_SCENE, String.format("SceneID=%d Type=%d Press=%d Mode=%d Device=%d State=%d TID=%d",
+                p[0]&0xFF, (p[1]>>2)&0x3F, p[1]&0x03, (p[2]>>5)&0x07, (p[2]>>2)&0x07, p[2]&0x03, p[3]&0xFF));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // SimpleTextWatcher — boilerplate reducer
+    // SimpleTextWatcher
     // ─────────────────────────────────────────────────────────────────────────
     private static class SimpleTextWatcher implements TextWatcher {
         private final Runnable r;
