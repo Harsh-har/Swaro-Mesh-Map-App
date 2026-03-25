@@ -39,6 +39,9 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".CommandActivity"
+            android:exported="false" />
+        <activity
             android:name=".TestProvisionActivity"
             android:exported="false" />
         <activity
@@ -49,9 +52,6 @@
             android:exported="false" />
         <activity
             android:name=".Map.DeviceDebugOverlay"
-            android:exported="false" />
-        <activity
-            android:name=".CommandActivity"
             android:exported="false" />
         <activity
             android:name=".DevicesFilterActivity"
