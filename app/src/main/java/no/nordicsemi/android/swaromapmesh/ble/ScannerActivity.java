@@ -47,7 +47,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private static final int    REQUEST_ACCESS_FINE_LOCATION        = 1022;
     private static final int    REQUEST_ACCESS_BLUETOOTH_PERMISSION = 1023;
     private static final long   AUTO_CONNECT_RETRY_DELAY_MS           = 1000;
-    private static final long   TARGET_CONNECT_TIMEOUT_MS             = 30000;
+    private static final long   TARGET_CONNECT_TIMEOUT_MS             = 10000;
     private static final long   AUTO_CONNECT_AFTER_PROVISIONING_DELAY = 2000;
 
     private ActivityScannerBinding binding;

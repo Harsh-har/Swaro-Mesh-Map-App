@@ -45,6 +45,9 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.Transformer;
@@ -397,43 +400,49 @@ public class NetworkFragment extends Fragment {
     // ==================== RELATION PARSING ====================
     private Map<String, Set<String>> parseRelations(Document document) {
         Map<String, Set<String>> result = new HashMap<>();
+
         if (document == null) return result;
 
+        // Find <g id="Relation">
         Element relationGroup = findElementById(
                 document.getDocumentElement(), "Relation");
+
         if (relationGroup == null) {
             Log.w(TAG, "No <g id='Relation'> found — no relations loaded");
             return result;
         }
 
-        // Get all text content inside the Relation group
+        // Get all text inside Relation group
         String rawText = relationGroup.getTextContent();
-        if (rawText == null || rawText.isEmpty()) return result;
+        if (rawText == null || rawText.trim().isEmpty()) return result;
 
-        // Parse each (iconId deviceId) pair using regex-style matching
-        // Matches: (  WORD1   WORD2  )  with any whitespace insidejava.util.regex.Pattern pattern =
-                java.util.regex.Pattern pattern =
-                java.util.regex.Pattern.compile(
-                        "\\(\\s*([\\w-]+)\\s+([\\w-]+)\\s*\\)");
-        java.util.regex.Matcher matcher = pattern.matcher(rawText);
+        // ✅ UPDATED REGEX (supports multi-word iconId like "Relay Node")
+        Pattern pattern = Pattern.compile(
+                "\\(\\s*([\\w-]+(?:\\s+[\\w-]+)*)\\s+([\\w-]+)\\s*\\)");
+
+        Matcher matcher = pattern.matcher(rawText);
 
         while (matcher.find()) {
-            String iconId   = matcher.group(1).trim();
-            String deviceId = matcher.group(2).trim();
+            String iconId   = matcher.group(1).trim();   // e.g. "Relay Node"
+            String deviceId = matcher.group(2).trim();   // e.g. "casting_f_1"
+
             if (!iconId.isEmpty() && !deviceId.isEmpty()) {
+
+                // Get or create set
                 Set<String> related = result.get(iconId);
                 if (related == null) {
                     related = new HashSet<>();
                     result.put(iconId, related);
                 }
+
                 related.add(deviceId);
+
                 Log.d(TAG, "Relation parsed: " + iconId + " → " + deviceId);
             }
         }
 
         return result;
     }
-
 
     private Set<String> getRelatedDeviceIds(String iconId) {
         Set<String> related = iconToDeviceRelations.get(iconId);

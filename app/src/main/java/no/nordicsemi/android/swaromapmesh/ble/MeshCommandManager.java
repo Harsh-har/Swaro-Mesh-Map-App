@@ -14,11 +14,11 @@ public class MeshCommandManager {
     private static final String TAG = "MeshCommandManager";
 
 
-    private static final int HARDCODED_ELEMENT_ADDRESS = 0x003E;
+    private static final int HARDCODED_ELEMENT_ADDRESS = 0x0005;
     private static final int HARDCODED_COMMAND         = 2;
-    private static final int VALUE_ON                  = 240;
+    private static final int VALUE_ON                  = 1;
     private static final int VALUE_OFF                 = 0;
-    private static final int DELAY_MS                  = 3000; // 3 sec ON/OFF gap
+    private static final int DELAY_MS                  = 5000; // 3 sec ON/OFF gap
 
     // ── Blink config ─────────────────────────────────────────────
 // ── Blink config ─────────────────────────────────────────────

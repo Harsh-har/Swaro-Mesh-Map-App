@@ -265,54 +265,89 @@ public class ProvisioningActivity extends AppCompatActivity implements
         });
 
         binding.actionProvisionDevice.setOnClickListener(v -> {
+            Log.d(TAG, "CLICK: Provision button pressed");
+
             final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
 
+            Log.d(TAG, "STEP 1: Getting UnprovisionedMeshNode");
+
             if (node == null) {
+                Log.d(TAG, "STEP 1 RESULT: Node is NULL → going for IDENTIFY");
+
                 mDevice.setName(mViewModel.getNetworkLiveData().getNodeName());
+                Log.d(TAG, "STEP 2: Device name set: " + mDevice.getName());
+
                 mViewModel.getNrfMeshRepository().identifyNode(mDevice);
+                Log.d(TAG, "STEP 3: identifyNode() called");
+
                 return;
             }
 
+            Log.d(TAG, "STEP 1 RESULT: Node is NOT NULL → proceed to provisioning");
+
             try {
+                Log.d(TAG, "STEP 2: Checking MAC Address");
+
                 if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
+                    Log.d(TAG, "MAC is NULL or EMPTY → setting MAC");
+
                     node.setMacAddress(mDevice.getAddress());
-                    Log.d(TAG, "MAC address set before provisioning: " + mDevice.getAddress());
+                    Log.d(TAG, "STEP 2 RESULT: MAC set: " + mDevice.getAddress());
+                } else {
+                    Log.d(TAG, "STEP 2 RESULT: MAC already exists: " + node.getMacAddress());
                 }
 
+                Log.d(TAG, "STEP 3: Setting Node Name");
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+                Log.d(TAG, "STEP 3 RESULT: Node name set: " + node.getNodeName());
 
-                // Final check before provisioning
+                // Mesh Network check
+                Log.d(TAG, "STEP 4: Fetching MeshNetwork");
                 final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+
                 if (network != null) {
+                    Log.d(TAG, "STEP 4 RESULT: MeshNetwork NOT NULL");
+
                     int currentAddress = network.getUnicastAddress();
-                    Log.d(TAG, "FINAL CHECK - Unicast address before provisioning: " +
+                    Log.d(TAG, "STEP 5: Current Unicast Address: " +
                             String.format("0x%04X", currentAddress));
 
-                    // If we want 0x0005 but don't have it, try one more time
                     if (currentAddress != 0x0005) {
-                        Log.d(TAG, "Attempting final force to 0x0005");
+                        Log.d(TAG, "STEP 6: Trying to force Unicast Address → 0x0005");
+
                         try {
                             network.assignUnicastAddress(0x0005);
-                            Log.d(TAG, "SUCCESS: Final force to 0x0005 worked");
+                            Log.d(TAG, "STEP 6 SUCCESS: Forced to 0x0005");
                         } catch (IllegalArgumentException e) {
-                            Log.w(TAG, "Final force to 0x0005 failed, continuing with: " +
-                                    String.format("0x%04X", currentAddress));
+                            Log.e(TAG, "STEP 6 FAILED: Cannot assign 0x0005 → " + e.getMessage());
                         }
+                    } else {
+                        Log.d(TAG, "STEP 6 SKIPPED: Already 0x0005");
                     }
+
+                } else {
+                    Log.e(TAG, "STEP 4 ERROR: MeshNetwork is NULL");
                 }
 
+                Log.d(TAG, "STEP 7: Setting up observers");
                 setupProvisionerStateObservers();
+                Log.d(TAG, "STEP 7 DONE");
+
+                Log.d(TAG, "STEP 8: Showing Progress Bar");
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
 
+                Log.d(TAG, "STEP 9: Starting Provisioning");
                 mViewModel.getMeshManagerApi().startProvisioning(node);
+                Log.d(TAG, "STEP 9 DONE: startProvisioning() called");
 
-                // Log final address
                 if (network != null) {
-                    Log.d(TAG, "PROVISIONING STARTED with unicast address: " +
+                    Log.d(TAG, "FINAL: Provisioning started with address: " +
                             String.format("0x%04X", network.getUnicastAddress()));
                 }
 
             } catch (IllegalArgumentException ex) {
+                Log.e(TAG, "ERROR: Exception while provisioning → " + ex.getMessage());
+
                 mViewModel.displaySnackBar(
                         this,
                         binding.coordinator,
@@ -321,8 +356,9 @@ public class ProvisioningActivity extends AppCompatActivity implements
                                 : ex.getMessage(),
                         Snackbar.LENGTH_LONG
                 );
-                Log.e(TAG, "Error starting provisioning: " + ex.getMessage());
             }
+
+            Log.d(TAG, "END: Click handler finished");
         });
 
         if (savedInstanceState == null) {
@@ -423,62 +459,52 @@ public class ProvisioningActivity extends AppCompatActivity implements
         recyclerView.setAdapter(adapter);
 
         mViewModel.getProvisioningStatus().observe(this, provisioningStateLiveData -> {
-            if (provisioningStateLiveData != null) {
-                final ProvisionerProgress provisionerProgress = provisioningStateLiveData.getProvisionerProgress();
-                adapter.refresh(provisioningStateLiveData.getStateList());
-                if (provisionerProgress != null) {
-                    final ProvisionerStates state = provisionerProgress.getState();
-                    switch (state) {
-                        case PROVISIONING_FAILED:
-                            if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_PROVISIONING_FAILED) == null) {
-                                final String statusMessage = ProvisioningFailedState.parseProvisioningFailure(this, provisionerProgress.getStatusReceived());
-                                DialogFragmentProvisioningFailedError message = DialogFragmentProvisioningFailedError.newInstance(getString(R.string.title_error_provisioning_failed), statusMessage);
-                                message.show(getSupportFragmentManager(), DIALOG_FRAGMENT_PROVISIONING_FAILED);
-                            }
 
-                            break;
-                        case PROVISIONING_AUTHENTICATION_STATIC_OOB_WAITING:
-                        case PROVISIONING_AUTHENTICATION_OUTPUT_OOB_WAITING:
-                        case PROVISIONING_AUTHENTICATION_INPUT_OOB_WAITING:
-                            if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_AUTH_INPUT_TAG) == null) {
-                                DialogFragmentAuthenticationInput dialogFragmentAuthenticationInput = DialogFragmentAuthenticationInput.
-                                        newInstance(mViewModel.getUnprovisionedMeshNode().getValue());
-                                dialogFragmentAuthenticationInput.show(getSupportFragmentManager(), DIALOG_FRAGMENT_AUTH_INPUT_TAG);
-                            }
-                            break;
-                        case PROVISIONING_AUTHENTICATION_INPUT_ENTERED:
-                            final DialogFragmentAuthenticationInput fragment = (DialogFragmentAuthenticationInput) getSupportFragmentManager().
-                                    findFragmentByTag(DIALOG_FRAGMENT_AUTH_INPUT_TAG);
-                            if (fragment != null)
-                                fragment.dismiss();
-                            break;
-                        case DEFAULT_TTL_STATUS_RECEIVED:
-                            if (mViewModel.isDefaultTtlReceived()) {
-                                if(mViewModel.getNetworkLiveData().getAppKeys().isEmpty()){
-                                    if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_CONFIGURATION_STATUS) == null) {
-                                        DialogFragmentConfigurationComplete fragmentConfigComplete = DialogFragmentConfigurationComplete.
-                                                newInstance(getString(R.string.title_configuration_complete), getString(R.string.configuration_complete_summary));
-                                        fragmentConfigComplete.show(getSupportFragmentManager(), DIALOG_FRAGMENT_CONFIGURATION_STATUS);
-                                    }
-                                }
-                            }
-                            break;
-                        case APP_KEY_STATUS_RECEIVED:
-                            if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_CONFIGURATION_STATUS) == null) {
-                                DialogFragmentConfigurationComplete fragmentConfigComplete = DialogFragmentConfigurationComplete.
-                                        newInstance(getString(R.string.title_configuration_complete), getString(R.string.configuration_complete_summary));
-                                fragmentConfigComplete.show(getSupportFragmentManager(), DIALOG_FRAGMENT_CONFIGURATION_STATUS);
-                            }
-                            break;
-                        case PROVISIONER_UNASSIGNED:
-                            setResultIntent();
-                            break;
-                        default:
-                            break;
-                    }
-                }
-                binding.dataContainer.setVisibility(View.GONE);
+            if (provisioningStateLiveData == null) return;
+
+            final ProvisionerProgress provisionerProgress = provisioningStateLiveData.getProvisionerProgress();
+
+            if (provisionerProgress == null) return;
+
+            final ProvisionerStates state = provisionerProgress.getState();
+
+            switch (state) {
+
+                case PROVISIONING_COMPLETE:
+                    Log.d(TAG, "✅ Provisioning Completed");
+
+                    runOnUiThread(() -> {
+                        binding.provisioningProgressBar.setVisibility(View.GONE);
+
+                        // 🔥 STOP OBSERVER (IMPORTANT)
+                        mViewModel.getProvisioningStatus().removeObservers(this);
+
+                        // 🔥 Direct back (no UI)
+                        setResultIntent();
+
+                    });
+                    break;
+
+                case PROVISIONING_FAILED:
+                    Log.e(TAG, "❌ Provisioning Failed");
+
+                    runOnUiThread(() -> {
+                        binding.provisioningProgressBar.setVisibility(View.GONE);
+
+                        // optional: enable retry button
+                        binding.actionProvisionDevice.setEnabled(true);
+
+                        mViewModel.getProvisioningStatus().removeObservers(this);
+                    });
+                    break;
+
+                default:
+                    // ❌ Ignore all other states (no UI, no dialog)
+                    break;
             }
+
+            // 👇 Always hide extra UI
+            binding.dataContainer.setVisibility(View.GONE);
         });
     }
 
