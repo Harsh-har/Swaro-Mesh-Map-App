@@ -67,6 +67,9 @@ public class ProvisioningActivity extends AppCompatActivity implements
     private ExtendedBluetoothDevice mDevice;
     private boolean isFirstDevice = true;
 
+    // ✅ Store SVG device ID from intent
+    private String mSvgDeviceId = null;
+
     private final ActivityResultLauncher<Intent> appKeySelector = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
         if (result.getResultCode() == RESULT_OK && result.getData() != null) {
             final ApplicationKey appKey = result.getData().getParcelableExtra(RESULT_KEY);
@@ -85,6 +88,11 @@ public class ProvisioningActivity extends AppCompatActivity implements
 
         final Intent intent = getIntent();
         mDevice = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
+
+        // ✅ Get SVG device ID from intent
+        mSvgDeviceId = intent.getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
+        Log.d(TAG, "onCreate — SVG Device ID: " + mSvgDeviceId);
+
         if (mDevice == null) {
             finish();
             return;
@@ -516,11 +524,10 @@ public class ProvisioningActivity extends AppCompatActivity implements
     private void setResultIntent() {
         final Intent returnIntent = new Intent();
 
-        // ✅ Pass SVG device ID back up the chain to DeviceDetailActivity
-        String svgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
-        if (svgDeviceId != null) {
-            returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, svgDeviceId);
-            Log.d(TAG, "Returning svgDeviceId: " + svgDeviceId);
+        // ✅ Pass SVG device ID back up the chain
+        if (mSvgDeviceId != null) {
+            returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
+            Log.d(TAG, "Returning svgDeviceId: " + mSvgDeviceId);
         }
 
         returnIntent.putExtra(Utils.EXTRA_DEVICE, mDevice);
@@ -559,6 +566,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         setResult(Activity.RESULT_OK, returnIntent);
         finish();
     }
+
     @Override
     public void onPublicKeyAdded(@Nullable final byte[] publicKey) {
         final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();

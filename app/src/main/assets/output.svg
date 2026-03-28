@@ -4147,7 +4147,7 @@
         <g id="VCRD">
             <g id="SW-RL02-012">
                 <metadata>
-                    <elementId>0049</elementId>
+                    <elementId>1</elementId>
                 </metadata>
                 <rect x="488.87" y="250.61" width="6.68" height="6.68" rx=".89" ry=".89"
                     fill="#82cceb" stroke="#000" stroke-width=".11" />
@@ -4156,7 +4156,7 @@
             </g>
             <g id="Relay Node">
                 <metadata>
-                    <elementId>0005</elementId>
+                    <elementId>2</elementId>
                 </metadata>
                 <rect x="489.12" y="175.7" width="6.68" height="6.68" rx=".89" ry=".89"
                     fill="#82cceb" stroke="#000" stroke-width=".11" />
@@ -4165,7 +4165,7 @@
             </g>
             <g id="SW-RL01-006">
                 <metadata>
-                    <elementId>007A</elementId>
+                    <elementId>3</elementId>
                 </metadata>
                 <rect x="586.6" y="202.8" width="6.68" height="6.68" rx=".89" ry=".89"
                     fill="#82cceb" stroke="#000" stroke-width=".11" />

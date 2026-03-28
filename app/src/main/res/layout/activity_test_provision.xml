@@ -16,8 +16,7 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            />
+            android:layout_height="?attr/actionBarSize" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
@@ -33,7 +32,7 @@
             android:orientation="vertical"
             android:padding="16dp">
 
-            <!-- ── Info card ── -->
+            <!-- Info card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -53,11 +52,11 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="12dp"
-                        android:letterSpacing="0.08"
-                        android:text="Device Info"
+                        android:text="Device Details"
                         android:textColor="#ffbb00"
                         android:textSize="13sp"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
 
                     <!-- Device ID row -->
                     <LinearLayout
@@ -84,6 +83,83 @@
                             android:textSize="14sp" />
                     </LinearLayout>
 
+                    <!-- Device Name row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:orientation="horizontal"
+                        android:visibility="gone"
+                        android:id="@+id/layout_device_name">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Device Name"
+                            android:textColor="#888"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tv_device_name"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:gravity="end"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <!-- MAC Address row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="MAC Address"
+                            android:textColor="#888"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tv_mac_address"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:gravity="end"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp"
+                             />
+                    </LinearLayout>
+                    <!-- Unicast Address row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Unicast Address"
+                            android:textColor="#888"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tv_unicast_address"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:gravity="end"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp" />
+
+                    </LinearLayout>
                     <!-- Element ID row -->
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -108,6 +184,8 @@
                             android:textColor="@android:color/white"
                             android:textSize="14sp" />
                     </LinearLayout>
+
+
 
                     <!-- Status row -->
                     <LinearLayout
@@ -137,7 +215,7 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- ── Operations card ── -->
+            <!-- Operations card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -162,7 +240,6 @@
                         android:textSize="13sp"
                         android:textStyle="bold" />
 
-
                     <!-- Test button -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_test"
@@ -176,10 +253,8 @@
                         app:strokeColor="#ffbb00"
                         app:strokeWidth="1dp" />
 
-
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
 
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
