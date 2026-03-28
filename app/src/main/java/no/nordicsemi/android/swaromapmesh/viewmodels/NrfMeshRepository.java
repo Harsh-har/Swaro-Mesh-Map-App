@@ -1014,21 +1014,33 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mAutoBindIndex = 0;
         mAutoBindNode  = node;
 
+        // ✅ Print all elements + models right after provisioning AppKey success
+        Log.d(TAG_BIND, "╔══════════════════════════════════════════════════");
+        Log.d(TAG_BIND, "║ NODE: " + node.getNodeName()
+                + "  Unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+        Log.d(TAG_BIND, "╠══════════════════════════════════════════════════");
+
         for (Element element : node.getElements().values()) {
+            Log.d(TAG_BIND, "║  ELEMENT  address=0x"
+                    + String.format("%04X", element.getElementAddress())
+                    + "  name=" + element.getName());
+
             for (MeshModel model : element.getMeshModels().values()) {
                 final int modelId = model.getModelId();
+                Log.d(TAG_BIND, "║    MODEL  id=0x" + String.format("%04X", modelId)
+                        + "  name=" + model.getModelName());
+
                 if (modelId == 0x0000 || modelId == 0x0001) {
-                    Log.d(TAG_BIND, "  SKIP 0x" + Integer.toHexString(modelId));
+                    Log.d(TAG_BIND, "║    └─ SKIP (config model)");
                     continue;
                 }
                 mPendingBindOperations.add(new int[]{
                         element.getElementAddress(), modelId, appKeyIndex
                 });
-                Log.d(TAG_BIND, "  QUEUE Element=0x"
-                        + Integer.toHexString(element.getElementAddress())
-                        + " Model=0x" + Integer.toHexString(modelId));
+                Log.d(TAG_BIND, "║    └─ QUEUED for bind");
             }
         }
+        Log.d(TAG_BIND, "╚══════════════════════════════════════════════════");
 
         if (mPendingBindOperations.isEmpty()) {
             Log.w(TAG_BIND, "startAutoAppKeyBind: No bindable models.");
