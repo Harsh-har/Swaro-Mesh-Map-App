@@ -27,6 +27,7 @@ import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
+
 @HiltViewModel
 public class SharedViewModel extends BaseViewModel implements NetworkExportUtils.NetworkExportCallbacks {
 
@@ -54,6 +55,9 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
             new MutableLiveData<>(new ArrayList<>());
     private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices =
             new MutableLiveData<>(new ArrayList<>());
+
+    // ==================== NEW: SELECTED SVG DEVICE ID (NOT in BaseViewModel) ====================
+    private final MutableLiveData<String> selectedSvgDeviceId = new MutableLiveData<>();
 
     @Inject
     SharedViewModel(
@@ -397,5 +401,126 @@ public class SharedViewModel extends BaseViewModel implements NetworkExportUtils
 
     public LiveData<ScannerLiveData> getScannerResults() {
         return mScannerRepository.getScannerResults();
+    }
+
+    // ==================== SELECTED SVG DEVICE ID ====================
+    // NOTE: getSelectedMeshNode() and setSelectedMeshNode() are already provided by BaseViewModel
+    // So we don't need to redeclare them here
+
+    /**
+     * Get LiveData for the selected SVG device ID (icon ID from map)
+     */
+    public LiveData<String> getSelectedSvgDeviceId() {
+        return selectedSvgDeviceId;
+    }
+
+    /**
+     * Set the selected SVG device ID (icon ID from map)
+     */
+    public void setSelectedSvgDeviceId(String svgDeviceId) {
+        selectedSvgDeviceId.setValue(svgDeviceId);
+        if (svgDeviceId != null) {
+            android.util.Log.d("SharedViewModel", "Selected SVG Device ID set: " + svgDeviceId);
+        } else {
+            android.util.Log.d("SharedViewModel", "Selected SVG Device ID cleared");
+        }
+    }
+
+    /**
+     * Get the current selected SVG device ID (synchronous)
+     */
+    @Nullable
+    public String getSelectedSvgDeviceIdValue() {
+        return selectedSvgDeviceId.getValue();
+    }
+
+    /**
+     * Clear the selected SVG device ID
+     */
+    public void clearSelectedSvgDeviceId() {
+        selectedSvgDeviceId.setValue(null);
+        android.util.Log.d("SharedViewModel", "Selected SVG Device ID cleared");
+    }
+
+    // ==================== UTILITY METHODS ====================
+
+    /**
+     * Find a provisioned mesh node by its SVG device ID (icon ID)
+     * @param svgDeviceId The icon ID from the map
+     * @return The provisioned mesh node if found, null otherwise
+     */
+    @Nullable
+    public ProvisionedMeshNode findNodeBySvgDeviceId(String svgDeviceId) {
+        if (svgDeviceId == null) return null;
+
+        try {
+            final MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+            if (network == null) return null;
+
+            final List<ProvisionedMeshNode> nodes = network.getNodes();
+            if (nodes == null || nodes.isEmpty()) return null;
+
+            // First try to match by node name
+            for (ProvisionedMeshNode node : nodes) {
+                if (svgDeviceId.equalsIgnoreCase(node.getNodeName())) {
+                    android.util.Log.d("SharedViewModel", "Found node by name: " + node.getNodeName());
+                    return node;
+                }
+            }
+
+            // If only one node exists, return it
+            if (nodes.size() == 1) {
+                android.util.Log.d("SharedViewModel", "Only one node exists, returning: " + nodes.get(0).getNodeName());
+                return nodes.get(0);
+            }
+
+        } catch (Exception e) {
+            android.util.Log.e("SharedViewModel", "Error finding node by SVG ID: " + svgDeviceId, e);
+        }
+
+        return null;
+    }
+
+    /**
+     * Get the total number of provisioned nodes
+     */
+    public int getProvisionedNodeCount() {
+        try {
+            final MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+            if (network == null) return 0;
+            final List<ProvisionedMeshNode> nodes = network.getNodes();
+            return nodes != null ? nodes.size() : 0;
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    /**
+     * Get all provisioned nodes
+     */
+    @Nullable
+    public List<ProvisionedMeshNode> getAllProvisionedNodes() {
+        try {
+            final MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+            if (network == null) return null;
+            return network.getNodes();
+        } catch (Exception e) {
+            android.util.Log.e("SharedViewModel", "Error getting all provisioned nodes", e);
+            return null;
+        }
+    }
+
+    /**
+     * Set the selected node by its SVG device ID
+     * This is a convenience method that combines finding and setting
+     */
+    public boolean selectNodeBySvgDeviceId(String svgDeviceId) {
+        ProvisionedMeshNode node = findNodeBySvgDeviceId(svgDeviceId);
+        if (node != null) {
+            // Use the parent class method to set selected node
+            setSelectedMeshNode(node);
+            return true;
+        }
+        return false;
     }
 }

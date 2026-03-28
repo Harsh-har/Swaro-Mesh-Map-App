@@ -14,6 +14,7 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ApplicationKey;
+import no.nordicsemi.android.swaromapmesh.DeviceDetailActivity;
 import no.nordicsemi.android.swaromapmesh.MeshNetwork;
 import no.nordicsemi.android.swaromapmesh.NetworkKey;
 import no.nordicsemi.android.swaromapmesh.R;
@@ -50,6 +51,11 @@ import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.BaseActivity;
 import no.nordicsemi.android.swaromapmesh.viewmodels.NodeConfigurationViewModel;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
+import no.nordicsemi.android.swaromapmesh.DeviceDetailActivity;
+import no.nordicsemi.android.swaromapmesh.MeshNetwork;
+import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.utils.Utils;
+import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
 public class NodeConfigurationActivity extends BaseActivity implements
@@ -64,10 +70,12 @@ public class NodeConfigurationActivity extends BaseActivity implements
     private static final String PROGRESS_BAR_STATE   = "PROGRESS_BAR_STATE";
     private static final String PROXY_STATE           = "PROXY_STATE";
     private static final String REQUESTED_PROXY_STATE = "REQUESTED_PROXY_STATE";
+    private static final String TAG = "NodeConfigurationActivity";  // ✅ Add this line
 
     private ActivityNodeConfigurationBinding binding;
     private SharedViewModel mSharedViewModel;           // ✅ typed reference for AppKey methods
     private boolean mRequestedState       = true;
+
     private boolean mCompositionRequested = false;
     private boolean mAppKeyBindRequested  = false;
 
@@ -79,8 +87,19 @@ public class NodeConfigurationActivity extends BaseActivity implements
         setContentView(binding.getRoot());
 
         mViewModel = new ViewModelProvider(this).get(NodeConfigurationViewModel.class);
-        mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class); // ✅
+        mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
         initialize();
+
+        // ✅ NEW: Get SVG device ID from intent (passed from NetworkFragment)
+        String svgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
+        if (svgDeviceId != null) {
+            mSharedViewModel.setSelectedSvgDeviceId(svgDeviceId);
+
+            String deviceName = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME);
+            if (deviceName != null) {
+                Log.d(TAG, "Device name from intent: " + deviceName);
+            }
+        }
 
         if (savedInstanceState != null) {
             if (savedInstanceState.getBoolean(PROGRESS_BAR_STATE)) {
@@ -93,9 +112,41 @@ public class NodeConfigurationActivity extends BaseActivity implements
             mRequestedState = savedInstanceState.getBoolean(PROXY_STATE, true);
         }
 
-        if (mViewModel.getSelectedMeshNode().getValue() == null) {
-            finish();
-            return;
+        // ✅ MODIFIED: Check if we have a selected node, if not, try to get it from SharedViewModel
+        ProvisionedMeshNode selectedNode = mViewModel.getSelectedMeshNode().getValue();
+
+        if (selectedNode == null) {
+            // Try to get from SharedViewModel
+            selectedNode = mSharedViewModel.getSelectedMeshNode().getValue();
+
+            if (selectedNode != null) {
+                // Set it in the ViewModel
+                mViewModel.setSelectedMeshNode(selectedNode);
+                Log.d(TAG, "Loaded selected node from SharedViewModel: " + selectedNode.getNodeName());
+            } else {
+                // If still no node, try to find by SVG ID
+                if (svgDeviceId != null) {
+                    MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                    if (network != null && network.getNodes() != null) {
+                        for (ProvisionedMeshNode node : network.getNodes()) {
+                            if (svgDeviceId.equalsIgnoreCase(node.getNodeName())) {
+                                selectedNode = node;
+                                mViewModel.setSelectedMeshNode(selectedNode);
+                                mSharedViewModel.setSelectedMeshNode(selectedNode);
+                                Log.d(TAG, "Found node matching SVG ID: " + node.getNodeName());
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                // If still no node, finish
+                if (selectedNode == null) {
+                    Log.e(TAG, "No selected mesh node found, finishing activity");
+                    finish();
+                    return;
+                }
+            }
         }
 
         // Toolbar
@@ -103,6 +154,11 @@ public class NodeConfigurationActivity extends BaseActivity implements
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
             getSupportActionBar().setTitle(R.string.title_node_configuration);
+
+            // ✅ Set subtitle to show which device we're configuring
+            if (selectedNode != null) {
+                getSupportActionBar().setSubtitle(selectedNode.getNodeName());
+            }
         }
 
         // ---------------- Node Name Card ----------------
@@ -164,6 +220,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
         // ---------------- Observe Node ----------------
         mViewModel.getSelectedMeshNode().observe(this, meshNode -> {
             if (meshNode == null) {
+                Log.w(TAG, "Selected mesh node became null");
                 finish();
                 return;
             }
@@ -196,6 +253,10 @@ public class NodeConfigurationActivity extends BaseActivity implements
             } else {
                 defaultTtlSummary.setText(R.string.unknown);
             }
+
+            // ✅ Log that node is loaded
+            Log.d(TAG, "Node loaded: " + meshNode.getNodeName() +
+                    " Address: 0x" + String.format("%04X", meshNode.getUnicastAddress()));
         });
 
         // ---------------- Action Buttons ----------------
@@ -230,7 +291,12 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
         updateProxySettingsCardUi();
         autoFetchCompositionData();
-        autoBindDefaultAppKey(); // ✅ Auto-bind AppKey on first open
+        autoBindDefaultAppKey(); // Auto-bind AppKey on first open
+
+        // ✅ Log successful creation
+        Log.d(TAG, "NodeConfigurationActivity created successfully for node: " +
+                (selectedNode != null ? selectedNode.getNodeName() : "null") +
+                " SVG ID: " + svgDeviceId);
     }
 
     @Override

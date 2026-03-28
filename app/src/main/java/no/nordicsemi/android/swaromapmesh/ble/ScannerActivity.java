@@ -25,6 +25,10 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
+
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.DeviceDetailActivity;
 import no.nordicsemi.android.swaromapmesh.ProvisioningActivity;
@@ -32,13 +36,12 @@ import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityScannerBinding;
+import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerLiveData;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerStateLiveData;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerViewModel;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
-
-import java.util.UUID;
 
 @AndroidEntryPoint
 public class ScannerActivity extends AppCompatActivity implements DevicesAdapter.OnItemClickListener {
@@ -94,8 +97,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     String svgFromResult = data.getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
                     if (svgFromResult != null) {
                         mSvgDeviceId = svgFromResult;
+                        Log.d(TAG, "provisioner result — mSvgDeviceId=" + mSvgDeviceId);
                     }
-                    Log.d(TAG, "provisioner result — mSvgDeviceId=" + mSvgDeviceId);
 
                     ExtendedBluetoothDevice provisionedDevice =
                             data.getParcelableExtra(Utils.EXTRA_DEVICE);
@@ -107,7 +110,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                         mShouldAutoConnectAfterProvisioning = true;
                         mIsNewlyProvisioned                 = true;
 
-                        Log.d(TAG, "Provisioning complete for MAC: " + mProvisionedDeviceMac);
+                        Log.d(TAG, "Provisioning complete for MAC: " + mProvisionedDeviceMac +
+                                " with SVG ID: " + mSvgDeviceId);
 
                         showConnectingUI();
                         binding.textConnectingProgress.setText(
@@ -144,6 +148,12 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     if (mSvgDeviceId != null) {
                         returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
                         Log.d(TAG, "reconnect callback — attaching mSvgDeviceId=" + mSvgDeviceId);
+                    }
+
+                    // ✅ Flag to skip GroupsFragment and go directly to configuration
+                    if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
+                        returnIntent.putExtra("DIRECT_TO_CONFIG", true);
+                        Log.d(TAG, "Setting DIRECT_TO_CONFIG flag for newly provisioned device");
                     }
 
                     // Copy device from ReconnectActivity result if present
@@ -202,8 +212,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             mSilentConnect        = getIntent().getBooleanExtra(
                     Utils.EXTRA_SILENT_CONNECT, false);
 
-            // ✅ AUTO FILTER — DeviceDetailActivity se jo deviceId aaya,
-            //    use SharedViewModel me set karo taaki scanner automatically filter kare
+            // ✅ AUTO FILTER
             String autoFilterDevice = getIntent().getStringExtra(
                     DeviceDetailActivity.EXTRA_AUTO_FILTER_DEVICE);
             if (autoFilterDevice != null && !autoFilterDevice.isEmpty()) {
@@ -586,6 +595,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
     private void startAutoConnectLoop() {
         if (mAutoConnectStarted) return;
+
         mAutoConnectStarted = true;
         mScanStartTime      = System.currentTimeMillis();
         Log.d(TAG, "Auto-connect loop started");
@@ -594,21 +604,20 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             @Override
             public void run() {
                 if (mProxyConnected || mReconnectLaunched) {
-                    Log.d(TAG, "Loop stopped — already connected");
+                    Log.d(TAG, "Loop stopped — reconnect launched or connected");
                     stopAutoConnectLoop();
                     return;
                 }
 
                 long elapsed = System.currentTimeMillis() - mScanStartTime;
-                Log.d(TAG, "Loop check: elapsed=" + elapsed + "ms");
+                Log.d(TAG, "Loop check: elapsed " + elapsed + "ms");
 
                 if (elapsed > TARGET_CONNECT_TIMEOUT_MS) {
-                    Log.e(TAG, "Auto-connect timeout!");
+                    Log.e(TAG, "Timeout!");
                     if (mShouldAutoConnectAfterProvisioning) {
                         runOnUiThread(() -> {
                             binding.textConnectingProgress.setText(
-                                    "Failed to connect after provisioning.\n"
-                                            + "Please try manual connection.");
+                                    "Failed to connect after provisioning.\nPlease try manual connection.");
                             new Handler().postDelayed(() -> {
                                 setResult(Activity.RESULT_CANCELED);
                                 finish();
@@ -624,14 +633,35 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                 ExtendedBluetoothDevice targetDevice = findTargetDevice();
 
                 if (targetDevice != null) {
-                    Log.i(TAG, "Target found: " + targetDevice.getAddress());
+                    Log.i(TAG, "✅ Target found: " + targetDevice.getAddress());
+
                     mReconnectLaunched  = true;
                     mAutoConnectStarted = false;
+
                     stopScan();
                     stopAutoConnectLoop();
 
+                    // ✅ NEW: Newly provisioned node ke liye full config chain trigger karo
+                    // markSetupRequired() → onDeviceReady mein:
+                    // CompositionDataGet → DefaultTtlGet → AppKeyAdd → AutoBind
+                    if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
+                        // ✅ Last provisioned node ka address fetch karo
+                        ProvisionedMeshNode provNode =
+                                mViewModel.getMeshRepository().getLastProvisionedNode();
+
+                        if (provNode != null) {
+                            mViewModel.getMeshRepository()
+                                    .markSetupRequired(provNode.getUnicastAddress());
+                            Log.d(TAG, "✅ markSetupRequired called for node=0x"
+                                    + Integer.toHexString(provNode.getUnicastAddress()));
+                        } else {
+                            Log.e(TAG, "❌ markSetupRequired: getLastProvisionedNode() returned null");
+                        }
+                    }
+
                     final Intent intent = new Intent(
-                            ScannerActivity.this, ReconnectActivity.class);
+                            ScannerActivity.this,
+                            ReconnectActivity.class);
                     intent.putExtra(Utils.EXTRA_DEVICE, targetDevice);
                     intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
                     if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
