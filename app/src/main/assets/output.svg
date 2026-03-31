@@ -2736,7 +2736,7 @@
             </g>
             <g id="SW-CN01-AA">
                 <metadata>
-                    <elementId>1</elementId>
+                    <elementId>5</elementId>
                 </metadata>
                 <rect x="626.72" y="553.16" width="12" height="12" rx="1.6" ry="1.6" fill="#82cceb"
                     stroke="#000" stroke-width=".2" />
@@ -4156,7 +4156,7 @@
             </g>
             <g id="Relay Node">
                 <metadata>
-                    <elementId>2</elementId>
+                    <elementId>12</elementId>
                 </metadata>
                 <rect x="489.12" y="175.7" width="6.68" height="6.68" rx=".89" ry=".89"
                     fill="#82cceb" stroke="#000" stroke-width=".11" />

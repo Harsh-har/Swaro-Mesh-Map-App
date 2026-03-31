@@ -20,6 +20,7 @@ import static no.nordicsemi.android.swaromapmesh.ble.BleMeshManager.MESH_PROXY_U
 
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -32,7 +33,9 @@ import androidx.lifecycle.MutableLiveData;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import javax.inject.Inject;
@@ -225,7 +228,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     // =========================================================================
-    // ✅ NEW — ScannerActivity calls these for newly provisioned node reconnect
+    // ScannerActivity reconnect helpers
     // =========================================================================
 
     /**
@@ -256,7 +259,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             Log.e(TAG, "markSetupRequired: node not found for address 0x"
                     + Integer.toHexString(nodeUnicastAddress)
                     + " — trying mProvisionedMeshNode fallback");
-            // Fallback: use existing mProvisionedMeshNode if address matches
             if (mProvisionedMeshNode != null
                     && mProvisionedMeshNode.getUnicastAddress() == nodeUnicastAddress) {
                 Log.d(TAG, "markSetupRequired: fallback node found");
@@ -269,7 +271,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             mProvisionedMeshNodeLiveData.postValue(node);
         }
 
-        // Full config chain flags
         mSetupProvisionedNode            = true;
         mIsCompositionDataReceived       = false;
         mIsDefaultTtlReceived            = false;
@@ -756,10 +757,17 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
                 if (mAutoBindNode != null) {
                     if (mAutoBindIndex < mPendingBindOperations.size()) {
+                        // More models to bind — continue the chain
                         mHandler.postDelayed(() -> sendNextAutoBind(), 300);
                     } else {
+                        // ── ALL MODELS BOUND ───────────────────────────────────
                         Log.d(TAG_BIND, "✅ ALL MODELS BOUND on node=0x"
                                 + Integer.toHexString(mAutoBindNode.getUnicastAddress()));
+
+                        // Save client element addresses if this is a Generic On Off Client.
+                        // Must happen BEFORE clearing mAutoBindNode.
+                        onAllModelsBindComplete(mAutoBindNode);
+
                         mAutoBindNode = null;
                         mPendingBindOperations.clear();
                         mAutoBindIndex = 0;
@@ -962,7 +970,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
         BluetoothLeScannerCompat.getScanner().startScan(filters, settings, scanCallback);
         Log.v(TAG, "Scan started");
-        mHandler.postDelayed(mScannerTimeout, 20000);
+        mHandler.postDelayed(mScannerTimeout, 15000);
     }
 
     private void stopScan() {
@@ -1002,6 +1010,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // AUTO APP KEY BIND
     // =========================================================================
     private void startAutoAppKeyBind(@NonNull final ProvisionedMeshNode node) {
+
         final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
             Log.w(TAG_BIND, "startAutoAppKeyBind: No AppKey in network — skip.");
@@ -1014,32 +1023,55 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mAutoBindIndex = 0;
         mAutoBindNode  = node;
 
-        // ✅ Print all elements + models right after provisioning AppKey success
         Log.d(TAG_BIND, "╔══════════════════════════════════════════════════");
         Log.d(TAG_BIND, "║ NODE: " + node.getNodeName()
                 + "  Unicast=0x" + String.format("%04X", node.getUnicastAddress()));
         Log.d(TAG_BIND, "╠══════════════════════════════════════════════════");
 
+        int elementIndex = 0;
+
         for (Element element : node.getElements().values()) {
-            Log.d(TAG_BIND, "║  ELEMENT  address=0x"
+
+            // ❌ Skip first element (usually primary element 0x0005)
+            if (element.getElementAddress() == node.getUnicastAddress()) {
+                continue;
+            }
+
+            Log.d(TAG_BIND, "║  ELEMENT[" + elementIndex + "]  address=0x"
                     + String.format("%04X", element.getElementAddress())
                     + "  name=" + element.getName());
 
+            int modelIdx = 0;
+
             for (MeshModel model : element.getMeshModels().values()) {
                 final int modelId = model.getModelId();
-                Log.d(TAG_BIND, "║    MODEL  id=0x" + String.format("%04X", modelId)
+
+                Log.d(TAG_BIND, "║    MODEL[" + modelIdx + "]  id=0x"
+                        + String.format("%04X", modelId)
                         + "  name=" + model.getModelName());
 
-                if (modelId == 0x0000 || modelId == 0x0001) {
-                    Log.d(TAG_BIND, "║    └─ SKIP (config model)");
+                // ❌ Skip config + health
+                if (modelId == 0x0000 || modelId == 0x0001 ||
+                        modelId == 0x0002 || modelId == 0x0003) {
+
+                    Log.d(TAG_BIND, "║    └─ SKIP (config/health model)");
+                    modelIdx++;
                     continue;
                 }
+
                 mPendingBindOperations.add(new int[]{
-                        element.getElementAddress(), modelId, appKeyIndex
+                        element.getElementAddress(),
+                        modelId,
+                        appKeyIndex
                 });
+
                 Log.d(TAG_BIND, "║    └─ QUEUED for bind");
+                modelIdx++;
             }
+
+            elementIndex++; // ✅ increment only for valid elements
         }
+
         Log.d(TAG_BIND, "╚══════════════════════════════════════════════════");
 
         if (mPendingBindOperations.isEmpty()) {
@@ -1049,11 +1081,82 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
 
         Log.d(TAG_BIND, "startAutoAppKeyBind: TOTAL=" + mPendingBindOperations.size()
-                + " on node=0x" + Integer.toHexString(node.getUnicastAddress()));
+                + " on node=0x" + String.format("%04X", node.getUnicastAddress()));
 
-        mHandler.postDelayed(() -> sendNextAutoBind(), 500);
+        // 🚀 Start binding sequence
+        mHandler.postDelayed(this::sendNextAutoBind, 500);
+    }
+    // =========================================================================
+    // ✅ NEW — Save client element addresses after ALL models are bound
+    // =========================================================================
+
+
+    private void onAllModelsBindComplete(@NonNull final ProvisionedMeshNode node) {
+
+        // ── 1. Check if this is a Generic OnOff Client ───────────────────────────
+        boolean isClient = false;
+        for (Element element : node.getElements().values()) {
+            for (MeshModel model : element.getMeshModels().values()) {
+                if (model.getModelId() == 0x1001) { // Generic OnOff Client
+                    isClient = true;
+                    break;
+                }
+            }
+            if (isClient) break;
+        }
+
+        if (!isClient) {
+            Log.d(TAG_BIND, "onAllModelsBindComplete: node=0x"
+                    + Integer.toHexString(node.getUnicastAddress())
+                    + " is NOT a client — skip element address save");
+            return;
+        }
+
+        // ── 2. Prepare mapping (0-based index, skip primary element) ─────────────
+        final Map<Integer, Integer> addressMap = new HashMap<>();
+
+        int base = node.getUnicastAddress(); // primary element address
+
+        for (Element element : node.getElements().values()) {
+
+            int elementAddress = element.getElementAddress();
+
+            // 🔥 KEY LOGIC:
+            // index = (elementAddress - base - 1)
+            int index = elementAddress - base - 1;
+
+            // ❌ Skip primary element (index will be -1)
+            if (index < 0) continue;
+
+            // ❌ Limit to 0–39
+            if (index > 39) {
+                Log.w(TAG_BIND, "Ignoring index > 39: " + index);
+                continue;
+            }
+
+            addressMap.put(index, elementAddress);
+
+            Log.d(TAG_BIND, "client index=" + index
+                    + " → address=0x" + String.format("%04X", elementAddress));
+        }
+
+        // ── 3. Normalize deviceId (VERY IMPORTANT) ───────────────────────────────
+        String deviceId = normalizeId(node.getNodeName());
+
+        // ── 4. Save to ClientElementStore ────────────────────────────────────────
+        ClientElementStore.saveAll(deviceId, addressMap);
+
+        Log.d(TAG_BIND, "✅ Saved " + addressMap.size()
+                + " client element addresses for device=" + deviceId
+                + " (base=0x" + Integer.toHexString(base) + ")");
     }
 
+    private String normalizeId(String id) {
+        return id == null ? null : id.trim().toLowerCase();
+    }
+    // =========================================================================
+    // sendNextAutoBind
+    // =========================================================================
     private void sendNextAutoBind() {
         if (mAutoBindNode == null) {
             Log.w(TAG_BIND, "sendNextAutoBind: node null — stop.");
@@ -1086,6 +1189,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             if (mAutoBindIndex < mPendingBindOperations.size()) {
                 mHandler.postDelayed(() -> sendNextAutoBind(), 300);
             } else {
+                // Even on exception at the last step, attempt to save client addresses
+                onAllModelsBindComplete(mAutoBindNode);
                 mAutoBindNode = null;
                 mPendingBindOperations.clear();
                 mAutoBindIndex = 0;
