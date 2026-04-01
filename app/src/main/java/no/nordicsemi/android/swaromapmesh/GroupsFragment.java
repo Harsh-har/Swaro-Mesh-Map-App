@@ -335,15 +335,22 @@ public class GroupsFragment extends Fragment implements
 
     @Override
     public void onNodeDeleteConfirmed(final int position) {
+
         final ProvisionedMeshNode node = mNodeAdapter.getItem(position);
-        if (mViewModel.getNetworkLiveData().getMeshNetwork().deleteNode(node)) {
-            mViewModel.displaySnackBar(requireActivity(),
+
+        boolean success = mViewModel.fullyDeleteNode(node);
+
+        if (success) {
+            mViewModel.displaySnackBar(
+                    requireActivity(),
                     binding.container,
                     getString(R.string.node_deleted),
-                    Snackbar.LENGTH_LONG);
+                    Snackbar.LENGTH_LONG
+            );
+        } else {
+            Log.e(TAG, "Delete failed");
         }
     }
-
     @Override
     public void onNodeDeleteCancelled(final int position) {
         mNodeAdapter.notifyItemChanged(position);
@@ -360,6 +367,10 @@ public class GroupsFragment extends Fragment implements
         if (result.getResultCode() == RESULT_OK && data != null) {
             final boolean success = data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
             if (success) {
+
+                ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+                mViewModel.autoMapNodeToCurrentSvg(node); // 🔥🔥🔥 MOST IMPORTANT
+
                 final Intent intent = new Intent(requireContext(), ScannerActivity.class);
                 intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
                 intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
