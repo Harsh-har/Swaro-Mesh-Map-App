@@ -20,6 +20,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import dagger.hilt.android.AndroidEntryPoint;
 
+import no.nordicsemi.android.swaromapmesh.DeviceDetailActivity;
+import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -41,10 +43,10 @@ public class TestProvisionActivity extends AppCompatActivity {
     private MaterialTextView tvUnicastAddress;
     private MaterialButton   btnTest;
 
-    private SharedViewModel     mViewModel;
+    private SharedViewModel mViewModel;
     private final AtomicInteger tidCounter = new AtomicInteger(0);
 
-    // ── Dynamic unicast address (loaded from matched node) ────────
+    // Dynamic unicast address
     private int mUnicastAddress = -1;
 
     @Override
@@ -58,7 +60,7 @@ public class TestProvisionActivity extends AppCompatActivity {
         deviceId  = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_DEVICE_ID);
         elementId = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID);
 
-        // ── View bindings ─────────────────────────────────────────
+        // View bindings
         tvDeviceId       = findViewById(R.id.tv_device_id);
         tvElementId      = findViewById(R.id.tv_element_id);
         tvStatus         = findViewById(R.id.tv_status);
@@ -66,13 +68,12 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvUnicastAddress = findViewById(R.id.tv_unicast_address);
         btnTest          = findViewById(R.id.btn_test);
 
-        // ── Basic fields ──────────────────────────────────────────
         tvDeviceId.setText(deviceId   != null ? deviceId  : "N/A");
         tvElementId.setText(elementId != null ? elementId : "N/A");
 
         updateStatus();
 
-        // ── MAC + Unicast: observe nodes LiveData ─────────────────
+        // Observe nodes → load MAC + Unicast
         mViewModel.getNodes().observe(this, nodes -> {
             if (nodes == null || nodes.isEmpty()) {
                 Log.w(TAG, "Nodes list empty");
@@ -82,28 +83,34 @@ public class TestProvisionActivity extends AppCompatActivity {
             loadAddressesFromNodes(nodes);
         });
 
-        // ── Test button ───────────────────────────────────────────
+        // Test button → ON → OFF
         btnTest.setOnClickListener(v -> {
+
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this,
                         "Device not provisioned!", Toast.LENGTH_SHORT).show();
                 return;
             }
+
             if (mUnicastAddress == -1) {
                 Toast.makeText(this,
                         "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            MeshCommandManager.startBlink(mViewModel, tidCounter, mUnicastAddress);
-            Toast.makeText(this, "Blinking...", Toast.LENGTH_SHORT).show();
+            // ✅ Send ON → 2 sec → OFF
+            MeshCommandManager.sendOnThenOff(
+                    this,
+                    mViewModel,
+                    tidCounter,
+                    mUnicastAddress
+            );
+
+            Toast.makeText(this, "Sending ON → OFF...", Toast.LENGTH_SHORT).show();
+
+            // Disable button for duration
             btnTest.setEnabled(false);
-
-            int totalBlinkMs =
-                    (MeshCommandManager.BLINK_ON_MS + MeshCommandManager.BLINK_OFF_MS)
-                            * MeshCommandManager.BLINK_COUNT + 100;
-
-            btnTest.postDelayed(() -> btnTest.setEnabled(true), totalBlinkMs);
+            btnTest.postDelayed(() -> btnTest.setEnabled(true), 2100);
         });
     }
 
@@ -117,7 +124,7 @@ public class TestProvisionActivity extends AppCompatActivity {
 
         ProvisionedMeshNode matched = null;
 
-        // ── Step 1: Name se match karo ────────────────────────────
+        // Match by node name
         for (ProvisionedMeshNode node : nodes) {
             if (deviceId.equalsIgnoreCase(node.getNodeName())) {
                 matched = node;
@@ -126,24 +133,22 @@ public class TestProvisionActivity extends AppCompatActivity {
             }
         }
 
-        // ── Step 2: Single node fallback ──────────────────────────
+        // Fallback if single node
         if (matched == null && nodes.size() == 1) {
             matched = nodes.get(0);
             Log.d(TAG, "Single node fallback: " + matched.getNodeName());
         }
 
         if (matched != null) {
-            // MAC
             String mac = matched.getMacAddress();
             if (mac == null || mac.isEmpty()) mac = "N/A";
 
-            // Unicast — store dynamically
             int unicastInt = matched.getUnicastAddress();
-            mUnicastAddress = unicastInt;  // ✅ store for use in blink
+            mUnicastAddress = unicastInt;
+
             String unicast = String.format("0x%04X", unicastInt);
 
-            Log.d(TAG, "MAC=" + mac + "  Unicast=" + unicast
-                    + "  mUnicastAddress=" + mUnicastAddress);
+            Log.d(TAG, "MAC=" + mac + " Unicast=" + unicast);
 
             setAddressFields(mac, unicast);
 
@@ -155,7 +160,7 @@ public class TestProvisionActivity extends AppCompatActivity {
     }
 
     private void setAddressFields(String mac, String unicast) {
-        if (tvMacAddress     != null) tvMacAddress.setText(mac);
+        if (tvMacAddress != null) tvMacAddress.setText(mac);
         if (tvUnicastAddress != null) tvUnicastAddress.setText(unicast);
     }
 
@@ -176,8 +181,10 @@ public class TestProvisionActivity extends AppCompatActivity {
     private boolean isProvisioned(String id) {
         SharedPreferences prefs =
                 getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+
         Set<String> devices =
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
+
         return devices.contains(id);
     }
 
@@ -186,9 +193,6 @@ public class TestProvisionActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Pass mUnicastAddress — if -1, stopBlink will still safely turn off
-        if (mUnicastAddress != -1) {
-            MeshCommandManager.stopBlink(mViewModel, tidCounter, mUnicastAddress);
-        }
+        // No blink → nothing to stop
     }
 }

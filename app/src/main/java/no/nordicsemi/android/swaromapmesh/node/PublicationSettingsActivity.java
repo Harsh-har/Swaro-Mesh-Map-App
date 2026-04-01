@@ -10,6 +10,8 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -59,12 +61,35 @@ public class PublicationSettingsActivity extends BaseActivity implements
     private static final int MIN_PUBLICATION_INTERVAL = 0;
     private static final int MAX_PUBLICATION_INTERVAL = 234;
 
+    /**
+     * Delay before auto-firing setPublication() after address is resolved.
+     */
+    private static final int AUTO_PUBLISH_DELAY_MS   = 600;
+
+    /**
+     * Delay between STEP-1 and STEP-2 publish PDUs.
+     * Gives STEP-1 acknowledgement time to arrive before paired PDU is sent.
+     */
+    private static final int PAIRED_PUBLISH_DELAY_MS = 1500;
+
     private ActivityPublicationSettingsBinding binding;
-    private SharedViewModel    mSharedViewModel;
+    private SharedViewModel      mSharedViewModel;
     private PublicationViewModel mPublicationViewModel;
 
-    // Resolved server element ID for this session
-    private int mCurrentServerElementId = -1;
+    // ── Auto-assign state ─────────────────────────────────────────────────────
+    private int     mCurrentServerElementId = -1;
+    private boolean mAutoPublishPending      = false;
+    private final Handler mAutoPublishHandler = new Handler(Looper.getMainLooper());
+
+    // ── Bidirectional publish state ───────────────────────────────────────────
+    // mPairedNodeUnicast    = the node that STEP-2 PDU will be sent TO
+    // mPairedElementAddress = the element on that node whose publication we set
+    // mPairedPublishTarget  = the address that paired element will publish TO
+    private boolean mBidirectionalPending  = false;
+    private int     mPairedNodeUnicast     = -1;
+    private int     mPairedElementAddress  = -1;
+    private int     mPairedPublishTarget   = -1;
+    private int     mPairedAppKeyIndex     = -1;
 
     private final ActivityResultLauncher<Intent> appKeySelector =
             registerForActivityResult(
@@ -97,7 +122,7 @@ public class PublicationSettingsActivity extends BaseActivity implements
 
         final MeshModel meshModel = mPublicationViewModel.getSelectedModel().getValue();
         if (meshModel == null) {
-            Log.e(TAG, "No model selected - finishing");
+            Log.e(TAG, "No model selected — finishing");
             finish();
             return;
         }
@@ -118,15 +143,30 @@ public class PublicationSettingsActivity extends BaseActivity implements
                     meshModel.getPublicationSettings(),
                     meshModel.getBoundAppKeyIndexes());
 
-            // ── Auto-assign publish address ───────────────────────────────────
+            // ── Step 1: auto-assign publish address ───────────────────────────
             boolean autoAssigned = tryAutoAssignPublishAddress();
             if (!autoAssigned) {
                 Log.w(TAG, "Auto-assignment failed — trying fallback");
                 autoAssignFallback();
             }
+
+            // ── Step 2: fire setPublication() automatically if address resolved
+            if (mAutoPublishPending) {
+                Log.d(TAG, "Scheduling auto setPublication in " + AUTO_PUBLISH_DELAY_MS + "ms");
+                mAutoPublishHandler.postDelayed(() -> {
+                    Log.d(TAG, "Auto-publish firing now");
+                    setPublication();
+                }, AUTO_PUBLISH_DELAY_MS);
+            }
         }
 
         updatePublicationValues();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        mAutoPublishHandler.removeCallbacksAndMessages(null);
     }
 
     // =========================================================================
@@ -171,6 +211,7 @@ public class PublicationSettingsActivity extends BaseActivity implements
         });
 
         binding.fabApply.setOnClickListener(v -> {
+            mAutoPublishHandler.removeCallbacksAndMessages(null);
             if (!checkConnectivity(binding.container)) return;
             setPublication();
         });
@@ -221,17 +262,7 @@ public class PublicationSettingsActivity extends BaseActivity implements
     }
 
     // =========================================================================
-    // ✅ MAIN AUTO-ASSIGNMENT LOGIC
-    //
-    // Strategy:
-    //   1. Determine if the current node is a Server (has 0x1000) or Client (has 0x1001).
-    //   2. Server path:
-    //        a. Get server's SVG device ID from SharedViewModel / SharedPreferences / node name.
-    //        b. Get server's element index N (saved by your SVG parsing code via saveElementId()).
-    //        c. Look up the address stored for Client element N
-    //           (saved by NrfMeshRepository.onAllModelsBindComplete() after Client bind).
-    //        d. Set that address as the publish address.
-    //   3. Client path: find the server's element N and use that address.
+    // AUTO-ASSIGNMENT LOGIC
     // =========================================================================
 
     private boolean tryAutoAssignPublishAddress() {
@@ -241,59 +272,50 @@ public class PublicationSettingsActivity extends BaseActivity implements
             return false;
         }
 
-        boolean isServer = isServerNode(node);
-        if (isServer) {
-            Log.d(TAG, "Node is SERVER — auto-assigning from client addresses");
+        if (isServerNode(node)) {
+            Log.d(TAG, "Node is SERVER → assign Client element[N] as publish address");
             return autoAssignForServerNode(node);
-        } else {
-            Log.d(TAG, "Node is CLIENT — auto-assigning from server element");
+        } else if (isClientNode(node)) {
+            Log.d(TAG, "Node is CLIENT → assign Server unicast address as publish address");
             return autoAssignForClientNode(node);
         }
+
+        Log.w(TAG, "tryAutoAssignPublishAddress: node is neither server nor client");
+        return false;
     }
 
-    // ── Node type detection ───────────────────────────────────────────────────
+    // ── Node type helpers ─────────────────────────────────────────────────────
 
     private boolean isServerNode(ProvisionedMeshNode node) {
         for (Element element : node.getElements().values())
             for (MeshModel model : element.getMeshModels().values())
-                if (model.getModelId() == 0x1000) return true; // Generic On Off Server
+                if (model.getModelId() == 0x1000) return true;
         return false;
     }
 
     private boolean isClientNode(ProvisionedMeshNode node) {
         for (Element element : node.getElements().values())
             for (MeshModel model : element.getMeshModels().values())
-                if (model.getModelId() == 0x1001) return true; // Generic On Off Client
+                if (model.getModelId() == 0x1001) return true;
         return false;
     }
 
-    // ── Server path ───────────────────────────────────────────────────────────
+    // =========================================================================
+    // SERVER PATH
+    // Server (0x1000) → publishes TO → Client element[N]
+    // =========================================================================
 
-    /**
-     * Auto-assign publish address for a SERVER node.
-     *
-     * Finds the server's SVG element ID (e.g. 2), then looks up the address
-     * of Client element 2 (stored when Client was provisioned and auto-bound).
-     *
-     * Example:
-     *   Server SVG element ID = 2
-     *   Client element 2 address = 0x0004
-     *   → publish address on this server model = 0x0004
-     */
     private boolean autoAssignForServerNode(ProvisionedMeshNode serverNode) {
-        // ── Step 1: resolve SVG device ID ─────────────────────────────────────
         String serverSvgDeviceId = resolveServerSvgDeviceId(serverNode);
         if (serverSvgDeviceId == null) {
-            Log.e(TAG, "autoAssignForServerNode: could not resolve SVG device ID");
+            Log.e(TAG, "autoAssignForServerNode: SVG device ID not found");
             return false;
         }
 
-        // ── Step 2: get server's element index from prefs ─────────────────────
         int serverElementId = mSharedViewModel.getElementIdAsInt(serverSvgDeviceId);
         if (serverElementId == -1) {
-            Log.e(TAG, "autoAssignForServerNode: no element ID stored for server="
-                    + serverSvgDeviceId
-                    + " — ensure saveElementId() is called during provisioning");
+            Log.e(TAG, "autoAssignForServerNode: no element ID for server="
+                    + serverSvgDeviceId);
             return false;
         }
 
@@ -301,121 +323,142 @@ public class PublicationSettingsActivity extends BaseActivity implements
         Log.d(TAG, "autoAssignForServerNode: svgId=" + serverSvgDeviceId
                 + " elementId=" + serverElementId);
 
-        // ── Step 3: look up matching client element address ───────────────────
-        // autoMapServerToClientPublishAddress reads from SharedPreferences keys
-        // written by NrfMeshRepository.onAllModelsBindComplete() (auto path)
-        // and by SharedViewModel.saveAllClientElementAddresses() (UI path).
+        // Primary: SharedPreferences lookup
         int publishAddress = mSharedViewModel.autoMapServerToClientPublishAddress(
                 serverSvgDeviceId, serverElementId);
-
         if (publishAddress != -1) {
             applyPublishAddress(publishAddress,
-                    "SERVER element " + serverElementId + " → client addr (prefs)");
+                    "SERVER[" + serverElementId + "] → client prefs");
             return true;
         }
 
-        // ── Step 4: direct scan fallback ──────────────────────────────────────
+        // Fallback: direct node scan
         publishAddress = findClientAddressByElementId(serverElementId);
         if (publishAddress != -1) {
             applyPublishAddress(publishAddress,
-                    "SERVER element " + serverElementId + " → client addr (direct scan)");
+                    "SERVER[" + serverElementId + "] → client scan");
             return true;
         }
 
         Log.w(TAG, "autoAssignForServerNode: no client address found for element="
-                + serverElementId
-                + " — provision Client first so its element addresses are saved");
+                + serverElementId);
         return false;
     }
 
-    // ── Client path ───────────────────────────────────────────────────────────
+    // =========================================================================
+    // CLIENT PATH
+    // Client element[N] (0x1001) → publishes TO → Server unicast address
+    // =========================================================================
 
-    /**
-     * Auto-assign publish address for a CLIENT node.
-     * Finds the server's element index and returns the matching client element address.
-     */
     private boolean autoAssignForClientNode(ProvisionedMeshNode clientNode) {
         String serverSvgDeviceId = mSharedViewModel.getServerSvgDeviceId();
         if (serverSvgDeviceId == null) {
-            Log.w(TAG, "autoAssignForClientNode: no server SVG device ID stored");
+            Log.w(TAG, "autoAssignForClientNode: no server SVG device ID in SharedViewModel"
+                    + " — trying SharedPreferences fallback");
+            serverSvgDeviceId = resolveServerSvgDeviceIdFromPrefs();
+        }
+
+        if (serverSvgDeviceId == null) {
+            Log.e(TAG, "autoAssignForClientNode: server SVG device ID not found anywhere");
             return false;
         }
 
-        int serverElementId = mSharedViewModel.getElementIdAsInt(serverSvgDeviceId);
-        if (serverElementId == -1) {
-            Log.w(TAG, "autoAssignForClientNode: no element ID for server: " + serverSvgDeviceId);
-            return false;
-        }
+        Log.d(TAG, "autoAssignForClientNode: paired server SVG ID = " + serverSvgDeviceId);
 
-        List<Element> sortedElements = new ArrayList<>(clientNode.getElements().values());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            sortedElements.sort((a, b) ->
-                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
-        }
-
-        if (serverElementId >= 1 && serverElementId <= sortedElements.size()) {
-            int address = sortedElements.get(serverElementId - 1).getElementAddress();
-            applyPublishAddress(address,
-                    "CLIENT element " + serverElementId + " address");
+        // Primary: ClientElementStore
+        int serverUnicast = ClientElementStore.getServerUnicastAddress(serverSvgDeviceId);
+        if (serverUnicast != -1) {
+            applyPublishAddress(serverUnicast,
+                    "CLIENT → server unicast from store [" + serverSvgDeviceId + "]");
             return true;
         }
 
-        Log.w(TAG, "autoAssignForClientNode: serverElementId=" + serverElementId
-                + " out of range (client has " + sortedElements.size() + " elements)");
+        // Fallback: scan
+        serverUnicast = findServerUnicastByName(serverSvgDeviceId, clientNode);
+        if (serverUnicast != -1) {
+            ClientElementStore.saveServerUnicastAddress(serverSvgDeviceId, serverUnicast);
+            applyPublishAddress(serverUnicast,
+                    "CLIENT → server unicast from scan [" + serverSvgDeviceId + "]");
+            return true;
+        }
+
+        Log.e(TAG, "autoAssignForClientNode: server node not found for id="
+                + serverSvgDeviceId);
         return false;
+    }
+
+    private int findServerUnicastByName(String serverSvgDeviceId,
+                                        ProvisionedMeshNode excludeNode) {
+        List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
+        if (allNodes == null) {
+            Log.w(TAG, "findServerUnicastByName: no provisioned nodes");
+            return -1;
+        }
+
+        final String normalizedTarget = normalizeId(serverSvgDeviceId);
+
+        for (ProvisionedMeshNode node : allNodes) {
+            if (excludeNode != null
+                    && node.getUnicastAddress() == excludeNode.getUnicastAddress()) continue;
+            final String nodeName = normalizeId(node.getNodeName());
+            if (normalizedTarget.equals(nodeName) && isServerNode(node)) {
+                Log.d(TAG, "findServerUnicastByName: FOUND server='"
+                        + node.getNodeName() + "' unicast=0x"
+                        + String.format("%04X", node.getUnicastAddress()));
+                return node.getUnicastAddress();
+            }
+        }
+
+        // Fallback: first server node
+        for (ProvisionedMeshNode node : allNodes) {
+            if (excludeNode != null
+                    && node.getUnicastAddress() == excludeNode.getUnicastAddress()) continue;
+            if (isServerNode(node)) {
+                Log.w(TAG, "findServerUnicastByName: name match failed — using first server"
+                        + " unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+                return node.getUnicastAddress();
+            }
+        }
+
+        return -1;
     }
 
     // ── SVG device ID resolution ──────────────────────────────────────────────
 
-    /**
-     * Try multiple sources to get the server node's SVG device ID.
-     *
-     * Priority:
-     *  1. SharedViewModel (set by NodeConfigurationActivity.onModelClicked)
-     *  2. SharedPreferences "server_svg_device_id"
-     *  3. Node name itself (if it matches an SVG ID pattern)
-     */
     private String resolveServerSvgDeviceId(ProvisionedMeshNode node) {
-        // Source 1: SharedViewModel
         String id = mSharedViewModel.getSelectedSvgDeviceId();
         if (id != null && !id.isEmpty()) {
-            Log.d(TAG, "resolveServerSvgDeviceId: from SharedViewModel: " + id);
+            Log.d(TAG, "resolveServerSvgDeviceId: SharedViewModel → " + id);
             return id;
         }
+        id = resolveServerSvgDeviceIdFromPrefs();
+        if (id != null) return id;
 
-        // Source 2: SharedPreferences
-        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        id = prefs.getString("server_svg_device_id", null);
-        if (id != null && !id.isEmpty()) {
-            Log.d(TAG, "resolveServerSvgDeviceId: from SharedPreferences: " + id);
-            return id;
-        }
-
-        // Source 3: Node name
         if (node != null && node.getNodeName() != null && !node.getNodeName().isEmpty()) {
-            Log.d(TAG, "resolveServerSvgDeviceId: using node name: " + node.getNodeName());
+            Log.d(TAG, "resolveServerSvgDeviceId: node name → " + node.getNodeName());
             return node.getNodeName();
         }
 
-        Log.e(TAG, "resolveServerSvgDeviceId: could not resolve from any source");
+        Log.e(TAG, "resolveServerSvgDeviceId: all sources failed");
         return null;
     }
 
-    // ── Direct scan fallback ──────────────────────────────────────────────────
+    private String resolveServerSvgDeviceIdFromPrefs() {
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        String id = prefs.getString("server_svg_device_id", null);
+        if (id != null && !id.isEmpty()) {
+            Log.d(TAG, "resolveServerSvgDeviceId: SharedPreferences → " + id);
+            return id;
+        }
+        return null;
+    }
 
-    /**
-     * Scan all provisioned client nodes to find one that has a stored element address
-     * at the given index.  Used when the SharedPreferences lookup fails (e.g. the
-     * mapping was not yet saved at the time of the lookup).
-     *
-     * @param targetElementId 1-based element index from SVG
-     * @return Client element unicast address, or -1 if not found
-     */
+    // ── Direct client scan ────────────────────────────────────────────────────
+
     private int findClientAddressByElementId(int targetElementId) {
-
         List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
         if (allNodes == null) {
-            Log.w(TAG, "findClientAddressByElementId: no provisioned nodes");
+            Log.w(TAG, "findClientAddressByElementId: no nodes");
             return -1;
         }
 
@@ -423,102 +466,415 @@ public class PublicationSettingsActivity extends BaseActivity implements
                 mPublicationViewModel.getSelectedMeshNode().getValue();
 
         for (ProvisionedMeshNode node : allNodes) {
-
-            // Skip current node (server)
             if (currentNode != null &&
-                    node.getUnicastAddress() == currentNode.getUnicastAddress()) {
-                continue;
-            }
-
+                    node.getUnicastAddress() == currentNode.getUnicastAddress()) continue;
             if (!isClientNode(node)) continue;
 
             String deviceId = normalizeId(node.getNodeName());
 
-            // ── ✅ STEP 1: Try from ClientElementStore (PRIMARY SOURCE) ───────────
+            // Primary: ClientElementStore
             int address = ClientElementStore.get(deviceId, targetElementId);
-
             if (address != -1) {
-                Log.d(TAG, "✅ findClientAddress: STORE"
-                        + " client=" + deviceId
-                        + " element=" + targetElementId
-                        + " address=0x" + String.format("%04X", address));
+                Log.d(TAG, "✅ findClientAddress STORE"
+                        + " client=" + deviceId + " element=" + targetElementId
+                        + " addr=0x" + String.format("%04X", address));
                 return address;
             }
 
-            // ── ⚠️ STEP 2: SAFE FALLBACK (address-based, NOT list index) ─────────
+            // Fallback: unicast offset arithmetic
             int base = node.getUnicastAddress();
-
             for (Element e : node.getElements().values()) {
-
-                int index = e.getElementAddress() - base - 1;
-
-                if (index == targetElementId) {
+                int offset = e.getElementAddress() - base;
+                if (offset == targetElementId) {
                     address = e.getElementAddress();
-
-                    Log.d(TAG, "⚠️ findClientAddress: FALLBACK (safe)"
-                            + " client=" + deviceId
-                            + " element=" + targetElementId
-                            + " address=0x" + String.format("%04X", address));
-
+                    Log.d(TAG, "⚠️ findClientAddress FALLBACK"
+                            + " client=" + deviceId + " element=" + targetElementId
+                            + " addr=0x" + String.format("%04X", address));
                     return address;
                 }
             }
         }
 
-        Log.e(TAG, "❌ findClientAddressByElementId: NOT FOUND for element="
-                + targetElementId);
-
+        Log.e(TAG, "❌ findClientAddressByElementId: NOT FOUND element=" + targetElementId);
         return -1;
     }
 
     private String normalizeId(String id) {
         return id == null ? null : id.trim().toLowerCase();
     }
+
     // ── Last-resort fallback ──────────────────────────────────────────────────
 
-    /**
-     * Last resort: pick the first element of the first available client node.
-     * Used only when all other resolution methods have failed.
-     */
     private void autoAssignFallback() {
         final ProvisionedMeshNode currentNode =
                 mPublicationViewModel.getSelectedMeshNode().getValue();
         if (currentNode == null) return;
 
-        if (!isServerNode(currentNode)) return;
+        if (isServerNode(currentNode)) {
+            List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
+            if (allNodes == null) return;
 
-        List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
-        if (allNodes == null) return;
+            for (ProvisionedMeshNode node : allNodes) {
+                if (node.getUnicastAddress() == currentNode.getUnicastAddress()) continue;
+                if (!isClientNode(node)) continue;
 
-        for (ProvisionedMeshNode node : allNodes) {
-            if (node.getUnicastAddress() == currentNode.getUnicastAddress()) continue;
-            if (!isClientNode(node)) continue;
+                List<Element> sortedElements = new ArrayList<>(node.getElements().values());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    sortedElements.sort((a, b) ->
+                            Integer.compare(a.getElementAddress(), b.getElementAddress()));
+                }
 
-            List<Element> sortedElements = new ArrayList<>(node.getElements().values());
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                sortedElements.sort((a, b) ->
-                        Integer.compare(a.getElementAddress(), b.getElementAddress()));
+                if (!sortedElements.isEmpty()) {
+                    applyPublishAddress(sortedElements.get(0).getElementAddress(),
+                            "FALLBACK SERVER — first element of first client");
+                    return;
+                }
             }
+            Log.w(TAG, "autoAssignFallback: no client found for server");
 
-            if (!sortedElements.isEmpty()) {
-                int address = sortedElements.get(0).getElementAddress();
-                applyPublishAddress(address,
-                        "FALLBACK — first element of first client node");
+        } else if (isClientNode(currentNode)) {
+            List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
+            if (allNodes == null) return;
+
+            for (ProvisionedMeshNode node : allNodes) {
+                if (node.getUnicastAddress() == currentNode.getUnicastAddress()) continue;
+                if (!isServerNode(node)) continue;
+
+                applyPublishAddress(node.getUnicastAddress(),
+                        "FALLBACK CLIENT — unicast of first server");
                 return;
             }
+            Log.w(TAG, "autoAssignFallback: no server found for client");
         }
-
-        Log.w(TAG, "autoAssignFallback: no suitable publish address found");
     }
 
-    // ── Apply ─────────────────────────────────────────────────────────────────
+    // ── Core apply method ─────────────────────────────────────────────────────
 
     private void applyPublishAddress(final int address, final String reason) {
         mPublicationViewModel.setLabelUUID(null);
         mPublicationViewModel.setPublishAddress(address);
         binding.publishAddress.setText(MeshAddress.formatAddress(address, true));
+        mAutoPublishPending = true;
         Log.d(TAG, "✅ applyPublishAddress: 0x"
                 + String.format("%04X", address) + " reason=" + reason);
+    }
+
+    // =========================================================================
+    // setPublication — STEP-1
+    // =========================================================================
+
+    private void setPublication() {
+        if (!checkConnectivity(binding.container)) {
+            Log.w(TAG, "setPublication: no connectivity — skip");
+            return;
+        }
+
+        final ProvisionedMeshNode node =
+                mPublicationViewModel.getSelectedMeshNode().getValue();
+        if (node == null) {
+            Log.e(TAG, "setPublication: node is null");
+            return;
+        }
+
+        final MeshMessage configModelPublicationSet = mPublicationViewModel.createMessage();
+        if (configModelPublicationSet == null) {
+            Log.e(TAG, "setPublication: createMessage() returned null"
+                    + " — appKey or address may be invalid");
+            return;
+        }
+
+        try {
+            mPublicationViewModel.getMeshManagerApi().createMeshPdu(
+                    node.getUnicastAddress(), configModelPublicationSet);
+
+            Log.d(TAG, "✅ setPublication [STEP-1]: PDU sent"
+                    + " node=0x" + String.format("%04X", node.getUnicastAddress())
+                    + " publishAddr=0x"
+                    + String.format("%04X", mPublicationViewModel.getPublishAddress()));
+
+        } catch (IllegalArgumentException ex) {
+            Log.e(TAG, "setPublication: createMeshPdu failed: " + ex.getMessage());
+            DialogFragmentError.newInstance(
+                            getString(R.string.title_error), ex.getMessage())
+                    .show(getSupportFragmentManager(), null);
+            return;
+        }
+
+        // ── Prepare STEP-2 ────────────────────────────────────────────────────
+        preparePairedNodePublish(node);
+
+        if (mBidirectionalPending
+                && mPairedNodeUnicast != -1
+                && mPairedElementAddress != -1
+                && mPairedPublishTarget != -1) {
+            Log.d(TAG, "Scheduling STEP-2 paired publish in "
+                    + PAIRED_PUBLISH_DELAY_MS + "ms"
+                    + " pairedNode=0x" + String.format("%04X", mPairedNodeUnicast)
+                    + " pairedElement=0x" + String.format("%04X", mPairedElementAddress)
+                    + " publishTo=0x" + String.format("%04X", mPairedPublishTarget));
+            mAutoPublishHandler.postDelayed(
+                    this::sendPairedNodePublish, PAIRED_PUBLISH_DELAY_MS);
+        } else {
+            Log.w(TAG, "setPublication: bidirectional not ready — finishing without STEP-2");
+            setResult(Activity.RESULT_OK, new Intent());
+            finish();
+        }
+    }
+
+    // =========================================================================
+    // preparePairedNodePublish
+    // =========================================================================
+
+    private void preparePairedNodePublish(@NonNull ProvisionedMeshNode currentNode) {
+        mBidirectionalPending = false;
+        mPairedNodeUnicast    = -1;
+        mPairedElementAddress = -1;
+        mPairedPublishTarget  = -1;
+        mPairedAppKeyIndex    = mPublicationViewModel.getAppKeyIndex();
+
+        if (isServerNode(currentNode)) {
+            // ── SERVER path ───────────────────────────────────────────────────
+            // STEP-1: Server → Client element[N]
+            // STEP-2: Client element[N] → Server unicast
+
+            List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
+            if (allNodes == null) return;
+
+            for (ProvisionedMeshNode node : allNodes) {
+                if (node.getUnicastAddress() == currentNode.getUnicastAddress()) continue;
+                if (!isClientNode(node)) continue;
+
+                // Find client element[N] matching this server's element ID
+                int clientElementAddr = -1;
+                if (mCurrentServerElementId != -1) {
+                    clientElementAddr = ClientElementStore.get(
+                            normalizeId(node.getNodeName()), mCurrentServerElementId);
+                }
+
+                // Fallback: first element of client node
+                if (clientElementAddr == -1) {
+                    List<Element> sorted = new ArrayList<>(node.getElements().values());
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                        sorted.sort((a, b) ->
+                                Integer.compare(a.getElementAddress(), b.getElementAddress()));
+                    }
+                    if (!sorted.isEmpty())
+                        clientElementAddr = sorted.get(0).getElementAddress();
+                }
+
+                if (clientElementAddr != -1) {
+                    mPairedNodeUnicast    = node.getUnicastAddress();        // client node
+                    mPairedElementAddress = clientElementAddr;               // client element[N]
+                    mPairedPublishTarget  = currentNode.getUnicastAddress(); // → server unicast
+                    mBidirectionalPending = true;
+
+                    Log.d(TAG, "preparePairedNodePublish SERVER:"
+                            + " clientNode=0x"
+                            + String.format("%04X", mPairedNodeUnicast)
+                            + " clientElement=0x"
+                            + String.format("%04X", mPairedElementAddress)
+                            + " → publishTo server=0x"
+                            + String.format("%04X", mPairedPublishTarget));
+                }
+                break; // Only 1 client node
+            }
+
+        } else if (isClientNode(currentNode)) {
+            // ── CLIENT path ───────────────────────────────────────────────────
+            // STEP-1: Client element[N] → Server unicast
+            // STEP-2: Server → Client element[N]
+
+            String serverSvgId = mSharedViewModel.getServerSvgDeviceId();
+            if (serverSvgId == null) serverSvgId = resolveServerSvgDeviceIdFromPrefs();
+
+            List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
+            if (allNodes == null) return;
+
+            for (ProvisionedMeshNode node : allNodes) {
+                if (node.getUnicastAddress() == currentNode.getUnicastAddress()) continue;
+                if (!isServerNode(node)) continue;
+
+                if (serverSvgId != null
+                        && !normalizeId(serverSvgId).equals(
+                        normalizeId(node.getNodeName()))) continue;
+
+                int serverElementAddr = resolveServerElementAddress(node);
+
+                mPairedNodeUnicast    = node.getUnicastAddress();                    // server node
+                mPairedElementAddress = serverElementAddr;                           // server element
+                mPairedPublishTarget  = mPublicationViewModel.getPublishAddress();   // → client element[N]
+                mBidirectionalPending = true;
+
+                Log.d(TAG, "preparePairedNodePublish CLIENT:"
+                        + " serverNode=0x" + String.format("%04X", mPairedNodeUnicast)
+                        + " serverElement=0x" + String.format("%04X", mPairedElementAddress)
+                        + " → publishTo clientElement=0x"
+                        + String.format("%04X", mPairedPublishTarget));
+                break;
+            }
+        }
+    }
+
+    // =========================================================================
+    // resolveServerElementAddress
+    // =========================================================================
+
+    private int resolveServerElementAddress(@NonNull ProvisionedMeshNode serverNode) {
+        final String serverSvgId = normalizeId(serverNode.getNodeName());
+        if (serverSvgId == null) return serverNode.getUnicastAddress();
+
+        int elementId = mSharedViewModel.getElementIdAsInt(serverSvgId);
+
+        List<Element> sorted = new ArrayList<>(serverNode.getElements().values());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            sorted.sort((a, b) ->
+                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
+        }
+
+        // elementId is 1-based
+        if (elementId > 0 && elementId <= sorted.size()) {
+            int addr = sorted.get(elementId - 1).getElementAddress();
+            Log.d(TAG, "resolveServerElementAddress: elementId=" + elementId
+                    + " addr=0x" + String.format("%04X", addr));
+            return addr;
+        }
+
+        // Fallback: primary element
+        int addr = sorted.isEmpty()
+                ? serverNode.getUnicastAddress()
+                : sorted.get(0).getElementAddress();
+        Log.w(TAG, "resolveServerElementAddress: fallback addr=0x"
+                + String.format("%04X", addr));
+        return addr;
+    }
+
+    // =========================================================================
+    // sendPairedNodePublish — STEP-2
+    // =========================================================================
+
+    private void sendPairedNodePublish() {
+        if (mPairedNodeUnicast == -1
+                || mPairedElementAddress == -1
+                || mPairedPublishTarget == -1) {
+            Log.e(TAG, "sendPairedNodePublish: invalid state — skip");
+            setResult(Activity.RESULT_OK, new Intent());
+            finish();
+            return;
+        }
+
+        try {
+            // ── 1. Find the exact Element object on the paired node ───────────
+            Element pairedElement = findElementByAddress(
+                    mPairedNodeUnicast, mPairedElementAddress);
+
+            if (pairedElement == null) {
+                Log.e(TAG, "sendPairedNodePublish: paired element not found"
+                        + " node=0x" + String.format("%04X", mPairedNodeUnicast)
+                        + " element=0x" + String.format("%04X", mPairedElementAddress));
+                setResult(Activity.RESULT_OK, new Intent());
+                finish();
+                return;
+            }
+
+            // ── 2. Find the correct model on that element ─────────────────────
+            // SERVER path → paired is CLIENT → model 0x1001
+            // CLIENT path → paired is SERVER → model 0x1000
+            final ProvisionedMeshNode currentNode =
+                    mPublicationViewModel.getSelectedMeshNode().getValue();
+            int targetModelId = (currentNode != null && isServerNode(currentNode))
+                    ? 0x1001
+                    : 0x1000;
+
+            MeshModel pairedModel = pairedElement.getMeshModels().get(targetModelId);
+            if (pairedModel == null) {
+                // Fallback: first non-config model
+                for (MeshModel m : pairedElement.getMeshModels().values()) {
+                    if (m.getModelId() != 0x0000 && m.getModelId() != 0x0001) {
+                        pairedModel = m;
+                        break;
+                    }
+                }
+            }
+
+            if (pairedModel == null) {
+                Log.e(TAG, "sendPairedNodePublish: no model found on paired element");
+                setResult(Activity.RESULT_OK, new Intent());
+                finish();
+                return;
+            }
+
+            // ── 3. Save current selected element + model ──────────────────────
+            // Use mPublicationViewModel which extends BaseViewModel
+            // BaseViewModel has setSelectedElement() / setSelectedModel()
+            // which delegate to NrfMeshRepository
+            final Element   savedElement = mPublicationViewModel.getSelectedElement().getValue();
+            final MeshModel savedModel   = mPublicationViewModel.getSelectedModel().getValue();
+
+            // ── 4. Override to paired element + model so createMessage() works ─
+            mPublicationViewModel.setSelectedElement(pairedElement);
+            mPublicationViewModel.setSelectedModel(pairedModel);
+
+            // ── 5. Set publish target address ─────────────────────────────────
+            final int savedPublishAddress = mPublicationViewModel.getPublishAddress();
+            mPublicationViewModel.setPublishAddress(mPairedPublishTarget);
+
+            // ── 6. Build the PDU ──────────────────────────────────────────────
+            final MeshMessage pairedMsg = mPublicationViewModel.createMessage();
+
+            // ── 7. Restore everything ─────────────────────────────────────────
+            mPublicationViewModel.setPublishAddress(savedPublishAddress);
+            if (savedElement != null)
+                mPublicationViewModel.setSelectedElement(savedElement);
+            if (savedModel != null)
+                mPublicationViewModel.setSelectedModel(savedModel);
+
+            if (pairedMsg == null) {
+                Log.e(TAG, "sendPairedNodePublish: createMessage() null — skip STEP-2");
+                setResult(Activity.RESULT_OK, new Intent());
+                finish();
+                return;
+            }
+
+            // ── 8. Send PDU to paired node ────────────────────────────────────
+            mPublicationViewModel.getMeshManagerApi()
+                    .createMeshPdu(mPairedNodeUnicast, pairedMsg);
+
+            Log.d(TAG, "✅ sendPairedNodePublish [STEP-2]: PDU sent"
+                    + " node=0x" + String.format("%04X", mPairedNodeUnicast)
+                    + " element=0x" + String.format("%04X", pairedElement.getElementAddress())
+                    + " model=0x" + String.format("%04X", pairedModel.getModelId())
+                    + " publishTo=0x" + String.format("%04X", mPairedPublishTarget));
+
+        } catch (IllegalArgumentException ex) {
+            Log.e(TAG, "sendPairedNodePublish: failed: " + ex.getMessage());
+        }
+
+        setResult(Activity.RESULT_OK, new Intent());
+        finish();
+    }
+
+    // =========================================================================
+    // findElementByAddress
+    // =========================================================================
+
+    @Nullable
+    private Element findElementByAddress(int nodeUnicast, int elementAddress) {
+        List<ProvisionedMeshNode> allNodes = mSharedViewModel.getAllProvisionedNodes();
+        if (allNodes == null) return null;
+
+        for (ProvisionedMeshNode node : allNodes) {
+            if (node.getUnicastAddress() != nodeUnicast) continue;
+            for (Element element : node.getElements().values()) {
+                if (element.getElementAddress() == elementAddress) {
+                    return element;
+                }
+            }
+        }
+
+        Log.e(TAG, "findElementByAddress: not found"
+                + " node=0x" + String.format("%04X", nodeUnicast)
+                + " element=0x" + String.format("%04X", elementAddress));
+        return null;
     }
 
     // =========================================================================
@@ -527,20 +883,23 @@ public class PublicationSettingsActivity extends BaseActivity implements
 
     @Override
     public Group createGroup(@NonNull final String name) {
-        final MeshNetwork network = mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
+        final MeshNetwork network =
+                mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
         return network != null
                 ? network.createGroup(network.getSelectedProvisioner(), name) : null;
     }
 
     @Override
     public Group createGroup(@NonNull final UUID uuid, final String name) {
-        final MeshNetwork network = mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
+        final MeshNetwork network =
+                mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
         return network != null ? network.createGroup(uuid, null, name) : null;
     }
 
     @Override
     public boolean onGroupAdded(@NonNull final Group group) {
-        final MeshNetwork network = mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
+        final MeshNetwork network =
+                mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
         if (network != null && network.addGroup(group)) {
             onDestinationAddressSet(group);
             return true;
@@ -550,7 +909,8 @@ public class PublicationSettingsActivity extends BaseActivity implements
 
     @Override
     public boolean onGroupAdded(@NonNull final String name, final int address) {
-        final MeshNetwork network = mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
+        final MeshNetwork network =
+                mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
         if (network != null) {
             final Group group = network.createGroup(
                     network.getSelectedProvisioner(), address, name);
@@ -573,7 +933,8 @@ public class PublicationSettingsActivity extends BaseActivity implements
     public void onDestinationAddressSet(@NonNull final Group group) {
         mPublicationViewModel.setLabelUUID(group.getAddressLabel());
         mPublicationViewModel.setPublishAddress(group.getAddress());
-        binding.publishAddress.setText(MeshAddress.formatAddress(group.getAddress(), true));
+        binding.publishAddress.setText(
+                MeshAddress.formatAddress(group.getAddress(), true));
     }
 
     @Override
@@ -603,7 +964,8 @@ public class PublicationSettingsActivity extends BaseActivity implements
                     mPublicationViewModel.getPublishAddress(), true));
         }
 
-        final MeshNetwork network = mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
+        final MeshNetwork network =
+                mPublicationViewModel.getNetworkLiveData().getMeshNetwork();
         if (network != null) {
             final ApplicationKey key =
                     network.getAppKey(mPublicationViewModel.getAppKeyIndex());
@@ -619,7 +981,8 @@ public class PublicationSettingsActivity extends BaseActivity implements
                 mPublicationViewModel.getFriendshipCredentialsFlag());
         updatePublishPeriodUi();
         binding.retransmissionSlider.setValue(mPublicationViewModel.getRetransmitCount());
-        binding.intervalStepsSlider.setValue(mPublicationViewModel.getRetransmissionInterval());
+        binding.intervalStepsSlider.setValue(
+                mPublicationViewModel.getRetransmissionInterval());
     }
 
     private void updateTtlUi() {
@@ -627,29 +990,6 @@ public class PublicationSettingsActivity extends BaseActivity implements
         binding.publicationTtl.setText(isDefaultPublishTtl(ttl)
                 ? getString(R.string.uses_default_ttl)
                 : String.valueOf(ttl));
-    }
-
-    private void setPublication() {
-        final ProvisionedMeshNode node = mPublicationViewModel.getSelectedMeshNode().getValue();
-        if (node != null) {
-            final MeshMessage configModelPublicationSet =
-                    mPublicationViewModel.createMessage();
-            if (configModelPublicationSet != null) {
-                try {
-                    mPublicationViewModel.getMeshManagerApi().createMeshPdu(
-                            node.getUnicastAddress(), configModelPublicationSet);
-                    Log.d(TAG, "Publication set sent to node: 0x"
-                            + String.format("%04X", node.getUnicastAddress()));
-                } catch (IllegalArgumentException ex) {
-                    DialogFragmentError.newInstance(
-                                    getString(R.string.title_error), ex.getMessage())
-                            .show(getSupportFragmentManager(), null);
-                    return;
-                }
-            }
-        }
-        setResult(Activity.RESULT_OK, new Intent());
-        finish();
     }
 
     private void updatePublishPeriodUi() {
@@ -682,7 +1022,7 @@ public class PublicationSettingsActivity extends BaseActivity implements
     }
 
     // =========================================================================
-    // BaseActivity overrides (publication settings manages its own progress)
+    // BaseActivity overrides
     // =========================================================================
 
     @Override protected void updateClickableViews() {}

@@ -338,11 +338,9 @@ public class NetworkFragment extends Fragment {
 
     private void logDeviceMap() {
         if (deviceMap.isEmpty()) { Log.w(TAG, "No icon devices found"); return; }
-        Log.d(TAG, deviceMap.size() + " icon devices found:");
         for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
             DeviceInfo d = e.getValue();
-            Log.d(TAG, "  Icon: " + d.id + " elementId=" + d.elementId
-                    + " bounds=" + d.bounds.toShortString());
+
         }
     }
 
@@ -423,8 +421,8 @@ public class NetworkFragment extends Fragment {
         Matcher matcher = pattern.matcher(rawText);
 
         while (matcher.find()) {
-            String iconId   = matcher.group(1).trim();   // e.g. "Relay Node"
-            String deviceId = matcher.group(2).trim();   // e.g. "casting_f_1"
+            String iconId   = matcher.group(1).trim();
+            String deviceId = matcher.group(2).trim();
 
             if (!iconId.isEmpty() && !deviceId.isEmpty()) {
 
@@ -525,9 +523,6 @@ public class NetworkFragment extends Fragment {
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
         devices.put(id, new DeviceInfo(id, el, bounds, elementId));
-        Log.d(TAG, "Registered leaf icon: id=" + id
-                + " elementId=" + elementId
-                + " bounds=" + bounds.toShortString());
     }
 
     private Element findElementById(Element root, String targetId) {
@@ -1014,18 +1009,6 @@ public class NetworkFragment extends Fragment {
         Log.d(TAG, "All icons hidden");
     }
 
-    /**
-     * Master color + visibility refresh.
-     *
-     * Per-icon rule:
-     *   Provisioned icon → icon HIDE (transparent) + uske related devices SHOW (#ff00bb)
-     *   Selected icon    → icon RED  (visible)
-     *   Normal icon      → icon original color (visible)
-     *
-     * Devices rule:
-     *   Sirf un devices ko show karo jinke parent icon provisioned hain.
-     *   Baaki sab devices transparent rehte hain.
-     */
     private void refreshAllColors(Set<String> provisionedIds) {
         if (deviceMap.isEmpty()) return;
 
@@ -1039,9 +1022,8 @@ public class NetworkFragment extends Fragment {
             boolean isSelected    = id.equals(selectedDeviceId);
 
             if (isProvisioned) {
-                // Sirf yahi icon hide karo
+
                 applyColorToDevice(info.element, COLOR_TRANSPARENT);
-                // Iske related devices collect karo
                 Set<String> related = getRelatedDeviceIds(id);
                 devicesToShow.addAll(related);
                 Log.d(TAG, "HIDE icon (provisioned): " + id + "  related: " + related);
@@ -1050,13 +1032,8 @@ public class NetworkFragment extends Fragment {
                 Log.d(TAG, "RED (selected): " + id);
             } else {
                 restoreOriginalColors(info.element);
-                Log.d(TAG, "ORIGINAL: " + id);
             }
         }
-
-        Log.d(TAG, "provisionedIds = " + provisionedIds);
-        Log.d(TAG, "devicesToShow  = " + devicesToShow);
-
         if (devicesToShow.isEmpty()) {
             hideAllDevices();
         } else {
