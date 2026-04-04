@@ -83,6 +83,7 @@ import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentTransactionStatus
 import no.nordicsemi.android.swaromapmesh.keys.AppKeysActivity;
 import no.nordicsemi.android.swaromapmesh.keys.adapter.BoundAppKeysAdapter;
 import no.nordicsemi.android.swaromapmesh.viewmodels.BaseActivity;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ModelConfigurationViewModel;
 import no.nordicsemi.android.swaromapmesh.widgets.ItemTouchHelperAdapter;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableItemTouchHelperCallback;
@@ -654,9 +655,135 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     }
     protected void navigateToPublication() {
         MeshModel model = mViewModel.getSelectedModel().getValue();
-        if (model != null && !model.getBoundAppKeyIndexes().isEmpty())
-            publicationSettings.launch(new Intent(this, PublicationSettingsActivity.class));
-        else mViewModel.displaySnackBar(this, mContainer, getString(R.string.error_no_app_keys_bound), Snackbar.LENGTH_LONG);
+        if (model == null || model.getBoundAppKeyIndexes().isEmpty()) {
+            mViewModel.displaySnackBar(this, mContainer, getString(R.string.error_no_app_keys_bound), Snackbar.LENGTH_LONG);
+            return;
+        }
+
+        // ✅ AUTO PUBLICATION — client element ke liye server address set karo
+        Element element = mViewModel.getSelectedElement().getValue();
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+
+        if (element != null && node != null && model.getModelId() == GENERIC_ONOFF_CLIENT) {
+
+            // Client node ka naam
+            String clientDeviceId = node.getNodeName() != null
+                    ? node.getNodeName().trim().toLowerCase() : null;
+
+            if (clientDeviceId != null) {
+
+                int targetElementAddress = element.getElementAddress();
+                int clientElementIndex = -1;
+                for (int i = 0; i <= 40; i++) {
+                    int storedAddr = ClientServerElementStore.getClientAddress(clientDeviceId, i);
+                    if (storedAddr == targetElementAddress) {
+                        clientElementIndex = i;
+                        break;
+                    }
+                }
+
+                Log.d(TAG, "AUTO PUB: clientDeviceId=" + clientDeviceId
+                        + " elementIndex=" + clientElementIndex
+                        + " elementAddr=0x" + String.format("%04X", targetElementAddress));
+
+                if (clientElementIndex >= 0) {
+
+                    int matchingSvgId = clientElementIndex; // index == svgElementId
+                    
+                    MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
+                    if (network != null) {
+                        int serverPublishAddress = -1;
+
+                        for (ProvisionedMeshNode n : network.getNodes()) {
+                            String serverDeviceId = n.getNodeName() != null
+                                    ? n.getNodeName().trim().toLowerCase() : null;
+                            if (serverDeviceId == null) continue;
+
+                            int svgId = no.nordicsemi.android.swaromapmesh.viewmodels
+                                    .ClientServerElementStore.getServerSvgElementId(serverDeviceId);
+
+                            Log.d(TAG, "  Checking server=" + serverDeviceId
+                                    + " svgId=" + svgId
+                                    + " matchingSvgId=" + matchingSvgId);
+
+                            if (svgId == matchingSvgId) {
+                                // ✅ Match mila — server ka primary element address lo
+                                serverPublishAddress = no.nordicsemi.android.swaromapmesh.viewmodels
+                                        .ClientServerElementStore.getServerPrimaryElementAddress(serverDeviceId);
+
+                                Log.d(TAG, "✅ AUTO PUB MATCH: server=" + serverDeviceId
+                                        + " svgId=" + svgId
+                                        + " publishAddr=0x" + String.format("%04X", serverPublishAddress));
+                                break;
+                            }
+                        }
+
+                        // ✅ Server mila — directly publication set karo, dialog skip karo
+                        if (serverPublishAddress != -1) {
+                            final int finalPublishAddress = serverPublishAddress;
+                            final int appKeyIndex = model.getBoundAppKeyIndexes().get(0);
+
+                            // ✅ Find server node unicast and element address for reverse pub
+                            int serverUnicast     = -1;
+                            int serverElementAddr = -1;
+
+                            for (ProvisionedMeshNode n : network.getNodes()) {
+                                String serverDeviceId = n.getNodeName() != null
+                                        ? n.getNodeName().trim().toLowerCase() : null;
+                                if (serverDeviceId == null) continue;
+                                int svgId = ClientServerElementStore.getServerSvgElementId(serverDeviceId);
+                                if (svgId == matchingSvgId) {
+                                    serverUnicast     = n.getUnicastAddress();
+                                    serverElementAddr = ClientServerElementStore
+                                            .getServerPrimaryElementAddress(serverDeviceId);
+                                    break;
+                                }
+                            }
+
+                            // ✅ Register reverse publication BEFORE sending client pub
+                            if (serverUnicast != -1 && serverElementAddr != -1) {
+                                ((ModelConfigurationViewModel) mViewModel)
+                                        .getNrfMeshRepository()
+                                        .setPendingReversePublication(
+                                                serverUnicast,
+                                                serverElementAddr,
+                                                targetElementAddress,  // client element addr
+                                                appKeyIndex
+                                        );
+                                Log.d(TAG, "✅ Reverse pub queued: server=0x"
+                                        + String.format("%04X", serverUnicast)
+                                        + " → clientElem=0x"
+                                        + String.format("%04X", targetElementAddress));
+                            }
+
+                            // Send client → server pub (reverse fires automatically on STATUS callback)
+                            try {
+                                ConfigModelPublicationSet pubSet = new ConfigModelPublicationSet(
+                                        targetElementAddress,
+                                        finalPublishAddress,
+                                        appKeyIndex,
+                                        false, 5, 0, 0, 0, 0,
+                                        model.getModelId()
+                                );
+                                sendAcknowledgedMessage(node.getUnicastAddress(), pubSet);
+                                mViewModel.displaySnackBar(this, mContainer,
+                                        "Publication set ↔ bidirectional",
+                                        Snackbar.LENGTH_LONG);
+                                return;
+                            } catch (Exception e) {
+                                Log.e(TAG, "❌ Auto publication failed", e);
+                            }
+                        }
+              else {
+                            Log.w(TAG, "⚠️ No matching server found for svgId=" + matchingSvgId);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Default — normal publication settings dialog
+        publicationSettings.launch(new Intent(this, PublicationSettingsActivity.class));
     }
     private void bindAppKey(int idx) {
         ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;

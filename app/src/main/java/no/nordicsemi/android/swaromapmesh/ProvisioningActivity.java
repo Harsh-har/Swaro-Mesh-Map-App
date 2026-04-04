@@ -26,7 +26,6 @@ import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.adapter.ProvisioningProgressAdapter;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMeshProvisionerBinding;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentAuthenticationInput;
-import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentConfigurationComplete;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentProvisioningFailedError;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentSelectOOBType;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentUnicastAddress;
@@ -54,30 +53,29 @@ public class ProvisioningActivity extends AppCompatActivity implements
         DialogFragmentAuthenticationInput.ProvisionerInputFragmentListener,
         DialogFragmentNodeName.DialogFragmentNodeNameListener,
         DialogFragmentUnicastAddress.DialogFragmentUnicastAddressListener,
-        DialogFragmentProvisioningFailedError.DialogFragmentProvisioningFailedErrorListener,
-        DialogFragmentConfigurationComplete.ConfigurationCompleteListener {
+        DialogFragmentProvisioningFailedError.DialogFragmentProvisioningFailedErrorListener {
+    // ✅ DialogFragmentConfigurationComplete REMOVE kar diya — ab dialog nahi dikhayenge
 
     private static final String DIALOG_FRAGMENT_PROVISIONING_FAILED = "DIALOG_FRAGMENT_PROVISIONING_FAILED";
     private static final String DIALOG_FRAGMENT_AUTH_INPUT_TAG = "DIALOG_FRAGMENT_AUTH_INPUT_TAG";
-    private static final String DIALOG_FRAGMENT_CONFIGURATION_STATUS = "DIALOG_FRAGMENT_CONFIGURATION_STATUS";
     private static final String TAG = "ProvisioningActivity";
 
     private ActivityMeshProvisionerBinding binding;
     private ProvisioningViewModel mViewModel;
     private ExtendedBluetoothDevice mDevice;
-    private boolean isFirstDevice = true;
 
-    // ✅ Store SVG device ID from intent
+    // ✅ SVG device ID — new code se liya
     private String mSvgDeviceId = null;
 
-    private final ActivityResultLauncher<Intent> appKeySelector = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-        if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-            final ApplicationKey appKey = result.getData().getParcelableExtra(RESULT_KEY);
-            if (appKey != null) {
-                mViewModel.getNetworkLiveData().setSelectedAppKey(appKey);
-            }
-        }
-    });
+    private final ActivityResultLauncher<Intent> appKeySelector = registerForActivityResult(
+            new ActivityResultContracts.StartActivityForResult(), result -> {
+                if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                    final ApplicationKey appKey = result.getData().getParcelableExtra(RESULT_KEY);
+                    if (appKey != null) {
+                        mViewModel.getNetworkLiveData().setSelectedAppKey(appKey);
+                    }
+                }
+            });
 
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
@@ -89,7 +87,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         final Intent intent = getIntent();
         mDevice = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
 
-        // ✅ Get SVG device ID from intent
+        // ✅ SVG device ID extract karo
         mSvgDeviceId = intent.getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
         Log.d(TAG, "onCreate — SVG Device ID: " + mSvgDeviceId);
 
@@ -98,8 +96,10 @@ public class ProvisioningActivity extends AppCompatActivity implements
             return;
         }
 
-        final String deviceName = mDevice.getName() != null ? mDevice.getName() : getString(R.string.unknown_device);
-        final String deviceAddress = mDevice.getAddress() != null ? mDevice.getAddress() : getString(R.string.unknown_address);
+        final String deviceName = mDevice.getName() != null
+                ? mDevice.getName() : getString(R.string.unknown_device);
+        final String deviceAddress = mDevice.getAddress() != null
+                ? mDevice.getAddress() : getString(R.string.unknown_address);
 
         setSupportActionBar(binding.toolbar);
         if (getSupportActionBar() != null) {
@@ -114,12 +114,14 @@ public class ProvisioningActivity extends AppCompatActivity implements
             Log.d(TAG, "MAC Address stored: " + mDevice.getAddress());
         }
 
+        // --- UI containers setup (same as old code) ---
         binding.containerName.image
                 .setBackground(ContextCompat.getDrawable(this, R.drawable.ic_label_outline));
         binding.containerName.title.setText(R.string.summary_name);
         binding.containerName.text.setVisibility(View.VISIBLE);
         binding.containerName.getRoot().setOnClickListener(v -> {
-            final DialogFragmentNodeName dialogFragmentNodeName = DialogFragmentNodeName.newInstance(deviceName);
+            final DialogFragmentNodeName dialogFragmentNodeName =
+                    DialogFragmentNodeName.newInstance(deviceName);
             dialogFragmentNodeName.show(getSupportFragmentManager(), null);
         });
 
@@ -131,8 +133,10 @@ public class ProvisioningActivity extends AppCompatActivity implements
             final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
             if (node != null && node.getProvisioningCapabilities() != null) {
                 final int elementCount = node.getProvisioningCapabilities().getNumberOfElements();
-                final DialogFragmentUnicastAddress dialogFragmentFlags = DialogFragmentUnicastAddress.
-                        newInstance(mViewModel.getNetworkLiveData().getMeshNetwork().getUnicastAddress(), elementCount);
+                final DialogFragmentUnicastAddress dialogFragmentFlags =
+                        DialogFragmentUnicastAddress.newInstance(
+                                mViewModel.getNetworkLiveData().getMeshNetwork().getUnicastAddress(),
+                                elementCount);
                 dialogFragmentFlags.show(getSupportFragmentManager(), null);
             }
         });
@@ -147,23 +151,18 @@ public class ProvisioningActivity extends AppCompatActivity implements
             appKeySelector.launch(manageAppKeys);
         });
 
+        // --- LiveData observers ---
         mViewModel.getConnectionState().observe(this, binding.connectionState::setText);
 
         mViewModel.isConnected().observe(this, connected -> {
-            final boolean isComplete = mViewModel.isProvisioningComplete();
-            if (isComplete) {
-                return;
-            }
-
-            if (connected != null && !connected)
-                finish();
+            if (mViewModel.isProvisioningComplete()) return;
+            if (connected != null && !connected) finish();
         });
 
         mViewModel.isDeviceReady().observe(this, deviceReady -> {
             if (mViewModel.getBleMeshManager().isDeviceReady()) {
                 binding.connectivityProgressContainer.setVisibility(View.GONE);
-                final boolean isComplete = mViewModel.isProvisioningComplete();
-                if (isComplete) {
+                if (mViewModel.isProvisioningComplete()) {
                     binding.provisioningProgressBar.setVisibility(View.VISIBLE);
                     binding.infoProvisioningStatusContainer.getRoot().setVisibility(View.VISIBLE);
                     setupProvisionerStateObservers();
@@ -189,12 +188,14 @@ public class ProvisioningActivity extends AppCompatActivity implements
             binding.containerName.text.setText(meshNetworkLiveData.getNodeName());
             final ApplicationKey applicationKey = meshNetworkLiveData.getSelectedAppKey();
             if (applicationKey != null) {
-                binding.containerAppKeys.text.setText(MeshParserUtils.bytesToHex(applicationKey.getKey(), false));
+                binding.containerAppKeys.text.setText(
+                        MeshParserUtils.bytesToHex(applicationKey.getKey(), false));
             } else {
                 binding.containerAppKeys.text.setText(getString(R.string.no_app_keys));
             }
             binding.containerUnicast.text.setText(getString(R.string.hex_format,
-                    String.format(Locale.US, "%04X", meshNetworkLiveData.getMeshNetwork().getUnicastAddress())));
+                    String.format(Locale.US, "%04X",
+                            meshNetworkLiveData.getMeshNetwork().getUnicastAddress())));
         });
 
         mViewModel.getUnprovisionedMeshNode().observe(this, meshNode -> {
@@ -209,58 +210,15 @@ public class ProvisioningActivity extends AppCompatActivity implements
                         try {
                             final int elementCount = capabilities.getNumberOfElements();
                             final Provisioner provisioner = network.getSelectedProvisioner();
-
-                            // Log network state
-                            Log.d(TAG, "=== Network State ===");
-                            Log.d(TAG, "Number of nodes in network: " + network.getNodes().size());
-
-                            // ALWAYS TRY TO SET TO 0x0005 FIRST
-                            Log.d(TAG, "Attempting to set unicast address to 0x0005");
-
-                            try {
-                                // Directly assign 0x0005
-                                network.assignUnicastAddress(0x0005);
-                                Log.d(TAG, "SUCCESS: Assigned unicast address 0x0005");
-                                isFirstDevice = true;
-                            } catch (IllegalArgumentException e) {
-                                // If 0x0005 is taken, find next available starting from 0x0005
-                                Log.w(TAG, "Could not assign 0x0005: " + e.getMessage());
-                                Log.d(TAG, "Searching for next available address starting from 0x0005");
-
-                                int unicastAddress = 0x0005;
-                                boolean found = false;
-                                int maxAttempts = 100; // Prevent infinite loop
-                                int attempts = 0;
-
-                                while (!found && attempts < maxAttempts && unicastAddress < 0x7FFF) {
-                                    try {
-                                        network.assignUnicastAddress(unicastAddress);
-                                        Log.d(TAG, "Found available address: " + String.format("0x%04X", unicastAddress));
-                                        found = true;
-                                        isFirstDevice = (unicastAddress == 0x0005);
-                                    } catch (IllegalArgumentException ex) {
-                                        // Address is taken, try next
-                                        unicastAddress += elementCount;
-                                        attempts++;
-                                    }
-                                }
-
-                                if (!found) {
-                                    // Fallback to nextAvailable method
-                                    Log.w(TAG, "Could not find address sequentially, using nextAvailableUnicastAddress");
-                                    unicastAddress = network.nextAvailableUnicastAddress(elementCount, provisioner);
-                                    network.assignUnicastAddress(unicastAddress);
-                                    Log.d(TAG, "Assigned via nextAvailable: " + String.format("0x%04X", unicastAddress));
-                                    isFirstDevice = false;
-                                }
-                            }
-
+                            final int unicast = network.nextAvailableUnicastAddress(
+                                    elementCount, provisioner);
+                            network.assignUnicastAddress(unicast);
                         } catch (IllegalArgumentException ex) {
                             binding.actionProvisionDevice.setEnabled(false);
                             mViewModel.displaySnackBar(this, binding.coordinator,
-                                    ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
+                                    ex.getMessage() == null
+                                            ? getString(R.string.unknown_error) : ex.getMessage(),
                                     Snackbar.LENGTH_LONG);
-                            Log.e(TAG, "Error assigning unicast address: " + ex.getMessage());
                         }
                     }
 
@@ -273,100 +231,31 @@ public class ProvisioningActivity extends AppCompatActivity implements
         });
 
         binding.actionProvisionDevice.setOnClickListener(v -> {
-            Log.d(TAG, "CLICK: Provision button pressed");
-
             final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
 
-            Log.d(TAG, "STEP 1: Getting UnprovisionedMeshNode");
-
             if (node == null) {
-                Log.d(TAG, "STEP 1 RESULT: Node is NULL → going for IDENTIFY");
-
                 mDevice.setName(mViewModel.getNetworkLiveData().getNodeName());
-                Log.d(TAG, "STEP 2: Device name set: " + mDevice.getName());
-
                 mViewModel.getNrfMeshRepository().identifyNode(mDevice);
-                Log.d(TAG, "STEP 3: identifyNode() called");
-
                 return;
             }
 
-            Log.d(TAG, "STEP 1 RESULT: Node is NOT NULL → proceed to provisioning");
-
             try {
-                Log.d(TAG, "STEP 2: Checking MAC Address");
-
                 if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-                    Log.d(TAG, "MAC is NULL or EMPTY → setting MAC");
-
                     node.setMacAddress(mDevice.getAddress());
-                    Log.d(TAG, "STEP 2 RESULT: MAC set: " + mDevice.getAddress());
-                } else {
-                    Log.d(TAG, "STEP 2 RESULT: MAC already exists: " + node.getMacAddress());
+                    Log.d(TAG, "MAC address set before provisioning: " + mDevice.getAddress());
                 }
 
-                Log.d(TAG, "STEP 3: Setting Node Name");
                 node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-                Log.d(TAG, "STEP 3 RESULT: Node name set: " + node.getNodeName());
-
-                // Mesh Network check
-                Log.d(TAG, "STEP 4: Fetching MeshNetwork");
-                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-
-                if (network != null) {
-                    Log.d(TAG, "STEP 4 RESULT: MeshNetwork NOT NULL");
-
-                    int currentAddress = network.getUnicastAddress();
-                    Log.d(TAG, "STEP 5: Current Unicast Address: " +
-                            String.format("0x%04X", currentAddress));
-
-                    if (currentAddress != 0x0005) {
-                        Log.d(TAG, "STEP 6: Trying to force Unicast Address → 0x0005");
-
-                        try {
-                            network.assignUnicastAddress(0x0005);
-                            Log.d(TAG, "STEP 6 SUCCESS: Forced to 0x0005");
-                        } catch (IllegalArgumentException e) {
-                            Log.e(TAG, "STEP 6 FAILED: Cannot assign 0x0005 → " + e.getMessage());
-                        }
-                    } else {
-                        Log.d(TAG, "STEP 6 SKIPPED: Already 0x0005");
-                    }
-
-                } else {
-                    Log.e(TAG, "STEP 4 ERROR: MeshNetwork is NULL");
-                }
-
-                Log.d(TAG, "STEP 7: Setting up observers");
                 setupProvisionerStateObservers();
-                Log.d(TAG, "STEP 7 DONE");
-
-                Log.d(TAG, "STEP 8: Showing Progress Bar");
                 binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-
-                Log.d(TAG, "STEP 9: Starting Provisioning");
                 mViewModel.getMeshManagerApi().startProvisioning(node);
-                Log.d(TAG, "STEP 9 DONE: startProvisioning() called");
-
-                if (network != null) {
-                    Log.d(TAG, "FINAL: Provisioning started with address: " +
-                            String.format("0x%04X", network.getUnicastAddress()));
-                }
 
             } catch (IllegalArgumentException ex) {
-                Log.e(TAG, "ERROR: Exception while provisioning → " + ex.getMessage());
-
-                mViewModel.displaySnackBar(
-                        this,
-                        binding.coordinator,
+                mViewModel.displaySnackBar(this, binding.coordinator,
                         ex.getMessage() == null
-                                ? getString(R.string.unknown_error)
-                                : ex.getMessage(),
-                        Snackbar.LENGTH_LONG
-                );
+                                ? getString(R.string.unknown_error) : ex.getMessage(),
+                        Snackbar.LENGTH_LONG);
             }
-
-            Log.d(TAG, "END: Click handler finished");
         });
 
         if (savedInstanceState == null) {
@@ -403,8 +292,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
     @Override
     public void onPinInputCanceled() {
         final String message = getString(R.string.provisioning_cancelled);
-        final Snackbar snackbar = Snackbar.make(binding.coordinator, message, Snackbar.LENGTH_LONG);
-        snackbar.show();
+        Snackbar.make(binding.coordinator, message, Snackbar.LENGTH_LONG).show();
         disconnect();
     }
 
@@ -418,16 +306,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
     public boolean setUnicastAddress(final int unicastAddress) {
         final MeshNetwork network = mViewModel.getMeshManagerApi().getMeshNetwork();
         if (network != null) {
-            try {
-                boolean result = network.assignUnicastAddress(unicastAddress);
-                if (result) {
-                    Log.d(TAG, "Unicast address manually set to: " + String.format("0x%04X", unicastAddress));
-                }
-                return result;
-            } catch (IllegalArgumentException e) {
-                Log.e(TAG, "Error setting unicast address: " + e.getMessage());
-                return false;
-            }
+            return network.assignUnicastAddress(unicastAddress);
         }
         return false;
     }
@@ -435,9 +314,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
     @Override
     public int getNextUnicastAddress(final int elementCount) {
         final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-
-        Log.d(TAG, "getNextUnicastAddress called - Returning 0x0005 (validation will happen in assign)");
-        return 0x0005;
+        return network.nextAvailableUnicastAddress(elementCount, network.getSelectedProvisioner());
     }
 
     @Override
@@ -458,19 +335,23 @@ public class ProvisioningActivity extends AppCompatActivity implements
         mViewModel.disconnect();
     }
 
+    // ✅ MAIN CHANGE: Auto app key add + bind — koi dialog nahi
     public void setupProvisionerStateObservers() {
         binding.infoProvisioningStatusContainer.getRoot().setVisibility(View.VISIBLE);
 
-        final RecyclerView recyclerView = binding.infoProvisioningStatusContainer.recyclerViewProvisioningProgress;
+        final RecyclerView recyclerView =
+                binding.infoProvisioningStatusContainer.recyclerViewProvisioningProgress;
         recyclerView.setLayoutManager(new LinearLayoutManager(this));
-        final ProvisioningProgressAdapter adapter = new ProvisioningProgressAdapter(mViewModel.getProvisioningStatus());
+        final ProvisioningProgressAdapter adapter =
+                new ProvisioningProgressAdapter(mViewModel.getProvisioningStatus());
         recyclerView.setAdapter(adapter);
 
         mViewModel.getProvisioningStatus().observe(this, provisioningStateLiveData -> {
-
             if (provisioningStateLiveData == null) return;
 
-            final ProvisionerProgress provisionerProgress = provisioningStateLiveData.getProvisionerProgress();
+            final ProvisionerProgress provisionerProgress =
+                    provisioningStateLiveData.getProvisionerProgress();
+            adapter.refresh(provisioningStateLiveData.getStateList());
 
             if (provisionerProgress == null) return;
 
@@ -478,53 +359,80 @@ public class ProvisioningActivity extends AppCompatActivity implements
 
             switch (state) {
 
-                case PROVISIONING_COMPLETE:
-                    Log.d(TAG, "✅ Provisioning Completed");
-
-                    runOnUiThread(() -> {
-                        binding.provisioningProgressBar.setVisibility(View.GONE);
-
-                        // 🔥 STOP OBSERVER (IMPORTANT)
-                        mViewModel.getProvisioningStatus().removeObservers(this);
-
-                        // 🔥 Direct back (no UI)
-                        setResultIntent();
-
-                    });
+                case PROVISIONING_FAILED:
+                    // ✅ Error dialog dikhao, baaki kuch nahi
+                    if (getSupportFragmentManager()
+                            .findFragmentByTag(DIALOG_FRAGMENT_PROVISIONING_FAILED) == null) {
+                        final String statusMessage = ProvisioningFailedState
+                                .parseProvisioningFailure(this, provisionerProgress.getStatusReceived());
+                        DialogFragmentProvisioningFailedError message =
+                                DialogFragmentProvisioningFailedError.newInstance(
+                                        getString(R.string.title_error_provisioning_failed),
+                                        statusMessage);
+                        message.show(getSupportFragmentManager(), DIALOG_FRAGMENT_PROVISIONING_FAILED);
+                    }
                     break;
 
-                case PROVISIONING_FAILED:
-                    Log.e(TAG, "❌ Provisioning Failed");
+                case PROVISIONING_AUTHENTICATION_STATIC_OOB_WAITING:
+                case PROVISIONING_AUTHENTICATION_OUTPUT_OOB_WAITING:
+                case PROVISIONING_AUTHENTICATION_INPUT_OOB_WAITING:
+                    if (getSupportFragmentManager()
+                            .findFragmentByTag(DIALOG_FRAGMENT_AUTH_INPUT_TAG) == null) {
+                        DialogFragmentAuthenticationInput dialogFragmentAuthenticationInput =
+                                DialogFragmentAuthenticationInput.newInstance(
+                                        mViewModel.getUnprovisionedMeshNode().getValue());
+                        dialogFragmentAuthenticationInput.show(
+                                getSupportFragmentManager(), DIALOG_FRAGMENT_AUTH_INPUT_TAG);
+                    }
+                    break;
 
-                    runOnUiThread(() -> {
-                        binding.provisioningProgressBar.setVisibility(View.GONE);
+                case PROVISIONING_AUTHENTICATION_INPUT_ENTERED:
+                    final DialogFragmentAuthenticationInput fragment =
+                            (DialogFragmentAuthenticationInput) getSupportFragmentManager()
+                                    .findFragmentByTag(DIALOG_FRAGMENT_AUTH_INPUT_TAG);
+                    if (fragment != null) fragment.dismiss();
+                    break;
 
-                        // optional: enable retry button
-                        binding.actionProvisionDevice.setEnabled(true);
+                case DEFAULT_TTL_STATUS_RECEIVED:
+                    // ✅ Agar koi app key nahi hai network mein → seedha finish
+                    if (mViewModel.isDefaultTtlReceived()) {
+                        if (mViewModel.getNetworkLiveData().getAppKeys().isEmpty()) {
+                            Log.d(TAG, "No app keys — finishing after TTL");
+                            mViewModel.getProvisioningStatus().removeObservers(this);
+                            setResultIntent();
+                        }
+                        // Agar app keys hain → ruko APP_KEY_STATUS_RECEIVED ka wait karo
+                    }
+                    break;
 
-                        mViewModel.getProvisioningStatus().removeObservers(this);
-                    });
+                case APP_KEY_STATUS_RECEIVED:
+                    // ✅ App key successfully add + bind hua → seedha finish, koi dialog nahi
+                    Log.d(TAG, "App key bound — auto finishing");
+                    mViewModel.getProvisioningStatus().removeObservers(this);
+                    runOnUiThread(this::setResultIntent);
+                    break;
+
+                case PROVISIONER_UNASSIGNED:
+                    mViewModel.getProvisioningStatus().removeObservers(this);
+                    setResultIntent();
                     break;
 
                 default:
-                    // ❌ Ignore all other states (no UI, no dialog)
                     break;
             }
 
-            // 👇 Always hide extra UI
             binding.dataContainer.setVisibility(View.GONE);
         });
     }
 
-    @Override
-    public void onConfigurationCompleted() {
-        setResultIntent();
-    }
+    // ✅ onConfigurationCompleted — interface implement karna zaruri tha, but ab dialog nahi aata
+    // Agar DialogFragmentConfigurationComplete interface still implement hai to yeh rakho,
+    // warna class declaration se bhi hata sakte ho (upar already hataya hai)
 
     private void setResultIntent() {
         final Intent returnIntent = new Intent();
 
-        // ✅ Pass SVG device ID back up the chain
+        // ✅ SVG device ID wapas pass karo
         if (mSvgDeviceId != null) {
             returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
             Log.d(TAG, "Returning svgDeviceId: " + mSvgDeviceId);
@@ -555,12 +463,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
                     }
                 }
             }
-
-            MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-            if (network != null) {
-                Log.d(TAG, "PROVISIONING COMPLETED unicast: " +
-                        String.format("0x%04X", network.getUnicastAddress()));
-            }
         }
 
         setResult(Activity.RESULT_OK, returnIntent);
@@ -575,17 +477,28 @@ public class ProvisioningActivity extends AppCompatActivity implements
 
             if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
                 node.setMacAddress(mDevice.getAddress());
-                Log.d(TAG, "MAC address set in onPublicKeyAdded: " + mDevice.getAddress());
             }
 
             if (node.getProvisioningCapabilities().getAvailableOOBTypes().size() == 1 &&
-                    node.getProvisioningCapabilities().getAvailableOOBTypes().get(0) == AuthenticationOOBMethods.NO_OOB_AUTHENTICATION) {
+                    node.getProvisioningCapabilities().getAvailableOOBTypes().get(0)
+                            == AuthenticationOOBMethods.NO_OOB_AUTHENTICATION) {
                 onNoOOBSelected();
             } else {
-                final DialogFragmentSelectOOBType fragmentSelectOOBType = DialogFragmentSelectOOBType.newInstance(node.getProvisioningCapabilities());
+                final DialogFragmentSelectOOBType fragmentSelectOOBType =
+                        DialogFragmentSelectOOBType.newInstance(node.getProvisioningCapabilities());
                 fragmentSelectOOBType.show(getSupportFragmentManager(), null);
             }
         }
+    }
+
+    // ✅ Helper: node ready hone ke baad provisioning start karna (MAC + name set karke)
+    private void startProvisioningForNode(final UnprovisionedMeshNode node) {
+        if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
+            node.setMacAddress(mDevice.getAddress());
+        }
+        node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
+        setupProvisionerStateObservers();
+        binding.provisioningProgressBar.setVisibility(View.VISIBLE);
     }
 
     @Override
@@ -593,25 +506,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
         if (node != null) {
             try {
-                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-                    node.setMacAddress(mDevice.getAddress());
-                }
-
-                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-
-                // Ensure unicast address is set correctly
-                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-                if (network != null && network.getUnicastAddress() != 0x0005) {
-                    try {
-                        network.assignUnicastAddress(0x0005);
-                        Log.d(TAG, "onNoOOBSelected: Set unicast address to 0x0005");
-                    } catch (IllegalArgumentException e) {
-                        Log.w(TAG, "onNoOOBSelected: Could not set address to 0x0005");
-                    }
-                }
-
-                setupProvisionerStateObservers();
-                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
+                startProvisioningForNode(node);
                 mViewModel.getMeshManagerApi().startProvisioning(node);
             } catch (IllegalArgumentException ex) {
                 mViewModel.displaySnackBar(this, binding.coordinator,
@@ -626,25 +521,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
         if (node != null) {
             try {
-                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-                    node.setMacAddress(mDevice.getAddress());
-                }
-
-                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-
-                // Ensure unicast address is set correctly
-                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-                if (network != null && network.getUnicastAddress() != 0x0005) {
-                    try {
-                        network.assignUnicastAddress(0x0005);
-                        Log.d(TAG, "onStaticOOBSelected: Set unicast address to 0x0005");
-                    } catch (IllegalArgumentException e) {
-                        Log.w(TAG, "onStaticOOBSelected: Could not set address to 0x0005");
-                    }
-                }
-
-                setupProvisionerStateObservers();
-                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
+                startProvisioningForNode(node);
                 mViewModel.getMeshManagerApi().startProvisioningWithStaticOOB(node);
             } catch (IllegalArgumentException ex) {
                 mViewModel.displaySnackBar(this, binding.coordinator,
@@ -659,25 +536,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
         if (node != null) {
             try {
-                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-                    node.setMacAddress(mDevice.getAddress());
-                }
-
-                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-
-                // Ensure unicast address is set correctly
-                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-                if (network != null && network.getUnicastAddress() != 0x0005) {
-                    try {
-                        network.assignUnicastAddress(0x0005);
-                        Log.d(TAG, "onOutputOOBActionSelected: Set unicast address to 0x0005");
-                    } catch (IllegalArgumentException e) {
-                        Log.w(TAG, "onOutputOOBActionSelected: Could not set address to 0x0005");
-                    }
-                }
-
-                setupProvisionerStateObservers();
-                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
+                startProvisioningForNode(node);
                 mViewModel.getMeshManagerApi().startProvisioningWithOutputOOB(node, action);
             } catch (IllegalArgumentException ex) {
                 mViewModel.displaySnackBar(this, binding.coordinator,
@@ -692,25 +551,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
         if (node != null) {
             try {
-                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-                    node.setMacAddress(mDevice.getAddress());
-                }
-
-                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-
-                // Ensure unicast address is set correctly
-                final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-                if (network != null && network.getUnicastAddress() != 0x0005) {
-                    try {
-                        network.assignUnicastAddress(0x0005);
-                        Log.d(TAG, "onInputOOBActionSelected: Set unicast address to 0x0005");
-                    } catch (IllegalArgumentException e) {
-                        Log.w(TAG, "onInputOOBActionSelected: Could not set address to 0x0005");
-                    }
-                }
-
-                setupProvisionerStateObservers();
-                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
+                startProvisioningForNode(node);
                 mViewModel.getMeshManagerApi().startProvisioningWithInputOOB(node, action);
             } catch (IllegalArgumentException ex) {
                 mViewModel.displaySnackBar(this, binding.coordinator,

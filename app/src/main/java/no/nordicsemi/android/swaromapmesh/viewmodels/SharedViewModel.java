@@ -42,7 +42,7 @@ public class SharedViewModel extends BaseViewModel
     private final ScannerRepository mScannerRepository;
     private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 
-    // ── SharedPreferences keys ────────────────────────────────────────────────
+    // ── SharedPreferences keys ─────────────────────────────────────────────
     private static final String PREFS_NAME                         = "mesh_prefs";
     private static final String KEY_PROXY_ENABLED                  = "proxy_enabled";
     private static final String KEY_SELECTED_DEVICE                = "selected_device";
@@ -57,12 +57,12 @@ public class SharedViewModel extends BaseViewModel
 
     private final SharedPreferences prefs;
 
-    // ── LiveData fields ───────────────────────────────────────────────────────
-    private final MutableLiveData<Boolean> proxyEnabled     = new MutableLiveData<>();
-    private final MutableLiveData<String>  selectedDevice   = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
-    private final MutableLiveData<Integer> signalThreshold  = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
-    private final MutableLiveData<Uri>     svgUri           = new MutableLiveData<>();
-    private final MutableLiveData<String>  selectedDeviceId = new MutableLiveData<>();
+    // ── LiveData ───────────────────────────────────────────────────────────
+    private final MutableLiveData<Boolean>     proxyEnabled         = new MutableLiveData<>();
+    private final MutableLiveData<String>      selectedDevice       = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
+    private final MutableLiveData<Integer>     signalThreshold      = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
+    private final MutableLiveData<Uri>         svgUri               = new MutableLiveData<>();
+    private final MutableLiveData<String>      selectedDeviceId     = new MutableLiveData<>();
     private final MutableLiveData<Set<String>> provisionedDeviceIds = new MutableLiveData<>(new HashSet<>());
 
     private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices =
@@ -85,11 +85,12 @@ public class SharedViewModel extends BaseViewModel
     ) {
         super(nrfMeshRepository);
 
+        ClientServerElementStore.init(context);
+
         mScannerRepository = scannerRepository;
         scannerRepository.registerBroadcastReceivers();
 
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        ClientElementStore.init(context);
 
         proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
@@ -104,7 +105,6 @@ public class SharedViewModel extends BaseViewModel
         String savedServerId = prefs.getString(KEY_SERVER_SVG_DEVICE_ID, null);
         if (savedServerId != null) mServerSvgDeviceId.setValue(savedServerId);
 
-        // ✅ Sync prefs with mesh on first node load — clears any stale provisioned IDs
         getNodes().observeForever(nodes -> syncProvisionedWithMeshNetwork());
     }
 
@@ -118,24 +118,14 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // SYNC — prefs ke stale provisioned IDs ko mesh ke saath clean karo
+    // SYNC — stale provisioned IDs remove karo
     // =========================================================================
-
-    /**
-     * Prefs mein jo provisioned IDs hain unhe mesh network ke actual nodes se match karo.
-     * Jo IDs mesh mein nahi hain — unhe prefs se hata do.
-     *
-     * Ye tab call hota hai jab nodes LiveData update hoti hai (load + delete dono ke baad).
-     */
     private void syncProvisionedWithMeshNetwork() {
         Set<String> saved = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
-
         if (saved.isEmpty()) return;
 
         List<ProvisionedMeshNode> meshNodes = getAllProvisionedNodes();
-
-        // Mesh empty hai (provisioner ke alawa koi node nahi) — sab clear karo
         if (meshNodes == null || meshNodes.isEmpty()) {
             prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()).apply();
             provisionedDeviceIds.setValue(new HashSet<>());
@@ -143,26 +133,19 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        // Mesh mein jo valid IDs hain unka set banao (nodeName + svgId dono)
         Set<String> validMeshIds = new HashSet<>();
         for (ProvisionedMeshNode node : meshNodes) {
-            if (node.getNodeName() != null) {
-                validMeshIds.add(node.getNodeName());
-            }
-            // svgId mapping bhi check karo
+            if (node.getNodeName() != null) validMeshIds.add(node.getNodeName());
             String svgId = getSvgIdFromNode(node);
-            if (svgId != null) {
-                validMeshIds.add(svgId);
-            }
+            if (svgId != null) validMeshIds.add(svgId);
         }
 
-        // Sirf valid IDs rakho
         Set<String> cleaned = new HashSet<>();
         for (String id : saved) {
             if (validMeshIds.contains(id)) {
                 cleaned.add(id);
             } else {
-                Log.d(TAG, "🧹 syncProvisioned: removing stale id → " + id);
+                Log.d(TAG, "🧹 syncProvisioned: removing stale → " + id);
             }
         }
 
@@ -174,52 +157,59 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // ELEMENT ADDRESS MAPPING (Client Side)
+    // ELEMENT ID (SVG shape ID — user assigned)
     // =========================================================================
 
-    public void saveClientElementAddress(
-            @NonNull String svgDeviceId,
-            int elementIndex,
-            int elementAddress) {
+    /**
+     * DeviceDetailActivity yeh call karta hai — svgDeviceId ke liye elementId save karo.
+     */
+    public void saveElementId(@NonNull String svgDeviceId, @NonNull String elementId) {
+        String key = KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId;
+        prefs.edit().putString(key, elementId).apply();
+
+        // ✅ ClientServerElementStore mein bhi save karo agar number hai
+        try {
+            int svgElementIdInt = Integer.parseInt(elementId.trim());
+            String normalizedId = svgDeviceId.trim().toLowerCase();
+            ClientServerElementStore.saveServerSvgElementId(normalizedId, svgElementIdInt);
+            Log.d(TAG, "✅ saveElementId: " + svgDeviceId + " = " + elementId
+                    + " (also saved in Store as " + normalizedId + " = " + svgElementIdInt + ")");
+        } catch (NumberFormatException e) {
+            Log.w(TAG, "saveElementId: elementId not a number — Store not updated: " + elementId);
+        }
+    }
+
+    @Nullable
+    public String getElementId(@NonNull String svgDeviceId) {
+        return prefs.getString(KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId, null);
+    }
+
+    public int getSvgElementIdAsInt(@NonNull String svgDeviceId) {
+        String s = getElementId(svgDeviceId);
+        if (s == null) return -1;
+        try { return Integer.parseInt(s.trim()); }
+        catch (NumberFormatException e) { return -1; }
+    }
+
+    // =========================================================================
+    // CLIENT ELEMENT ADDRESS MAPPING
+    // =========================================================================
+
+    public void saveClientElementAddress(@NonNull String svgDeviceId,
+                                         int elementIndex, int elementAddress) {
         String key = KEY_ELEMENT_ADDRESS_MAPPING_PREFIX + svgDeviceId + "_" + elementIndex;
         prefs.edit().putInt(key, elementAddress).apply();
-        Log.d(TAG, "✅ saveClientElementAddress: device=" + svgDeviceId
-                + " index=" + elementIndex
-                + " address=0x" + String.format("%04X", elementAddress));
+        Log.d(TAG, "✅ saveClientElementAddress: " + svgDeviceId
+                + "[" + elementIndex + "] = 0x" + String.format("%04X", elementAddress));
     }
 
-    public int getClientElementAddress(@NonNull String svgDeviceId, int elementIndex) {
-        String key     = KEY_ELEMENT_ADDRESS_MAPPING_PREFIX + svgDeviceId + "_" + elementIndex;
-        int    address = prefs.getInt(key, -1);
-        if (address == -1) address = ClientElementStore.get(svgDeviceId, elementIndex);
-        if (address != -1) {
-            Log.d(TAG, "getClientElementAddress: device=" + svgDeviceId
-                    + " index=" + elementIndex
-                    + " address=0x" + String.format("%04X", address));
-        } else {
-            Log.w(TAG, "getClientElementAddress: NOT FOUND device=" + svgDeviceId
-                    + " index=" + elementIndex);
-        }
-        return address;
-    }
-
-    public void saveAllClientElementAddresses(
-            @NonNull String svgDeviceId,
-            @NonNull Map<Integer, Integer> elementAddresses) {
+    public void saveAllClientElementAddresses(@NonNull String svgDeviceId,
+                                              @NonNull Map<Integer, Integer> elementAddresses) {
         for (Map.Entry<Integer, Integer> entry : elementAddresses.entrySet()) {
             saveClientElementAddress(svgDeviceId, entry.getKey(), entry.getValue());
         }
-        Log.d(TAG, "✅ saveAllClientElementAddresses: saved "
-                + elementAddresses.size() + " for: " + svgDeviceId);
-    }
-
-    public Map<Integer, Integer> getAllClientElementAddresses(@NonNull String svgDeviceId) {
-        Map<Integer, Integer> result = new HashMap<>();
-        for (int i = 1; i <= 40; i++) {
-            int address = getClientElementAddress(svgDeviceId, i);
-            if (address != -1) result.put(i, address);
-        }
-        return result;
+        Log.d(TAG, "✅ saveAllClientElementAddresses: "
+                + elementAddresses.size() + " for " + svgDeviceId);
     }
 
     // =========================================================================
@@ -231,69 +221,39 @@ public class SharedViewModel extends BaseViewModel
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes != null) {
             nodes.remove(node);
-            Log.d(TAG, "🔥 Node removed from network: " + node.getNodeName());
+            Log.d(TAG, "🔥 Node removed: " + node.getNodeName());
         }
     }
 
     public boolean fullyDeleteNode(@NonNull ProvisionedMeshNode adapterNode) {
-        if (adapterNode == null) return false;
-
-        // Step 1: Real node dhundo by UUID
         ProvisionedMeshNode realNode = null;
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes != null) {
             for (ProvisionedMeshNode n : nodes) {
-                if (n.getUuid().equals(adapterNode.getUuid())) {
-                    realNode = n;
-                    break;
-                }
+                if (n.getUuid().equals(adapterNode.getUuid())) { realNode = n; break; }
             }
         }
-
-        if (realNode == null) {
-            Log.e(TAG, "❌ Node not found in network");
-            return false;
-        }
+        if (realNode == null) { Log.e(TAG, "❌ Node not found in network"); return false; }
 
         String nodeName = realNode.getNodeName();
         String svgId    = getSvgIdFromNode(realNode);
         Log.d(TAG, "fullyDeleteNode: nodeName=" + nodeName + " svgId=" + svgId);
 
-        // Step 2: Mesh se delete karo
         boolean deleted = getNetworkLiveData().getMeshNetwork().deleteNode(realNode);
-        if (!deleted) {
-            Log.e(TAG, "❌ Mesh delete failed");
-            return false;
-        }
-        Log.d(TAG, "🔥 Mesh delete success: " + nodeName);
+        if (!deleted) { Log.e(TAG, "❌ Mesh delete failed"); return false; }
 
-        // Step 3: svgId se unmark karo
-        if (svgId != null) {
-            unmarkDeviceProvisioned(svgId);
-        }
-
-        // Step 4: nodeName se bhi unmark karo (agar svgId alag tha ya null tha)
-        if (nodeName != null && !nodeName.equals(svgId)) {
-            unmarkDeviceProvisioned(nodeName);
-        }
-
-        // Step 5: Puri provisioned list scan karo —
-        // koi bhi entry jo nodeName ya svgId se match kare use hatao
+        if (svgId != null) unmarkDeviceProvisioned(svgId);
+        if (nodeName != null && !nodeName.equals(svgId)) unmarkDeviceProvisioned(nodeName);
         removeAllMatchingProvisioned(nodeName, svgId);
-
-        // Step 6: Memory + prefs mapping clean karo
         nodeToSvgMap.remove(realNode.getUuid());
         prefs.edit().remove("node_svg_" + realNode.getUuid()).apply();
-
-        // Step 7: Force refresh — prefs se fresh read
         forceSvgRefresh();
-
         Log.d(TAG, "✅ fullyDeleteNode complete: " + nodeName);
         return true;
     }
 
     // =========================================================================
-    // PROVISIONED DEVICE IDs (PERSISTENT)
+    // PROVISIONED DEVICE IDs
     // =========================================================================
 
     public LiveData<Set<String>> getProvisionedDeviceIds() { return provisionedDeviceIds; }
@@ -307,24 +267,17 @@ public class SharedViewModel extends BaseViewModel
     public void markDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return;
         Set<String> current = new HashSet<>();
-        if (provisionedDeviceIds.getValue() != null)
-            current.addAll(provisionedDeviceIds.getValue());
+        if (provisionedDeviceIds.getValue() != null) current.addAll(provisionedDeviceIds.getValue());
         current.add(svgDeviceId);
         provisionedDeviceIds.setValue(current);
         prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
         Log.d(TAG, "✅ markDeviceProvisioned: " + svgDeviceId);
     }
 
-    /**
-     * Ek specific svgDeviceId ko provisioned_devices prefs se hatao.
-     * KEY_PROVISIONED_DEVICES use karta hai — markDeviceProvisioned ke same key.
-     */
     public void unmarkDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return;
-
         Set<String> current = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
-
         if (current.remove(svgDeviceId)) {
             prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, current).apply();
             provisionedDeviceIds.setValue(new HashSet<>(current));
@@ -334,39 +287,25 @@ public class SharedViewModel extends BaseViewModel
         }
     }
 
-    /**
-     * Provisioned set mein se wo saari entries hatao jo nodeName ya svgId se
-     * contain/equal match karti hain.
-     * Yeh `removeAllRelatedProvisioned` ka improved version hai.
-     */
-    private void removeAllMatchingProvisioned(@Nullable String nodeName,
-                                              @Nullable String svgId) {
+    private void removeAllMatchingProvisioned(@Nullable String nodeName, @Nullable String svgId) {
         Set<String> current = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
-
         Set<String> toRemove = new HashSet<>();
         for (String id : current) {
-            boolean matchesNode = nodeName != null &&
-                    (id.equals(nodeName) || id.contains(nodeName));
-            boolean matchesSvg  = svgId != null &&
-                    (id.equals(svgId) || id.contains(svgId));
+            boolean matchesNode = nodeName != null && (id.equals(nodeName) || id.contains(nodeName));
+            boolean matchesSvg  = svgId    != null && (id.equals(svgId)    || id.contains(svgId));
             if (matchesNode || matchesSvg) {
                 toRemove.add(id);
                 Log.d(TAG, "🧹 removeAllMatchingProvisioned: removing → " + id);
             }
         }
-
         if (!toRemove.isEmpty()) {
             current.removeAll(toRemove);
             prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, current).apply();
             provisionedDeviceIds.setValue(new HashSet<>(current));
-            Log.d(TAG, "✅ removeAllMatchingProvisioned done — remaining: " + current);
         }
     }
 
-    /**
-     * Prefs se fresh read karke LiveData update karo.
-     */
     public void forceSvgRefresh() {
         Set<String> fresh = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
@@ -392,14 +331,10 @@ public class SharedViewModel extends BaseViewModel
 
     public String getSvgIdFromNode(ProvisionedMeshNode node) {
         if (node == null) return null;
-        String uuid  = node.getUuid();
-        String svgId = nodeToSvgMap.get(uuid);
+        String svgId = nodeToSvgMap.get(node.getUuid());
         if (svgId == null) {
-            svgId = prefs.getString("node_svg_" + uuid, null);
-            if (svgId != null) {
-                nodeToSvgMap.put(uuid, svgId);
-                Log.d(TAG, "Restored mapping: " + uuid + " → " + svgId);
-            }
+            svgId = prefs.getString("node_svg_" + node.getUuid(), null);
+            if (svgId != null) nodeToSvgMap.put(node.getUuid(), svgId);
         }
         return svgId;
     }
@@ -407,120 +342,45 @@ public class SharedViewModel extends BaseViewModel
     public void autoMapNodeToCurrentSvg(ProvisionedMeshNode node) {
         if (node == null) return;
         String svgId = getSelectedSvgDeviceId();
-        if (svgId == null) {
-            Log.w(TAG, "autoMapNodeToCurrentSvg: svgId is null");
-            return;
-        }
+        if (svgId == null) { Log.w(TAG, "autoMapNodeToCurrentSvg: svgId is null"); return; }
         mapNodeToSvg(node.getUuid(), svgId);
     }
 
     // =========================================================================
-    // CLIENT PUBLISH ADDRESS MAPPING (Server Side)
+    // CLIENT PUBLISH ADDRESS MAPPING
     // =========================================================================
 
-    public void saveServerPublishMapping(
-            @NonNull String serverSvgDeviceId,
-            int serverElementIndex,
-            @NonNull String clientSvgDeviceId,
-            int clientElementIndex) {
-        String key          = KEY_CLIENT_ADDRESS_MAPPING_PREFIX + serverSvgDeviceId + "_" + serverElementIndex;
-        String mappingValue = clientSvgDeviceId + ":" + clientElementIndex;
-        prefs.edit().putString(key, mappingValue).apply();
-        Log.d(TAG, "✅ saveServerPublishMapping: server=" + serverSvgDeviceId
-                + "[" + serverElementIndex + "] → client=" + clientSvgDeviceId
-                + "[" + clientElementIndex + "]");
+    public void saveServerPublishMapping(@NonNull String serverSvgDeviceId, int serverElementIndex,
+                                         @NonNull String clientSvgDeviceId, int clientElementIndex) {
+        String key = KEY_CLIENT_ADDRESS_MAPPING_PREFIX + serverSvgDeviceId + "_" + serverElementIndex;
+        prefs.edit().putString(key, clientSvgDeviceId + ":" + clientElementIndex).apply();
+        Log.d(TAG, "✅ saveServerPublishMapping: " + serverSvgDeviceId
+                + "[" + serverElementIndex + "] → " + clientSvgDeviceId + "[" + clientElementIndex + "]");
     }
 
-    public int getServerPublishAddress(
-            @NonNull String serverSvgDeviceId,
-            int serverElementIndex) {
-        String key          = KEY_CLIENT_ADDRESS_MAPPING_PREFIX + serverSvgDeviceId + "_" + serverElementIndex;
-        String mappingValue = prefs.getString(key, null);
-        if (mappingValue == null) return -1;
-        String[] parts = mappingValue.split(":");
-        if (parts.length != 2) return -1;
-        try {
-            int clientElementIndex = Integer.parseInt(parts[1]);
-            return getClientElementAddress(parts[0], clientElementIndex);
-        } catch (NumberFormatException e) { return -1; }
+    public void saveClientToServerMapping(@NonNull String clientSvgId,
+                                          int elementIndex,
+                                          @NonNull String serverSvgId) {
+        String key = "client_to_server_" + clientSvgId + "_" + elementIndex;
+        prefs.edit().putString(key, serverSvgId).apply();
+        Log.d(TAG, "✅ Client → Server mapping saved: "
+                + clientSvgId + "[" + elementIndex + "] → " + serverSvgId);
     }
 
-    @Nullable
-    public PublishConfig getServerPublishConfig(
-            @NonNull String serverSvgDeviceId,
-            int serverElementIndex) {
-        int address = getServerPublishAddress(serverSvgDeviceId, serverElementIndex);
-        if (address == -1) return null;
-        String key          = KEY_CLIENT_ADDRESS_MAPPING_PREFIX + serverSvgDeviceId + "_" + serverElementIndex;
-        String mappingValue = prefs.getString(key, null);
-        if (mappingValue == null) return null;
-        String[] parts = mappingValue.split(":");
-        if (parts.length != 2) return null;
-        return new PublishConfig(address, parts[0], Integer.parseInt(parts[1]));
-    }
-
-    // =========================================================================
-    // AUTO MAPPING LOGIC
-    // =========================================================================
-
-    public int autoMapServerToClientPublishAddress(
-            @NonNull String serverSvgDeviceId,
-            int serverElementIndex) {
-
-        int existingMapping = getServerPublishAddress(serverSvgDeviceId, serverElementIndex);
-        if (existingMapping != -1) return existingMapping;
-
-        List<ProvisionedMeshNode> allNodes = getAllProvisionedNodes();
-        if (allNodes == null || allNodes.isEmpty()) return -1;
-
-        for (ProvisionedMeshNode node : allNodes) {
-            if (serverSvgDeviceId.equalsIgnoreCase(node.getNodeName())) continue;
-            boolean hasClientModel = false;
-            for (Element element : node.getElements().values()) {
-                for (MeshModel model : element.getMeshModels().values()) {
-                    if (model.getModelId() == 0x1001) { hasClientModel = true; break; }
-                }
-                if (hasClientModel) break;
-            }
-            if (!hasClientModel) continue;
-            int clientAddress = getClientElementAddress(node.getNodeName(), serverElementIndex);
-            if (clientAddress != -1) {
-                saveServerPublishMapping(serverSvgDeviceId, serverElementIndex,
-                        node.getNodeName(), serverElementIndex);
-                return clientAddress;
-            }
-        }
-        return -1;
-    }
-
-    // =========================================================================
-    // ELEMENT ID MANAGEMENT
-    // =========================================================================
-
-    public void saveElementId(@NonNull String svgDeviceId, @NonNull String elementId) {
-        prefs.edit().putString(KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId, elementId).apply();
-        Log.d(TAG, "✅ saveElementId: device=" + svgDeviceId + " elementId=" + elementId);
-    }
-
-    @Nullable
-    public String getElementId(@NonNull String svgDeviceId) {
-        return prefs.getString(KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId, null);
-    }
-
-    public int getElementIdAsInt(@NonNull String svgDeviceId) {
-        String s = getElementId(svgDeviceId);
-        if (s == null) return -1;
-        try { return Integer.parseInt(s.trim()); }
-        catch (NumberFormatException e) { return -1; }
+    public String getServerSvgIdForClient(@NonNull String clientSvgId, int elementIndex) {
+        String key = "client_to_server_" + clientSvgId + "_" + elementIndex;
+        String serverSvgId = prefs.getString(key, null);
+        Log.d(TAG, "🔍 getServerSvgIdForClient: "
+                + clientSvgId + "[" + elementIndex + "] → " + serverSvgId);
+        return serverSvgId;
     }
 
     // =========================================================================
     // PROVISIONING HELPERS
     // =========================================================================
 
-    public void onClientProvisioned(
-            @NonNull ProvisionedMeshNode clientNode,
-            @NonNull String svgDeviceId) {
+    public void onClientProvisioned(@NonNull ProvisionedMeshNode clientNode,
+                                    @NonNull String svgDeviceId) {
         List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
@@ -530,18 +390,8 @@ public class SharedViewModel extends BaseViewModel
             elementAddresses.put(i + 1, sorted.get(i).getElementAddress());
         }
         saveAllClientElementAddresses(svgDeviceId, elementAddresses);
-        Log.d(TAG, "✅ onClientProvisioned: saved " + elementAddresses.size() + " for " + svgDeviceId);
-    }
-
-    public Map<Integer, Integer> onServerProvisioned(
-            @NonNull ProvisionedMeshNode serverNode,
-            @NonNull String svgDeviceId) {
-        Map<Integer, Integer> assignedAddresses = new HashMap<>();
-        int serverElementId = getElementIdAsInt(svgDeviceId);
-        if (serverElementId == -1) return assignedAddresses;
-        int publishAddress = autoMapServerToClientPublishAddress(svgDeviceId, serverElementId);
-        if (publishAddress != -1) assignedAddresses.put(serverElementId, publishAddress);
-        return assignedAddresses;
+        Log.d(TAG, "✅ onClientProvisioned: saved "
+                + elementAddresses.size() + " for " + svgDeviceId);
     }
 
     // =========================================================================
@@ -575,7 +425,7 @@ public class SharedViewModel extends BaseViewModel
 
     public LiveData<Uri> getSvgUri()  { return svgUri; }
     public Uri getSvgUriValue()       { return svgUri.getValue(); }
-    public boolean hasSvg()          { return svgUri.getValue() != null; }
+    public boolean hasSvg()           { return svgUri.getValue() != null; }
 
     public void setSvgUri(@NonNull Uri uri) {
         svgUri.setValue(uri);
@@ -591,10 +441,7 @@ public class SharedViewModel extends BaseViewModel
     // =========================================================================
 
     public LiveData<Boolean> getProxyEnabled() { return proxyEnabled; }
-    public boolean isProxyEnabled() {
-        Boolean v = proxyEnabled.getValue();
-        return v != null && v;
-    }
+    public boolean isProxyEnabled() { Boolean v = proxyEnabled.getValue(); return v != null && v; }
     public void setProxyEnabled(boolean enabled) {
         proxyEnabled.setValue(enabled);
         prefs.edit().putBoolean(KEY_PROXY_ENABLED, enabled).apply();
@@ -615,7 +462,7 @@ public class SharedViewModel extends BaseViewModel
     // SELECTED DEVICE
     // =========================================================================
 
-    public LiveData<String> getSelectedDevice() { return selectedDevice; }
+    public LiveData<String> getSelectedDevice()    { return selectedDevice; }
     public String getSelectedDeviceValue() {
         String v = selectedDevice.getValue();
         return v != null ? v : DEFAULT_SELECTED_DEVICE;
@@ -753,7 +600,8 @@ public class SharedViewModel extends BaseViewModel
         String lowerFilter = nameFilter.toLowerCase();
         for (ExtendedBluetoothDevice device : devices) {
             boolean deviceOk = !hasDeviceFilter
-                    || (device.getName() != null && device.getName().toLowerCase().contains(lowerFilter));
+                    || (device.getName() != null
+                    && device.getName().toLowerCase().contains(lowerFilter));
             boolean signalOk = !hasSignalFilter || matchesSignalThreshold(device, threshold);
             if (deviceOk && signalOk) filtered.add(device);
         }
@@ -783,10 +631,7 @@ public class SharedViewModel extends BaseViewModel
     // =========================================================================
 
     public LiveData<String> getSelectedSvgDeviceIdLiveData() { return mSelectedSvgDeviceId; }
-
-    @Nullable
-    public String getSelectedSvgDeviceId() { return mSelectedSvgDeviceId.getValue(); }
-
+    @Nullable public String getSelectedSvgDeviceId()         { return mSelectedSvgDeviceId.getValue(); }
     public void setSelectedSvgDeviceId(@Nullable String svgDeviceId) {
         mSelectedSvgDeviceId.setValue(svgDeviceId);
         Log.d(TAG, "setSelectedSvgDeviceId: " + svgDeviceId);
@@ -806,39 +651,10 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "setServerSvgDeviceId: " + serverSvgDeviceId);
     }
     public LiveData<String> getServerSvgDeviceIdLiveData() { return mServerSvgDeviceId; }
-    @Nullable public String getServerSvgDeviceId() { return mServerSvgDeviceId.getValue(); }
+    @Nullable public String getServerSvgDeviceId()         { return mServerSvgDeviceId.getValue(); }
     public void clearServerSvgDeviceId() {
         mServerSvgDeviceId.setValue(null);
         prefs.edit().remove(KEY_SERVER_SVG_DEVICE_ID).apply();
-    }
-
-    // =========================================================================
-    // LEGACY
-    // =========================================================================
-
-    public int resolveServerPublishAddress(
-            @NonNull String serverSvgDeviceId,
-            @NonNull ProvisionedMeshNode clientNode) {
-
-        int serverElementId = getElementIdAsInt(serverSvgDeviceId);
-        if (serverElementId != -1) {
-            int address = autoMapServerToClientPublishAddress(serverSvgDeviceId, serverElementId);
-            if (address != -1) return address;
-        }
-
-        final String elementIdStr = prefs.getString("element_id_" + serverSvgDeviceId, null);
-        if (elementIdStr == null || elementIdStr.isEmpty()) return -1;
-
-        int targetIndex;
-        try { targetIndex = Integer.parseInt(elementIdStr.trim()); }
-        catch (NumberFormatException e) { return -1; }
-
-        List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
-        }
-        if (targetIndex < 0 || targetIndex >= sorted.size()) return -1;
-        return sorted.get(targetIndex).getElementAddress();
     }
 
     // =========================================================================
