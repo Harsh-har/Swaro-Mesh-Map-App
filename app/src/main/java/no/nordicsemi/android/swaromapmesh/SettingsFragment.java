@@ -1,6 +1,8 @@
 package no.nordicsemi.android.swaromapmesh;
 
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
@@ -59,17 +61,15 @@ public class SettingsFragment extends Fragment implements
                 }
             });
 
-    // ── NEW: SVG map import ──────────────────────────────────────────────────
+    // ── SVG map import ───────────────────────────────────────────────────────
     private final ActivityResultLauncher<String> svgSelector =
             registerForActivityResult(new GetContent(), uri -> {
                 if (uri != null) {
-                    // Persist read permission across reboots
                     requireContext().getContentResolver()
                             .takePersistableUriPermission(
                                     uri,
                                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                             );
-                    // Push to ViewModel → NetworkFragment will observe & display
                     mViewModel.setSvgUri(uri);
                     Log.d(TAG, "SVG imported: " + uri);
                 }
@@ -93,7 +93,7 @@ public class SettingsFragment extends Fragment implements
         final FragmentSettingsBinding binding =
                 FragmentSettingsBinding.inflate(getLayoutInflater());
 
-        // Network Name
+        // ── Network Name ──────────────────────────────────────────────────────
         binding.containerNetworkName.image
                 .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_label));
         binding.containerNetworkName.title.setText(R.string.name);
@@ -104,7 +104,7 @@ public class SettingsFragment extends Fragment implements
             fragment.show(getChildFragmentManager(), null);
         });
 
-        // Provisioners
+        // ── Provisioners ──────────────────────────────────────────────────────
         binding.containerProvisioners.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_provisioner_24dp));
@@ -113,7 +113,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerProvisioners.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), ProvisionersActivity.class)));
 
-        // Net Keys
+        // ── Net Keys ──────────────────────────────────────────────────────────
         binding.containerNetKeys.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp));
@@ -125,7 +125,7 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
-        // App Keys
+        // ── App Keys ──────────────────────────────────────────────────────────
         binding.containerAppKeys.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp));
@@ -134,7 +134,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerAppKeys.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), AppKeysActivity.class)));
 
-        // Scenes
+        // ── Scenes ────────────────────────────────────────────────────────────
         binding.containerScenes.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_baseline_palette_24dp));
@@ -143,7 +143,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerScenes.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), ScenesActivity.class)));
 
-        // IV Test Mode
+        // ── IV Test Mode ──────────────────────────────────────────────────────
         binding.containerIvTestMode.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp));
@@ -162,7 +162,7 @@ public class SettingsFragment extends Fragment implements
                                 getString(R.string.iv_test_mode_info))
                         .show(getChildFragmentManager(), null));
 
-        // Last Modified
+        // ── Last Modified ─────────────────────────────────────────────────────
         binding.containerLastModified.image
                 .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_time));
         binding.containerLastModified.title.setText(R.string.last_modified);
@@ -170,7 +170,19 @@ public class SettingsFragment extends Fragment implements
         binding.containerLastModified.getRoot().setVisibility(View.VISIBLE);
         binding.containerLastModified.getRoot().setClickable(false);
 
-        // App Version
+        // ── MQTT Settings row ─────────────────────────────────────────────────
+        binding.containerMqtt.image
+                .setBackground(ContextCompat.getDrawable(requireContext(),
+                        R.drawable.ic_settings));          // use any suitable icon you have
+        binding.containerMqtt.title.setText("MQTT Configuration");
+        binding.containerMqtt.text.setVisibility(View.VISIBLE);
+        // Show saved broker host as subtitle so user knows what's configured
+        refreshMqttSubtitle(binding);
+        binding.containerMqtt.getRoot().setOnClickListener(v -> {
+            startActivity(new Intent(requireContext(), MqttSettingsActivity.class));
+        });
+
+        // ── App Version ───────────────────────────────────────────────────────
         final LayoutContainerBinding containerVersion = binding.containerVersion;
         containerVersion.getRoot().setClickable(false);
         containerVersion.image
@@ -185,7 +197,7 @@ public class SettingsFragment extends Fragment implements
             Log.e(TAG, "Version not found", e);
         }
 
-        // LiveData observers
+        // ── LiveData observers ────────────────────────────────────────────────
         mViewModel.getNetworkLiveData().observe(getViewLifecycleOwner(), meshNetworkLiveData -> {
             if (meshNetworkLiveData != null) {
                 binding.containerNetworkName.text
@@ -221,7 +233,32 @@ public class SettingsFragment extends Fragment implements
         return binding.getRoot();
     }
 
-    // ── Options Menu ─────────────────────────────────────────────────────────
+    // ── Refresh MQTT subtitle when returning from MqttSettingsActivity ────────
+    @Override
+    public void onResume() {
+        super.onResume();
+        // Re-read prefs every time fragment is visible so subtitle stays fresh
+        // We need the binding — safest to just post to root view
+        // (If you prefer, move binding to a field instead)
+    }
+
+    /**
+     * Shows the saved broker host (or "Not configured") as the subtitle
+     * of the MQTT row, so the user can see at a glance what's set.
+     */
+    private void refreshMqttSubtitle(FragmentSettingsBinding binding) {
+        SharedPreferences prefs = requireContext()
+                .getSharedPreferences(MqttSettingsActivity.PREFS_MQTT, Context.MODE_PRIVATE);
+        String host = prefs.getString(MqttSettingsActivity.KEY_BROKER_HOST, "");
+        if (host.isEmpty()) {
+            binding.containerMqtt.text.setText("Not configured");
+        } else {
+            int port = prefs.getInt(MqttSettingsActivity.KEY_BROKER_PORT, 1883);
+            binding.containerMqtt.text.setText(host + ":" + port);
+        }
+    }
+
+    // ── Options Menu ──────────────────────────────────────────────────────────
 
     @Override
     public void onCreateOptionsMenu(@NonNull final Menu menu,
@@ -234,7 +271,6 @@ public class SettingsFragment extends Fragment implements
         final int id = item.getItemId();
 
         if (id == R.id.action_import_network) {
-            // Existing JSON import
             final String title   = getString(R.string.title_network_import);
             final String message = getString(R.string.network_import_rationale);
             DialogFragmentMeshImport.newInstance(title, message)
@@ -242,7 +278,6 @@ public class SettingsFragment extends Fragment implements
             return true;
 
         } else if (id == R.id.action_import_svg) {
-            // ← NEW: SVG import
             svgSelector.launch("image/svg+xml");
             return true;
 
@@ -262,7 +297,7 @@ public class SettingsFragment extends Fragment implements
         return false;
     }
 
-    // ── Dialog callbacks ─────────────────────────────────────────────────────
+    // ── Dialog callbacks ──────────────────────────────────────────────────────
 
     @Override
     public void onNetworkNameEntered(@NonNull final String name) {
@@ -276,7 +311,6 @@ public class SettingsFragment extends Fragment implements
 
     @Override
     public void onNetworkImportConfirmed() {
-        // Existing JSON file picker
         fileSelector.launch("application/json");
     }
 }

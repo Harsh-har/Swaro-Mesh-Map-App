@@ -214,11 +214,23 @@
 
                     <!-- Test button -->
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_test"
+                        android:id="@+id/btn_testble"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:layout_marginBottom="10dp"
-                        android:text="Test Device"
+                        android:text="Test With BLE"
+                        android:textColor="@android:color/white"
+                        app:backgroundTint="#333333"
+                        app:cornerRadius="8dp"
+                        app:strokeColor="#ffbb00"
+                        app:strokeWidth="1dp" />
+                    <!-- Test button -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_testmqqt"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="Test With MQQT"
                         android:textColor="@android:color/white"
                         app:backgroundTint="#333333"
                         app:cornerRadius="8dp"

@@ -353,4 +353,5 @@ public abstract class BaseViewModel extends ViewModel {
     public void setActivityVisible(final boolean visible) {
         isActivityVisible = visible;
     }
+
 }

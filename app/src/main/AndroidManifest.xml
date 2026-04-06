@@ -7,7 +7,8 @@
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
-
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -38,15 +39,15 @@
         android:roundIcon="@drawable/networkmesh"
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
-
+        <activity
+            android:name=".MqttSettingsActivity"
+            android:exported="false" />
         <activity
             android:name=".TestProvisionActivity"
             android:exported="false" />
-
         <activity
             android:name=".DeviceDetailActivity"
             android:exported="false" />
-
         <activity
             android:name=".DevicesFilterActivity"
             android:exported="false" />
