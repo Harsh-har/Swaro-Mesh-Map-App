@@ -86,4 +86,12 @@
     <color name="primaryColor">#3F51B5</color>
     <color name="material_grey_500">#9E9E9E</color>
 
+        <!--    Swaja Ui Color-->
+    <color name="steptext">#666666</color>
+    <color name="heading_text">#D9D9D9</color>
+    <color name="subheading_text">#555555</color>
+    <color name="hint_text">#333333</color>
+    <color name="input_field_bg">#111111</color>
+    <color name="backtext">#B3B3B3</color>
+
 </resources>

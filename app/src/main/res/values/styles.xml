@@ -1,20 +1,21 @@
-
 <resources>
 
     <!-- Base application theme. -->
     <style name="AppTheme" parent="AppTheme.Base">
-        <!-- Customize your theme here. -->
     </style>
 
     <style name="AppTheme.Base" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+
+        <!-- Global Font -->
+        <item name="android:fontFamily">@font/nunito_family</item>
+        <item name="fontFamily">@font/nunito_family</item>
+
         <item name="android:windowBackground">@color/background</item>
-        <!-- Primary colors map to components and elements, like app bars and buttons -->
-        <!-- Secondary colors are most often used as accents on components, such as FABS and selection controls -->
-        <!-- Color variants can be used to complement and provide accessible options for your primary and secondary colors. -->
-        <!-- Surface colors map to components such as cards, sheets, and menus -->
-        <!-- Background color is found behind scrollable content -->
-        <!-- Error color indicates errors in components, such as text fields -->
-        <!-- “On” colors are primarily applied to text, iconography, and strokes. Sometimes, they are also applied to surfaces. -->
+
+        <!-- ✅ SAFE AREA FIX - Globally -->
+        <item name="android:fitsSystemWindows">true</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
 
         <!-- Primary colors -->
         <item name="colorPrimary">@color/colorPrimary</item>
@@ -26,24 +27,21 @@
         <item name="colorError">@color/nordicRed</item>
         <item name="colorOnError">@color/white</item>
 
-        <!-- Primary text color i.e. titles of lists etc -->
-        <!--<item name="android:textColorPrimary">@color/textColorPrimary</item>-->
-        <!-- Secondary text color i.e. descriptions and subtitles of lists etc -->
+        <!-- Secondary text -->
         <item name="android:textColorSecondary">@color/textColorSecondary</item>
 
-        <!-- All buttons should not have border, except specified otherwise -->
+        <!-- Buttons -->
         <item name="materialButtonStyle">@style/BlueTextButton</item>
-        <!-- All TextInputLayout should use OutlinedBox style  -->
-        <item name="textInputStyle">@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox
-        </item>
 
-        <!--<item name="alertDialogTheme">@style/CustomDialogTheme</item>-->
+        <!-- Input -->
+        <item name="textInputStyle">
+            @style/Widget.MaterialComponents.TextInputLayout.OutlinedBox
+        </item>
 
         <item name="bottomSheetDialogTheme">@style/CustomBottomSheetDialog</item>
     </style>
 
     <style name="AppTheme.AppBarOverlay" parent="ThemeOverlay.MaterialComponents.Dark.ActionBar" />
-
     <style name="AppTheme.PopupOverlay" parent="ThemeOverlay.MaterialComponents.Light" />
 
     <style name="Widget" />
@@ -55,19 +53,19 @@
 
     <style name="BlueTextButton" parent="Widget.MaterialComponents.Button.TextButton">
         <item name="android:textColor">@drawable/blue_button_states</item>
+        <item name="fontFamily">@font/nunito_family</item>
     </style>
 
     <style name="RedButton" parent="Widget.MaterialComponents.Button.TextButton">
         <item name="android:textColor">@drawable/red_button_states</item>
+        <item name="fontFamily">@font/nunito_family</item>
     </style>
 
     <style name="CustomBottomSheetDialog" parent="Theme.MaterialComponents.Light.BottomSheetDialog">
         <item name="colorPrimary">@color/colorPrimary</item>
         <item name="colorSecondary">@color/colorSecondary</item>
-        <!-- All buttons should not have border, except specified otherwise -->
         <item name="materialButtonStyle">@style/BlueTextButton</item>
-        <item name="textInputStyle">@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox
-        </item>
+        <item name="textInputStyle">@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox</item>
     </style>
 
     <style name="CustomDialogTheme" parent="Theme.MaterialComponents.Dialog.Alert">
@@ -82,16 +80,18 @@
     <style name="ThemeOverlay.App.Switch" parent="">
         <item name="colorSecondary">@color/red</item>
     </style>
+
     <style name="Widget.App.Switch" parent="Widget.MaterialComponents.CompoundButton.Switch">
         <item name="materialThemeOverlay">@style/ThemeOverlay.App.Switch</item>
     </style>
 
+    <!-- Transparent theme ke liye bhi safe area -->
     <style name="Theme.Transparent" parent="Theme.MaterialComponents.DayNight.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:fitsSystemWindows">true</item>
     </style>
-
 
 </resources>

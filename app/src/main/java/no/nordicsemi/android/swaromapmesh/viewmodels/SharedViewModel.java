@@ -105,7 +105,14 @@ public class SharedViewModel extends BaseViewModel
         String savedServerId = prefs.getString(KEY_SERVER_SVG_DEVICE_ID, null);
         if (savedServerId != null) mServerSvgDeviceId.setValue(savedServerId);
 
-        getNodes().observeForever(nodes -> syncProvisionedWithMeshNetwork());
+        // ── Observe nodes: sync stale IDs AND rebuild after import ────────────
+        getNodes().observeForever(nodes -> {
+            syncProvisionedWithMeshNetwork();
+        });
+
+        // ✅ FIX: NrfMeshRepository ko callback register karo
+        // Jab bhi onNetworkImported fire ho, rebuildProvisionedFromMesh() call hoga
+        mNrfMeshRepository.setOnNetworkImportedCallback(this::rebuildProvisionedFromMesh);
     }
 
     @Override
@@ -154,6 +161,65 @@ public class SharedViewModel extends BaseViewModel
             provisionedDeviceIds.setValue(cleaned);
             Log.d(TAG, "✅ syncProvisioned done — remaining: " + cleaned);
         }
+    }
+
+    // =========================================================================
+    // ✅ FIX: Import ke baad SVG rebuild karo
+    // =========================================================================
+
+    /**
+     * Mesh JSON import hone ke baad yeh method call karo.
+     *
+     * Problem: Export → Reset → Import ke baad mesh_prefs (SharedPreferences) wipe ho
+     * jaata hai. Mesh network nodes restore hote hain lekin provisioned_devices aur
+     * node_svg_<uuid> mappings lost ho jaate hain. Isliye SVG map kuch nahi dikhata.
+     *
+     * Fix: Mesh ke restored nodes se provisioned IDs rebuild karta hai:
+     *   1. node_svg_<uuid> prefs se svgId restore karta hai (agar exist kare)
+     *   2. Fallback: node name ko svgId maanta hai
+     *   3. Dono ko provisioned_devices set mein dalta hai
+     *   4. forceSvgRefresh() se NetworkFragment ko trigger karta hai
+     */
+    public void rebuildProvisionedFromMesh() {
+        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+        if (nodes == null || nodes.isEmpty()) {
+            Log.w(TAG, "rebuildProvisionedFromMesh: no nodes found — nothing to rebuild");
+            return;
+        }
+
+        Set<String> rebuilt = new HashSet<>();
+
+        for (ProvisionedMeshNode node : nodes) {
+            final String uuid = node.getUuid();
+
+            // Step 1: node_svg_ prefs se svgId lo (agar export se pehle map kiya tha)
+            String svgId = prefs.getString("node_svg_" + uuid, null);
+            if (svgId != null && !svgId.isEmpty()) {
+                rebuilt.add(svgId);
+                // in-memory map bhi restore karo taaki getSvgIdFromNode() kaam kare
+                nodeToSvgMap.put(uuid, svgId);
+                Log.d(TAG, "rebuildProvisionedFromMesh: uuid→svgId  " + uuid + " → " + svgId);
+            }
+
+            // Step 2: Node name bhi add karo (fallback — provisioning ke waqt
+            //         node name == svgDeviceId hota tha)
+            String nodeName = node.getNodeName();
+            if (nodeName != null && !nodeName.isEmpty()) {
+                rebuilt.add(nodeName);
+                Log.d(TAG, "rebuildProvisionedFromMesh: nodeName → " + nodeName);
+            }
+        }
+
+        if (!rebuilt.isEmpty()) {
+            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, rebuilt).apply();
+            provisionedDeviceIds.setValue(new HashSet<>(rebuilt));
+            Log.d(TAG, "✅ rebuildProvisionedFromMesh complete — provisioned: " + rebuilt);
+        } else {
+            Log.w(TAG, "rebuildProvisionedFromMesh: nothing to rebuild");
+        }
+
+        // NetworkFragment ko trigger karo (onResume ya LiveData observer ke through)
+        forceSvgRefresh();
     }
 
     // =========================================================================

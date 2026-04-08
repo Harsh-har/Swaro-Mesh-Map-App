@@ -64,6 +64,7 @@ tools:context="no.nordicsemi.android.swaromapmesh.GroupsFragment">
     android:layout_gravity="bottom|end"
     android:layout_margin="@dimen/activity_horizontal_margin"
     android:text="@string/action_add_node"
+    android:visibility="gone"
     app:icon="@drawable/ic_add_white" />
 
     <androidx.constraintlayout.widget.ConstraintLayout

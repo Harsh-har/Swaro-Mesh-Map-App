@@ -27,6 +27,7 @@ import android.os.ParcelUuid;
 import android.util.Log;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
@@ -162,6 +163,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private int mPendingReverseClientElementAddr = -1;
     private int mPendingReverseAppKeyIndex       = -1;
 
+    // ── ✅ FIX: Import ke baad SVG rebuild karne ke liye callback ─────────────
+    private Runnable mOnNetworkImportedCallback = null;
+
     // ── Runnables ─────────────────────────────────────────────────────────────
     private final Runnable mReconnectRunnable = this::startScan;
     private final Runnable mScannerTimeout   = () -> {
@@ -183,6 +187,18 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mBleMeshManager = bleMeshManager;
         mBleMeshManager.setGattCallbacks(this);
         mHandler = new Handler(Looper.getMainLooper());
+    }
+
+    // =========================================================================
+    // ✅ FIX: SharedViewModel apna callback register karega import ke liye
+    // =========================================================================
+
+    /**
+     * SharedViewModel yeh call karta hai constructor mein.
+     * Jab bhi onNetworkImported fire ho, rebuildProvisionedFromMesh() call hoga.
+     */
+    public void setOnNetworkImportedCallback(@Nullable Runnable callback) {
+        mOnNetworkImportedCallback = callback;
     }
 
     // =========================================================================
@@ -451,6 +467,15 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     @Override
     public void onNetworkImported(final MeshNetwork meshNetwork) {
         loadNetwork(meshNetwork);
+
+        // ✅ FIX: Import hone ke baad SharedViewModel ko rebuild trigger karo
+        // Yeh callback SharedViewModel ke constructor mein set hota hai.
+        // rebuildProvisionedFromMesh() call hoga jo SVG map ko restore karega.
+        if (mOnNetworkImportedCallback != null) {
+            mHandler.post(mOnNetworkImportedCallback);
+            Log.d(TAG, "✅ onNetworkImported: rebuildProvisionedFromMesh callback fired");
+        }
+
         mNetworkImportState.postValue(meshNetwork.getMeshName()
                 + " has been successfully imported.\n"
                 + "In order to start sending messages to this network, please change the "
@@ -718,7 +743,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                                 element.getMeshModels().get(status.getModelIdentifier()));
                     }
 
-                    // Pending reverse publication — manual flow se (BaseModelConfigurationActivity)
                     if (mPendingReverseServerUnicast != -1) {
                         final int serverUnicast     = mPendingReverseServerUnicast;
                         final int serverElementAddr = mPendingReverseServerElementAddr;
@@ -947,7 +971,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     // =========================================================================
-    // setPendingReversePublication — called from BaseModelConfigurationActivity
+    // setPendingReversePublication
     // =========================================================================
     public void setPendingReversePublication(int serverUnicast, int serverElementAddr,
                                              int clientElementAddr, int appKeyIndex) {
@@ -1014,7 +1038,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 + (isClientNode ? (isServerNode ? "+CLIENT" : "CLIENT") : "")
                 + (svgId != -1 ? " | Element Id=" + svgId : " | svgId NOT SET"));
 
-        // ── SERVER save ───────────────────────────────────────────────────────
         if (isServerNode && normalizedName != null && !normalizedName.isEmpty()) {
             if (serverElementAddress == -1) {
                 Log.e(TAG_BIND, "❌ serverElementAddress not found — save skip");
@@ -1039,7 +1062,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                             + String.format("%04X", serverElementAddress));
                 }
 
-                // svgId status log
                 int existingSvgId = ClientServerElementStore.getServerSvgElementId(normalizedName);
                 if (existingSvgId == -1) {
                     Log.w(TAG_BIND, "⚠️ svgId not yet set for " + normalizedName
@@ -1059,7 +1081,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mHandler.postDelayed(this::sendNextAutoBind, 500);
     }
 
-    /** Sends the next pending bind operation sequentially. */
     private void sendNextAutoBind() {
 
         if (mAutoBindNode == null) {
@@ -1069,7 +1090,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
         if (mIsBindingInProgress) return;
 
-        // ── ALL BINDS COMPLETED ───────────────────────────────────────────────
         if (mAutoBindIndex >= mPendingBindOperations.size()) {
 
             Log.d(TAG_BIND, "✅ ALL MODELS BOUND for node 0x"
@@ -1089,7 +1109,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 saveClientElementAddresses(mAutoBindNode);
             }
 
-            // ✅ Server bind complete — auto publication trigger karo
             if (isServerNode) {
                 final ProvisionedMeshNode serverNode = mAutoBindNode;
                 mHandler.postDelayed(() -> triggerAutoPublication(serverNode), 2000);
@@ -1102,7 +1121,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return;
         }
 
-        // ── EXECUTE NEXT BIND ─────────────────────────────────────────────────
         final int[] op        = mPendingBindOperations.get(mAutoBindIndex);
         final int elementAddr = op[0];
         final int modelId     = op[1];
@@ -1131,15 +1149,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
     }
 
-    /**
-     * Server ke ALL MODELS BOUND hone ke baad automatically:
-     *  Step 1 — Client element → Server element address publish karo
-     *  Step 2 — Server element → Client element address publish karo (reverse, 1.5s baad)
-     *
-     * Matching logic:
-     *   Server ka svgElementId == Client ka element index (0-based in ClientServerElementStore)
-     *   1 client node ke multiple elements alag-alag servers se map hote hain
-     */
     private void triggerAutoPublication(@NonNull final ProvisionedMeshNode serverNode) {
 
         if (mMeshNetwork == null) {
@@ -1154,7 +1163,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
         final int appKeyIndex = appKeys.get(0).getKeyIndex();
 
-        // ── Server info ───────────────────────────────────────────────────────
         final String serverDeviceId = normalizeId(serverNode.getNodeName());
         if (serverDeviceId == null || serverDeviceId.isEmpty()) {
             Log.e(TAG_BIND, "triggerAutoPublication: server has no name — abort");
@@ -1164,7 +1172,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         final int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverDeviceId);
         if (serverSvgId == -1) {
             Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for '"
-                    + serverDeviceId + "' — abort. Set svgId first via UI before provisioning.");
+                    + serverDeviceId + "' — abort.");
             return;
         }
 
@@ -1179,7 +1187,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 + " svgId=" + serverSvgId
                 + " serverElem=0x" + String.format("%04X", serverElementAddr));
 
-        // ── Client dhundho jiska element index == serverSvgId ─────────────────
         int clientElementAddr  = -1;
         int clientUnicast      = -1;
 
@@ -1193,7 +1200,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             final String devId = normalizeId(candidate.getNodeName());
             if (devId == null) continue;
 
-            // Only client nodes
             boolean hasClient = false;
             for (Element el : candidate.getElements().values()) {
                 for (MeshModel m : el.getMeshModels().values()) {
@@ -1206,7 +1212,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
             if (!hasClient) continue;
 
-            // Client element address at index = serverSvgId
             final int addr = ClientServerElementStore.getClientAddress(devId, serverSvgId);
             if (addr != -1) {
                 clientElementAddr = addr;
@@ -1229,7 +1234,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         final int finalServerElem    = serverElementAddr;
         final int finalServerUnicast = serverNode.getUnicastAddress();
 
-        // ── STEP 1: Client element → Server element publish ───────────────────
         Log.d(TAG_BIND, "📤 PUB STEP1: clientNode=0x"
                 + String.format("%04X", finalClientUnicast)
                 + " clientElem=0x" + String.format("%04X", finalClientElem)
@@ -1251,7 +1255,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return;
         }
 
-        // ── STEP 2: Server element → Client element publish (1.5s delay) ──────
         mHandler.postDelayed(() -> {
             Log.d(TAG_BIND, "📤 PUB STEP2 (reverse): serverNode=0x"
                     + String.format("%04X", finalServerUnicast)
@@ -1298,7 +1301,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                     clientIndex++;
                     break;
                 }
-
             }
         }
 

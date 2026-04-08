@@ -52,9 +52,6 @@
             android:name=".DevicesFilterActivity"
             android:exported="false" />
 
-        <service
-            android:name=".ble.BackgroundProvisioningService"
-            android:exported="false" />
 
         <activity
             android:name=".MainActivity"
@@ -184,9 +181,7 @@
         <activity
             android:name=".export.ExportNetworkActivity"
             android:launchMode="singleTop" />
-        <activity
-            android:name=".SvgOperationActivity"
-            android:exported="false" />
+
     </application>
 
 </manifest>

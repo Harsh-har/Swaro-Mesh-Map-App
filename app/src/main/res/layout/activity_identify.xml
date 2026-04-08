@@ -1,0 +1,183 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.constraintlayout.widget.ConstraintLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000"
+    android:padding="0dp">
+    <!-- Status Bar Space (handled by system, no layout needed) -->
+
+    <!-- Back Button -->
+    <LinearLayout
+        android:id="@+id/layoutBack"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="20dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="8dp"
+        android:clickable="true"
+        android:focusable="true"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent">
+
+        <ImageView
+            android:id="@+id/imgBackArrow"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="Back"
+            android:src="@drawable/back"
+            app:tint="@color/backtext" />
+
+        <TextView
+            android:id="@+id/tvBack"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Back"
+            android:textColor="@color/backtext"
+            android:textSize="16sp"
+            android:layout_marginStart="4.2dp" />
+
+    </LinearLayout>
+
+    <!-- Step Indicator -->
+    <TextView
+        android:id="@+id/tvStepIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="STEP 1 OF 3"
+        android:textColor="@color/steptext"
+        android:textSize="12sp"
+        android:letterSpacing="0.08"
+        android:paddingStart="20dp"
+        android:paddingTop="8dp"
+        app:layout_constraintTop_toBottomOf="@id/layoutBack"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- Title: Identify Yourself -->
+    <TextView
+        android:id="@+id/tvTitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Identify Yourself"
+        android:textColor="@color/heading_text"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="30dp"
+        app:layout_constraintTop_toBottomOf="@id/tvStepIndicator"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Subtitle -->
+    <TextView
+        android:id="@+id/tvSubtitle"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:text="Enter your technician credentials to continue"
+        android:textColor="@color/subheading_text"
+        android:textSize="14sp"
+        android:paddingStart="20dp"
+        android:paddingEnd="20dp"
+        android:paddingTop="2dp"
+        app:layout_constraintTop_toBottomOf="@id/tvTitle"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Technician Name Label -->
+
+    <!-- Technician Name Input -->
+    <TextView
+        android:id="@+id/tvTechnicianNameLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:paddingStart="20dp"
+        android:paddingTop="36dp"
+        android:text="Technician Name"
+        android:textColor="@color/heading_text"
+        android:textSize="15sp"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvSubtitle" />
+
+    <EditText
+        android:id="@+id/etTechnicianName"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:hint="Full name"
+        android:textColorHint="@color/hint_text"
+        android:textColor="@color/hint_text"
+        android:textSize="15sp"
+        android:background="@drawable/bg_input_field"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginEnd="20dp"
+        android:layout_marginTop="8.4dp"
+        android:inputType="textPersonName"
+        android:imeOptions="actionNext"
+        app:layout_constraintTop_toBottomOf="@id/tvTechnicianNameLabel"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent" />
+
+    <!-- Technician ID Label -->
+    <TextView
+        android:id="@+id/tvTechnicianIdLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Technician ID"
+        android:textColor="@color/heading_text"
+        android:textSize="15sp"
+        android:paddingStart="20dp"
+        android:paddingTop="29.25dp"
+        app:layout_constraintTop_toBottomOf="@id/etTechnicianName"
+        app:layout_constraintStart_toStartOf="parent" />
+
+    <!-- Technician ID Input -->
+
+    <!-- Continue Button -->
+
+    <EditText
+        android:id="@+id/etTechnicianId"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="8.4dp"
+        android:layout_marginEnd="20dp"
+        android:background="@drawable/bg_input_field"
+        android:hint="e.g. TECH-0042"
+        android:imeOptions="actionDone"
+        android:inputType="text"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:textColor="@color/hint_text"
+        android:textColorHint="@color/hint_text"
+        android:textSize="15sp"
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/tvTechnicianIdLabel" />
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnContinue"
+        android:layout_width="0dp"
+        android:layout_height="56dp"
+        android:layout_marginStart="20dp"
+        android:layout_marginTop="299dp"
+        android:layout_marginEnd="20dp"
+        android:text="Continue"
+        android:textAllCaps="false"
+        android:textColor="#666666"
+        android:textSize="16sp"
+        app:backgroundTint="#232323"
+        app:cornerRadius="12dp"
+
+        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintHorizontal_bias="1.0"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintTop_toBottomOf="@+id/etTechnicianId" />
+
+</androidx.constraintlayout.widget.ConstraintLayout>
