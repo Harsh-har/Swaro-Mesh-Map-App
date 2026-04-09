@@ -30,21 +30,21 @@ import android.view.MenuItem;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.lifecycle.ViewModelProvider;
-
 import java.text.DateFormat;
 
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.lifecycle.ViewModelProvider;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.Features;
+import no.nordicsemi.android.swaromapmesh.R;
+import no.nordicsemi.android.swaromapmesh.databinding.ActivityNodeDetailsBinding;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.CompanyIdentifiers;
 import no.nordicsemi.android.swaromapmesh.utils.CompositionDataParser;
 import no.nordicsemi.android.swaromapmesh.utils.MeshAddress;
 import no.nordicsemi.android.swaromapmesh.utils.MeshParserUtils;
-import no.nordicsemi.android.swaromapmesh.R;
-import no.nordicsemi.android.swaromapmesh.databinding.ActivityNodeDetailsBinding;
 import no.nordicsemi.android.swaromapmesh.viewmodels.NodeDetailsViewModel;
+
 
 @AndroidEntryPoint
 public class NodeDetailsActivity extends AppCompatActivity {
@@ -84,7 +84,7 @@ public class NodeDetailsActivity extends AppCompatActivity {
 
         binding.copy.setOnClickListener(v -> {
             if (clipboard != null) {
-                final ClipData clipDeviceKey = ClipData.newPlainText("no.nordicsemi.android.swaromesh.Device Key", MeshParserUtils.bytesToHex(node.getDeviceKey(), false));
+                final ClipData clipDeviceKey = ClipData.newPlainText("Device Key", MeshParserUtils.bytesToHex(node.getDeviceKey(), false));
                 clipboard.setPrimaryClip(clipDeviceKey);
                 Toast.makeText(NodeDetailsActivity.this, R.string.device_key_clipboard_copied, Toast.LENGTH_SHORT).show();
             }

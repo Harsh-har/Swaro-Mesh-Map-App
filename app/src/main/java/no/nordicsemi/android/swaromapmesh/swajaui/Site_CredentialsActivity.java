@@ -1,182 +1,206 @@
 package no.nordicsemi.android.swaromapmesh.swajaui;
 
+import android.content.res.ColorStateList;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.text.method.HideReturnsTransformationMethod;
 import android.text.method.PasswordTransformationMethod;
+import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.AdapterView;
-import android.widget.ArrayAdapter;
-import android.widget.EditText;
-import android.widget.ImageView;
-import android.widget.LinearLayout;
-import android.widget.Spinner;
+import android.widget.BaseAdapter;
+import android.widget.RadioButton;
 import android.widget.TextView;
-import android.widget.Toast;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.google.android.material.button.MaterialButton;
-
-import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 
 import no.nordicsemi.android.swaromapmesh.R;
+import no.nordicsemi.android.swaromapmesh.databinding.ActivitySiteCredentialsBinding;
 
 public class Site_CredentialsActivity extends AppCompatActivity {
 
-    // ── Views ──────────────────────────────────────────────────────────────
-    private LinearLayout   btnBack;
-    private Spinner        spinnerSiteId;
-    private EditText       etPassword;
-    private ImageView      ivTogglePassword;
-    private MaterialButton btnConnect;
-
-    // ── State ──────────────────────────────────────────────────────────────
+    private ActivitySiteCredentialsBinding binding;
     private boolean isPasswordVisible = false;
-    private String  selectedSite      = "";
+    private boolean isDropdownOpen = false;
+    private int selectedSiteIndex = -1; // -1 = nothing selected
 
-    // ── Site list ──────────────────────────────────────────────────────────
-    private final List<String> siteList = new ArrayList<String>() {{
-        add("Select Site");       // index 0 → treated as hint
-        add("Swaja Robotics");
-        add("SFTW - D60");
-        add("Oota & Windmill");
-        add("Peace Garden");
-        add("Indira Nagar");
-    }};
+    // ── Replace this with your real data source ──────────────────────────────
+    private final List<String> siteList = Arrays.asList(
+            "Swaja Robotics",
+            "SFTW - D60",
+            "Oota & Windmill",
+            "Peace Garden",
+            "Indira Nagar",
+            "Koramangala Hub",
+            "BTM Layout Site"
+    );
 
-    // ======================================================================
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_site_credentials);
+        binding = ActivitySiteCredentialsBinding.inflate(getLayoutInflater());
+        setContentView(binding.getRoot());
 
-        bindViews();
-        setupSpinner();
-        setupPasswordToggle();
-        setupClickListeners();
+        setupBackButton();
+        setupDropdown();
+        setupPasswordField();
+        setupTogglePassword();
+        setButtonInactive();
+        setupConnectButton();
     }
 
-    // ── Bind ───────────────────────────────────────────────────────────────
-    private void bindViews() {
-        btnBack          = findViewById(R.id.btnBack);
-        spinnerSiteId    = findViewById(R.id.spinnerSiteId);
-        etPassword       = findViewById(R.id.etPassword);
-        ivTogglePassword = findViewById(R.id.ivTogglePassword);
-        btnConnect       = findViewById(R.id.btnConnect);
-    }
+    // ─── Connect Button Click ────────────────────────────────────────────────
 
-    // ── Spinner ────────────────────────────────────────────────────────────
-    private void setupSpinner() {
+    private void setupConnectButton() {
+        binding.btnConnect.setOnClickListener(v -> {
+            String enteredPassword = binding.etPassword.getText().toString().trim();
+            String correctPassword = "123456";
 
-        ArrayAdapter<String> adapter = new ArrayAdapter<String>(
-                this,
-                android.R.layout.simple_spinner_item,
-                siteList) {
-
-            // Closed row shown in the field
-            @NonNull
-            @Override
-            public View getView(int position, @Nullable View convertView,
-                                @NonNull ViewGroup parent) {
-                View     view = super.getView(position, convertView, parent);
-                TextView tv   = view.findViewById(android.R.id.text1);
-                // index-0 = hint (grey), rest = white
-                tv.setTextColor(position == 0 ? 0xFF666666 : 0xFFFFFFFF);
-                tv.setTextSize(15f);
-                return view;
-            }
-
-            // Rows shown in the dropdown popup
-            @Override
-            public View getDropDownView(int position, @Nullable View convertView,
-                                        @NonNull ViewGroup parent) {
-                View     view = super.getDropDownView(position, convertView, parent);
-                TextView tv   = view.findViewById(android.R.id.text1);
-                tv.setTextColor(position == 0 ? 0xFF666666 : 0xFFFFFFFF);
-                tv.setBackgroundColor(0xFF1A1A1A);
-                tv.setPadding(40, 28, 40, 28);
-                tv.setTextSize(15f);
-                return view;
-            }
-        };
-
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerSiteId.setAdapter(adapter);
-
-        spinnerSiteId.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
-            @Override
-            public void onItemSelected(AdapterView<?> parent, View view,
-                                       int position, long id) {
-                // position 0 = placeholder → treat as empty
-                selectedSite = (position == 0) ? "" : siteList.get(position);
-            }
-
-            @Override
-            public void onNothingSelected(AdapterView<?> parent) {
-                selectedSite = "";
-            }
-        });
-    }
-
-    // ── Password toggle ────────────────────────────────────────────────────
-    private void setupPasswordToggle() {
-        ivTogglePassword.setOnClickListener(v -> {
-            isPasswordVisible = !isPasswordVisible;
-
-            if (isPasswordVisible) {
-                // Show password
-                etPassword.setTransformationMethod(
-                        HideReturnsTransformationMethod.getInstance());
-                ivTogglePassword.setImageResource(R.drawable.eye);
+            if (enteredPassword.equals(correctPassword)) {
+                hideError();
+                // TODO: navigate to next screen
+                // Intent intent = new Intent(this, NextActivity.class);
+                // startActivity(intent);
             } else {
-                // Hide password
-                etPassword.setTransformationMethod(
-                        PasswordTransformationMethod.getInstance());
-                ivTogglePassword.setImageResource(R.drawable.eye);
+                showError("Incorrect Site ID or password. Please try again.");
             }
-
-            // Move cursor to end so it doesn't jump
-            etPassword.setSelection(etPassword.getText().length());
         });
     }
 
-    // ── Click listeners ────────────────────────────────────────────────────
-    private void setupClickListeners() {
+    // ─── Back ────────────────────────────────────────────────────────────────
 
-        // Back
-        btnBack.setOnClickListener(v -> onBackPressed());
+    private void setupBackButton() {
+        binding.layoutBack.setOnClickListener(v ->
+                getOnBackPressedDispatcher().onBackPressed()
+        );
+    }
 
-        // Connect
-        btnConnect.setOnClickListener(v -> {
+    // ─── Dropdown ────────────────────────────────────────────────────────────
 
-            String password = etPassword.getText().toString().trim();
+    private void setupDropdown() {
+        SiteDropdownAdapter adapter = new SiteDropdownAdapter();
+        binding.listViewSites.setAdapter(adapter);
 
-            // Validation
-            if (selectedSite.isEmpty()) {
-                Toast.makeText(this,
-                        "Please select a site", Toast.LENGTH_SHORT).show();
-                return;
-            }
+        // Toggle open/close on trigger tap
+        binding.layoutSiteDropdown.setOnClickListener(v -> {
+            isDropdownOpen = !isDropdownOpen;
+            binding.cardDropdownPanel.setVisibility(isDropdownOpen ? View.VISIBLE : View.GONE);
+            binding.imgDropdownArrow.setRotation(isDropdownOpen ? 180f : 0f);
+        });
 
-            if (password.isEmpty()) {
-                etPassword.setError("Password is required");
-                etPassword.requestFocus();
-                return;
-            }
+        // Item click → select + collapse
+        binding.listViewSites.setOnItemClickListener((parent, view, position, id) -> {
+            selectedSiteIndex = position;
+            adapter.notifyDataSetChanged();
 
-            // ✅ All good — trigger connect
-            onConnect(selectedSite, password);
+            // Update trigger text
+            binding.tvSelectedSite.setText(siteList.get(position));
+            binding.tvSelectedSite.setTextColor(Color.parseColor("#F2F2F2"));
+
+            // Collapse panel
+            isDropdownOpen = false;
+            binding.cardDropdownPanel.setVisibility(View.GONE);
+            binding.imgDropdownArrow.setRotation(0f);
+
+            updateButtonState();
         });
     }
 
-    // ── Connect action ─────────────────────────────────────────────────────
-    private void onConnect(String site, String password) {
-        // TODO: replace with your ViewModel / API call
-        Toast.makeText(this,
-                "Connecting to " + site + "…", Toast.LENGTH_SHORT).show();
+    // ─── Password ────────────────────────────────────────────────────────────
+
+    private void setupPasswordField() {
+        binding.etPassword.addTextChangedListener(new TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(Editable s) {
+                hideError(); // hide error when user starts typing
+                updateButtonState();
+            }
+        });
+    }
+
+    private void setupTogglePassword() {
+        binding.imgTogglePassword.setOnClickListener(v -> {
+            isPasswordVisible = !isPasswordVisible;
+            binding.etPassword.setTransformationMethod(
+                    isPasswordVisible
+                            ? HideReturnsTransformationMethod.getInstance()
+                            : PasswordTransformationMethod.getInstance()
+            );
+            binding.imgTogglePassword.setImageResource(
+                    isPasswordVisible ? R.drawable.eye : R.drawable.eye
+            );
+            binding.etPassword.setSelection(binding.etPassword.getText().length());
+        });
+    }
+
+    // ─── Button State ─────────────────────────────────────────────────────────
+
+    private void updateButtonState() {
+        String password = binding.etPassword.getText().toString().trim();
+        boolean ready = selectedSiteIndex != -1 && !password.isEmpty();
+        if (ready) setButtonActive(); else setButtonInactive();
+    }
+
+    // ─── Error Message ───────────────────────────────────────────────────────
+
+    public void showError(String message) {
+        binding.tvErrorMessage.setText(message);
+        binding.layoutError.setVisibility(View.VISIBLE);
+    }
+
+    public void hideError() {
+        binding.layoutError.setVisibility(View.GONE);
+    }
+
+    private void setButtonActive() {
+        binding.btnConnect.setEnabled(true);
+        binding.btnConnect.setTextColor(Color.WHITE);
+        binding.btnConnect.setBackgroundTintList(
+                ColorStateList.valueOf(Color.parseColor("#00A1F1"))
+        );
+    }
+
+    private void setButtonInactive() {
+        binding.btnConnect.setEnabled(false);
+        binding.btnConnect.setTextColor(Color.parseColor("#666666"));
+        binding.btnConnect.setBackgroundTintList(
+                ColorStateList.valueOf(Color.parseColor("#232323"))
+        );
+    }
+
+    // ─── Dropdown Adapter ─────────────────────────────────────────────────────
+
+    private class SiteDropdownAdapter extends BaseAdapter {
+
+        @Override
+        public int getCount() { return siteList.size(); }
+
+        @Override
+        public Object getItem(int position) { return siteList.get(position); }
+
+        @Override
+        public long getItemId(int position) { return position; }
+
+        @Override
+        public View getView(int position, View convertView, ViewGroup parent) {
+            if (convertView == null) {
+                convertView = LayoutInflater.from(Site_CredentialsActivity.this)
+                        .inflate(R.layout.item_site_dropdown, parent, false);
+            }
+
+            TextView tvName   = convertView.findViewById(R.id.tvSiteName);
+            RadioButton rb    = convertView.findViewById(R.id.rbSite);
+
+            tvName.setText(siteList.get(position));
+            rb.setChecked(position == selectedSiteIndex);
+
+            return convertView;
+        }
     }
 }

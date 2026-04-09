@@ -232,6 +232,11 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     LiveData<Provisioner> getSelectedProvisioner()      { return mSelectedProvisioner; }
     LiveData<MeshModel>  getSelectedModel()             { return mSelectedModel; }
 
+    // Fields section mein add karo
+    private final MutableLiveData<Boolean> mIsAutoSetupInProgress = new MutableLiveData<>();
+    // Getter
+    LiveData<Boolean> isAutoSetupInProgress() { return mIsAutoSetupInProgress; }
+
     void clearTransactionStatus() {
         if (mTransactionStatus.getValue() != null) mTransactionStatus.postValue(null);
     }
@@ -537,17 +542,18 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mProvisioningStateLiveData.onMeshNodeStateUpdated(
                 ProvisionerStates.fromStatusCode(state.getState()));
     }
-
     private void onProvisioningCompleted(final ProvisionedMeshNode node) {
         mIsProvisioningComplete = true;
         mProvisionedMeshNode    = node;
+
+        mIsAutoSetupInProgress.postValue(true); // ✅ SIRF YEH LINE ADD KARO
+
         mIsReconnecting.postValue(true);
         mBleMeshManager.disconnect().enqueue();
         loadNodes();
         mHandler.post(() -> mConnectionState.postValue("Scanning for provisioned node"));
         mHandler.postDelayed(mReconnectRunnable, 1000);
     }
-
     private void loadNodes() {
         final List<ProvisionedMeshNode> nodes = new ArrayList<>();
         final String provisionerUuid = mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
@@ -989,10 +995,12 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // AUTO APP KEY BIND
     // =========================================================================
     private void startAutoAppKeyBind(@NonNull final ProvisionedMeshNode node) {
-
+        mIsAutoSetupInProgress.postValue(true);
         final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
+
             Log.w(TAG_BIND, "startAutoAppKeyBind: No AppKey — skip.");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
         final int appKeyIndex = appKeys.get(0).getKeyIndex();
@@ -1075,6 +1083,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         if (mPendingBindOperations.isEmpty()) {
             if (isClientNode) saveClientElementAddresses(node);
             mAutoBindNode = null;
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
@@ -1112,6 +1121,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             if (isServerNode) {
                 final ProvisionedMeshNode serverNode = mAutoBindNode;
                 mHandler.postDelayed(() -> triggerAutoPublication(serverNode), 2000);
+            } else {
+                // Client-only node — setup complete, progress band karo
+                mIsAutoSetupInProgress.postValue(false);
             }
 
             mAutoBindNode        = null;
@@ -1226,6 +1238,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         if (clientElementAddr == -1 || clientUnicast == -1) {
             Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId="
                     + serverSvgId + " — publication skipped");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
@@ -1274,6 +1287,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             } catch (Exception e) {
                 Log.e(TAG_BIND, "❌ PUB STEP2 (reverse) failed: " + e.getMessage());
             }
+            mIsAutoSetupInProgress.postValue(false); // ← ADD (success & failure dono pe)
         }, 1500);
     }
 

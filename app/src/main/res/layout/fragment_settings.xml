@@ -43,12 +43,14 @@
                 <include
                     android:id="@+id/container_network_name"
                     layout="@layout/layout_container"
+                    android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
                 <include
                     android:id="@+id/container_provisioners"
                     layout="@layout/layout_container"
+                    android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
@@ -67,18 +69,21 @@
                 <include
                     android:id="@+id/container_scenes"
                     layout="@layout/layout_container"
+                    android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
                 <include
                     android:id="@+id/container_iv_test_mode"
                     layout="@layout/layout_container"
+                    android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
                 <include
                     android:id="@+id/container_last_modified"
                     layout="@layout/layout_container"
+                    android:visibility="gone"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
@@ -124,6 +129,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/activity_horizontal_margin"
+            android:visibility="gone"
             app:cardElevation="1dp">
 
             <LinearLayout

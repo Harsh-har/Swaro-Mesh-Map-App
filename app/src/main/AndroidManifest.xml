@@ -51,7 +51,11 @@
         <activity
             android:name=".DevicesFilterActivity"
             android:exported="false" />
+        <activity
+            android:name=".swajaui.HomeActivity"
+            android:exported="true" >
 
+        </activity>
 
         <activity
             android:name=".MainActivity"
@@ -84,6 +88,19 @@
             </intent-filter>
         </activity-alias>
 
+        <activity
+            android:name=".swajaui.IdentifyActivity"
+            android:launchMode="singleTop" />
+
+        <activity
+            android:name=".swajaui.Select_ActionActivity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".swajaui.ImportMap_Activity"
+            android:launchMode="singleTop" />
+        <activity
+            android:name=".swajaui.Site_CredentialsActivity"
+            android:launchMode="singleTop" />
         <activity
             android:name=".ble.ScannerActivity"
             android:launchMode="singleTop" />

@@ -27,6 +27,8 @@ import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
+
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
 import org.w3c.dom.Document;
@@ -57,6 +59,7 @@ import javax.xml.transform.stream.StreamResult;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
+import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
 public class NetworkFragment extends Fragment {
@@ -77,6 +80,10 @@ public class NetworkFragment extends Fragment {
     private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
 
     private FragmentNetworkBinding binding;
+
+    // ── AutoSetup progress flag ───────────────────────────────────────────────
+    private boolean mAutoSetupInProgress = false;
+    private SharedViewModel mViewModel;
 
     private final ExecutorService loadExecutor   = Executors.newSingleThreadExecutor();
     private final ExecutorService renderExecutor = Executors.newSingleThreadExecutor();
@@ -145,6 +152,42 @@ public class NetworkFragment extends Fragment {
                              @Nullable Bundle savedInstanceState) {
         binding = FragmentNetworkBinding.inflate(inflater, container, false);
         setupZoomAndPan();
+
+        mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
+
+        // ── Observer: AutoSetup progress ──────────────────────────────────────
+        mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
+            if (binding == null) return;
+            mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
+            if (mAutoSetupInProgress) {
+                binding.autoSetupOverlay.setVisibility(View.VISIBLE);
+                binding.progressBar.setVisibility(View.GONE);
+                binding.svgView.setOnTouchListener(null);
+                Log.d(TAG, "🔄 AutoSetup IN PROGRESS");
+            } else {
+                binding.autoSetupOverlay.setVisibility(View.GONE);
+                binding.svgView.setOnTouchListener(this::handleTouch);
+                Log.d(TAG, "✅ AutoSetup DONE");
+
+                if (svgDocument != null && !deviceMap.isEmpty()) {
+                    selectedDeviceId = null;
+                    Set<String> provisioned = getProvisionedFromPrefs();
+                    refreshAllColors(provisioned);
+                    reRenderSvg();
+                }
+            }
+        });
+
+        // ✅ ADD — provisioned devices change hone pe SVG auto-refresh
+        mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), provisionedIds -> {
+            if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
+            if (mAutoSetupInProgress) return;
+            Log.d(TAG, "provisionedDeviceIds changed — refreshing SVG: " + provisionedIds);
+            selectedDeviceId = null;
+            refreshAllColors(provisionedIds);
+            reRenderSvg();
+        });
+
         showPlaceholder(true);
         loadSVGFromAssets("output.svg");
         return binding.getRoot();
@@ -153,13 +196,31 @@ public class NetworkFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
+
+        if (mViewModel != null) {
+            Boolean inProgress = mViewModel.isAutoSetupInProgress().getValue();
+            mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
+            if (binding != null) {
+                if (mAutoSetupInProgress) {
+                    binding.autoSetupOverlay.setVisibility(View.VISIBLE);
+                    binding.svgView.setOnTouchListener(null);
+                } else {
+                    binding.svgView.setOnTouchListener(this::handleTouch);
+                }
+            }
+        }
+
         if (svgDocument == null || deviceMap.isEmpty()) return;
+
+        if (mAutoSetupInProgress) return;
+
         selectedDeviceId = null;
         Set<String> provisioned = getProvisionedFromPrefs();
         Log.d(TAG, "onResume — provisioned: " + provisioned);
         refreshAllColors(provisioned);
         reRenderSvg();
     }
+
 
     @Override
     public void onDestroyView() {
@@ -190,7 +251,10 @@ public class NetworkFragment extends Fragment {
         if (show) {
             binding.svgPlaceholder.setVisibility(View.VISIBLE);
             binding.svgView.setVisibility(View.GONE);
-            binding.progressBar.setVisibility(View.GONE);
+            // AutoSetup chal raha ho toh progressBar mat chhuao
+            if (!mAutoSetupInProgress) {
+                binding.progressBar.setVisibility(View.GONE);
+            }
         } else {
             binding.svgPlaceholder.setVisibility(View.GONE);
             binding.svgView.setVisibility(View.VISIBLE);
@@ -204,7 +268,10 @@ public class NetworkFragment extends Fragment {
             binding.svgPlaceholder.setVisibility(View.GONE);
             binding.svgView.setVisibility(View.GONE);
         } else {
-            binding.progressBar.setVisibility(View.GONE);
+            // AutoSetup chal raha ho toh progressBar hide mat karo
+            if (!mAutoSetupInProgress) {
+                binding.progressBar.setVisibility(View.GONE);
+            }
         }
     }
 
@@ -241,8 +308,6 @@ public class NetworkFragment extends Fragment {
 
                 if (document != null) parseViewBox(document);
                 Map<String, DeviceInfo> devices = extractDevices(document);
-
-                // ── NEW: parse Relations ────────────────────────────────────
                 Map<String, Set<String>> relations = parseRelations(document);
 
                 mainHandler.post(() -> {
@@ -251,7 +316,6 @@ public class NetworkFragment extends Fragment {
                     deviceMap.clear();
                     deviceMap.putAll(devices);
 
-                    // ── NEW: store relations ────────────────────────────────
                     iconToDeviceRelations.clear();
                     iconToDeviceRelations.putAll(relations);
                     Log.d(TAG, "Relations parsed: " + iconToDeviceRelations);
@@ -340,7 +404,6 @@ public class NetworkFragment extends Fragment {
         if (deviceMap.isEmpty()) { Log.w(TAG, "No icon devices found"); return; }
         for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
             DeviceInfo d = e.getValue();
-
         }
     }
 
@@ -396,49 +459,38 @@ public class NetworkFragment extends Fragment {
     }
 
     // ==================== RELATION PARSING ====================
+
     private Map<String, Set<String>> parseRelations(Document document) {
         Map<String, Set<String>> result = new HashMap<>();
-
         if (document == null) return result;
 
-        // Find <g id="Relation">
         Element relationGroup = findElementById(
                 document.getDocumentElement(), "Relation");
-
         if (relationGroup == null) {
             Log.w(TAG, "No <g id='Relation'> found — no relations loaded");
             return result;
         }
 
-        // Get all text inside Relation group
         String rawText = relationGroup.getTextContent();
         if (rawText == null || rawText.trim().isEmpty()) return result;
 
-        // ✅ UPDATED REGEX (supports multi-word iconId like "Relay Node")
         Pattern pattern = Pattern.compile(
                 "\\(\\s*([\\w-]+(?:\\s+[\\w-]+)*)\\s+([\\w-]+)\\s*\\)");
-
         Matcher matcher = pattern.matcher(rawText);
 
         while (matcher.find()) {
             String iconId   = matcher.group(1).trim();
             String deviceId = matcher.group(2).trim();
-
             if (!iconId.isEmpty() && !deviceId.isEmpty()) {
-
-                // Get or create set
                 Set<String> related = result.get(iconId);
                 if (related == null) {
                     related = new HashSet<>();
                     result.put(iconId, related);
                 }
-
                 related.add(deviceId);
-
                 Log.d(TAG, "Relation parsed: " + iconId + " → " + deviceId);
             }
         }
-
         return result;
     }
 
@@ -468,23 +520,19 @@ public class NetworkFragment extends Fragment {
 
     private void scanForLeafIcons(Element el, Map<String, DeviceInfo> devices) {
         String id = el.getAttribute("id");
-
         if (!id.isEmpty() && hasDirectRectChild(el)) {
             if (!hasDirectGChild(el)) {
                 processDeviceElement(el, devices);
                 return;
             }
         }
-
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element) {
                 String tag = ((Element) child).getTagName().toLowerCase();
                 if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-                if ("g".equals(tag)) {
-                    scanForLeafIcons((Element) child, devices);
-                }
+                if ("g".equals(tag)) scanForLeafIcons((Element) child, devices);
             }
         }
     }
@@ -596,13 +644,8 @@ public class NetworkFragment extends Fragment {
         return new RectF(cxv - rx, cyv - ry, cxv + rx, cyv + ry);
     }
 
-    private RectF computePathBounds(Element el) {
-        return parsePathBounds(el.getAttribute("d"));
-    }
-
-    private RectF computePolyBounds(Element el) {
-        return parsePointsBounds(el.getAttribute("points"));
-    }
+    private RectF computePathBounds(Element el)  { return parsePathBounds(el.getAttribute("d")); }
+    private RectF computePolyBounds(Element el)  { return parsePointsBounds(el.getAttribute("points")); }
 
     private RectF computeLineBounds(Element el) {
         Float x1 = fa(el,"x1"), y1 = fa(el,"y1"),
@@ -705,9 +748,7 @@ public class NetworkFragment extends Fragment {
 
     // ==================== METADATA ====================
 
-    private String extractElementId(Element element) {
-        return findElementIdInNode(element);
-    }
+    private String extractElementId(Element element) { return findElementIdInNode(element); }
 
     private String findElementIdInNode(Node node) {
         if (node instanceof Element) {
@@ -729,15 +770,8 @@ public class NetworkFragment extends Fragment {
 
     // ==================== SVG RENDERING ====================
 
-    private void renderSvg(SVG svg) {
-        renderSvg(svg, false);
-    }
+    private void renderSvg(SVG svg) { renderSvg(svg, false); }
 
-    /**
-     * @param applyDomChanges true hone pe fitToView ke baad reRenderSvg() call hoga
-     *                        taaki DOM changes (hide/show) sahi matrix ke saath reflect hon.
-     *                        App open / SVG load ke time true pass karo.
-     */
     private void renderSvg(SVG svg, boolean applyDomChanges) {
         try {
             int renderW = Math.max(1, (int) vbW);
@@ -748,14 +782,14 @@ public class NetworkFragment extends Fragment {
             binding.svgView.setImageDrawable(drawable);
             binding.svgView.setVisibility(View.VISIBLE);
             binding.svgPlaceholder.setVisibility(View.GONE);
-            binding.progressBar.setVisibility(View.GONE);
+            // AutoSetup chal raha ho toh progressBar hide mat karo
+            if (!mAutoSetupInProgress) {
+                binding.progressBar.setVisibility(View.GONE);
+            }
             binding.svgView.post(() -> {
-                fitToView();               // pehle matrix fit hogi
+                fitToView();
                 binding.svgView.invalidate();
-                if (applyDomChanges) {
-                    // fitToView ke baad matrix ready hai — ab DOM changes render karo
-                    reRenderSvg();
-                }
+                if (applyDomChanges) reRenderSvg();
             });
         } catch (Exception e) {
             Log.e(TAG, "Error rendering SVG", e);
@@ -832,9 +866,7 @@ public class NetworkFragment extends Fragment {
                 if ("rect".equals(tag)) {
                     int    key  = System.identityHashCode((Element) child);
                     String fill = ((Element) child).getAttribute("fill");
-                    if (fill != null && !fill.isEmpty()) {
-                        originalFillMap.put(key, fill);
-                    }
+                    if (fill != null && !fill.isEmpty()) originalFillMap.put(key, fill);
                     return;
                 }
             }
@@ -843,45 +875,34 @@ public class NetworkFragment extends Fragment {
 
     private void snapshotDevicesGroupFills(Document document) {
         if (document == null) return;
-        Element devicesGroup = findElementById(
-                document.getDocumentElement(), "Devices");
+        Element devicesGroup = findElementById(document.getDocumentElement(), "Devices");
         if (devicesGroup == null) {
             Log.w(TAG, "No <g id='Devices'> found for snapshot");
             return;
         }
         snapshotElementFillsRecursive(devicesGroup);
-        Log.d(TAG, "Devices group snapshot complete: "
-                + devicesOriginalFill.size() + " elements");
+        Log.d(TAG, "Devices group snapshot complete: " + devicesOriginalFill.size() + " elements");
     }
 
     private void snapshotElementFillsRecursive(Element el) {
         String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty()) {
+        if (fill != null && !fill.isEmpty())
             devicesOriginalFill.put(System.identityHashCode(el), fill);
-        }
         String style = el.getAttribute("style");
-        if (style != null && style.contains("fill")) {
-            devicesOriginalFill.put(System.identityHashCode(el),
-                    extractFillFromStyle(style));
-        }
-
+        if (style != null && style.contains("fill"))
+            devicesOriginalFill.put(System.identityHashCode(el), extractFillFromStyle(style));
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
-            if (child instanceof Element) {
-                snapshotElementFillsRecursive((Element) child);
-            }
+            if (child instanceof Element) snapshotElementFillsRecursive((Element) child);
         }
     }
 
     private String extractFillFromStyle(String style) {
         if (style == null) return COLOR_TRANSPARENT;
-        String[] parts = style.split(";");
-        for (String part : parts) {
+        for (String part : style.split(";")) {
             part = part.trim();
-            if (part.startsWith("fill:")) {
-                return part.substring(5).trim();
-            }
+            if (part.startsWith("fill:")) return part.substring(5).trim();
         }
         return COLOR_TRANSPARENT;
     }
@@ -911,9 +932,7 @@ public class NetworkFragment extends Fragment {
                 if ("rect".equals(tag)) {
                     int    key      = System.identityHashCode((Element) child);
                     String origFill = originalFillMap.get(key);
-                    if (origFill != null) {
-                        ((Element) child).setAttribute("fill", origFill);
-                    }
+                    if (origFill != null) ((Element) child).setAttribute("fill", origFill);
                     return;
                 }
             }
@@ -922,29 +941,13 @@ public class NetworkFragment extends Fragment {
 
     // ==================== SELECTIVE DEVICE VISIBILITY ====================
 
-    /**
-     * Devices group ke sabhi elements ko pehle transparent karo,
-     * phir sirf jinke deviceIds set mein hain unhe COLOR_DEVICE_ACTIVE karo.
-     *
-     * @param activeDeviceIds jo devices dikhani hain (empty = sab hide)
-     */
     private void showOnlyRelatedDevices(Set<String> activeDeviceIds) {
         if (svgDocument == null) return;
-
-        Element devicesGroup = findElementById(
-                svgDocument.getDocumentElement(), "Devices");
-        if (devicesGroup == null) {
-            Log.w(TAG, "No <g id='Devices'> found");
-            return;
-        }
-
-        // Step 1: Pehle poore Devices group ko transparent karo
+        Element devicesGroup = findElementById(svgDocument.getDocumentElement(), "Devices");
+        if (devicesGroup == null) { Log.w(TAG, "No <g id='Devices'> found"); return; }
         applyColorToAllElements(devicesGroup, COLOR_TRANSPARENT);
-
-        // Step 2: Sirf related device sub-groups ko highlight karo
         for (String deviceId : activeDeviceIds) {
-            Element deviceEl = findElementById(
-                    devicesGroup, deviceId);
+            Element deviceEl = findElementById(devicesGroup, deviceId);
             if (deviceEl != null) {
                 applyColorToAllElements(deviceEl, COLOR_DEVICE_ACTIVE);
                 Log.d(TAG, "Showing device: " + deviceId + " → " + COLOR_DEVICE_ACTIVE);
@@ -954,75 +957,37 @@ public class NetworkFragment extends Fragment {
         }
     }
 
-    /**
-     * Poore Devices group ko transparent karo.
-     * Use karo jab koi icon provisioned nahi hai.
-     */
     private void hideAllDevices() {
         if (svgDocument == null) return;
-        Element devicesGroup = findElementById(
-                svgDocument.getDocumentElement(), "Devices");
+        Element devicesGroup = findElementById(svgDocument.getDocumentElement(), "Devices");
         if (devicesGroup == null) return;
         applyColorToAllElements(devicesGroup, COLOR_TRANSPARENT);
         Log.d(TAG, "All devices hidden");
     }
 
-    /**
-     * Element aur uske SAARE descendants ka fill update karo.
-     */
     private void applyColorToAllElements(Element el, String color) {
         String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty()) {
-            el.setAttribute("fill", color);
-        }
+        if (fill != null && !fill.isEmpty()) el.setAttribute("fill", color);
         String style = el.getAttribute("style");
         if (style != null && !style.isEmpty() && style.contains("fill")) {
-            String newStyle = style.replaceAll(
-                    "fill\\s*:\\s*[^;]+",
-                    "fill:" + color);
-            el.setAttribute("style", newStyle);
+            el.setAttribute("style", style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + color));
         }
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
-            if (child instanceof Element) {
-                applyColorToAllElements((Element) child, color);
-            }
+            if (child instanceof Element) applyColorToAllElements((Element) child, color);
         }
-    }
-
-    /**
-     * UNUSED - removed, replaced by per-icon logic in refreshAllColors
-     */
-    private void hideAllIcons_unused() {
-        if (svgDocument == null) return;
-        Element iconsGroup = findElementById(
-                svgDocument.getDocumentElement(), "Icons");
-        if (iconsGroup == null) {
-            Log.w(TAG, "No <g id='Icons'> found for hideAllIcons");
-            return;
-        }
-        // Har registered icon ka rect transparent karo
-        for (DeviceInfo info : deviceMap.values()) {
-            applyColorToDevice(info.element, COLOR_TRANSPARENT);
-        }
-        Log.d(TAG, "All icons hidden");
     }
 
     private void refreshAllColors(Set<String> provisionedIds) {
         if (deviceMap.isEmpty()) return;
-
         Set<String> devicesToShow = new HashSet<>();
-
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
-
             boolean isProvisioned = provisionedIds != null && provisionedIds.contains(id);
             boolean isSelected    = id.equals(selectedDeviceId);
-
             if (isProvisioned) {
-
                 applyColorToDevice(info.element, COLOR_TRANSPARENT);
                 Set<String> related = getRelatedDeviceIds(id);
                 devicesToShow.addAll(related);
@@ -1034,11 +999,8 @@ public class NetworkFragment extends Fragment {
                 restoreOriginalColors(info.element);
             }
         }
-        if (devicesToShow.isEmpty()) {
-            hideAllDevices();
-        } else {
-            showOnlyRelatedDevices(devicesToShow);
-        }
+        if (devicesToShow.isEmpty()) hideAllDevices();
+        else showOnlyRelatedDevices(devicesToShow);
     }
 
     // ==================== TOUCH ====================
@@ -1051,10 +1013,8 @@ public class NetworkFragment extends Fragment {
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     @Override public boolean onScale(ScaleGestureDetector d) {
                         float cur  = getScale();
-                        float next = Math.max(minZoom, Math.min(MAX_ZOOM,
-                                cur * d.getScaleFactor()));
-                        matrix.postScale(next / cur, next / cur,
-                                d.getFocusX(), d.getFocusY());
+                        float next = Math.max(minZoom, Math.min(MAX_ZOOM, cur * d.getScaleFactor()));
+                        matrix.postScale(next / cur, next / cur, d.getFocusX(), d.getFocusY());
                         clampMatrix();
                         binding.svgView.setImageMatrix(matrix);
                         return true;
@@ -1097,11 +1057,9 @@ public class NetworkFragment extends Fragment {
                 tapDownX    = event.getX(); tapDownY = event.getY();
                 tapDownTime = event.getEventTime(); hasMoved = false;
                 break;
-
             case MotionEvent.ACTION_POINTER_DOWN:
                 isDragging = false; hasMoved = true;
                 break;
-
             case MotionEvent.ACTION_MOVE:
                 if (!scaleDetector.isInProgress()) {
                     int idx = event.findPointerIndex(activePointerId);
@@ -1110,8 +1068,7 @@ public class NetworkFragment extends Fragment {
                     float dy  = event.getY(idx) - lastTouchY;
                     float tdx = event.getX(idx) - tapDownX;
                     float tdy = event.getY(idx) - tapDownY;
-                    if ((float) Math.sqrt(tdx * tdx + tdy * tdy) > TAP_MOVE_SLOP)
-                        hasMoved = true;
+                    if ((float) Math.sqrt(tdx * tdx + tdy * tdy) > TAP_MOVE_SLOP) hasMoved = true;
                     if (isDragging && (Math.abs(dx) > 0.5f || Math.abs(dy) > 0.5f)) {
                         matrix.postTranslate(dx, dy);
                         clampMatrix();
@@ -1121,26 +1078,19 @@ public class NetworkFragment extends Fragment {
                     lastTouchY = event.getY(idx);
                 }
                 break;
-
             case MotionEvent.ACTION_UP:
                 if (!hasMoved && !scaleDetector.isInProgress()
                         && (event.getEventTime() - tapDownTime) < TAP_MAX_DURATION)
                     handleSvgTap(tapDownX, tapDownY);
                 activePointerId = MotionEvent.INVALID_POINTER_ID;
                 isDragging = false; hasMoved = false;
-                if (velocityTracker != null) {
-                    velocityTracker.recycle(); velocityTracker = null;
-                }
+                if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
                 break;
-
             case MotionEvent.ACTION_CANCEL:
                 activePointerId = MotionEvent.INVALID_POINTER_ID;
                 isDragging = false; hasMoved = true;
-                if (velocityTracker != null) {
-                    velocityTracker.recycle(); velocityTracker = null;
-                }
+                if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
                 break;
-
             case MotionEvent.ACTION_POINTER_UP:
                 int pi  = event.getActionIndex();
                 int pid = event.getPointerId(pi);
@@ -1174,7 +1124,7 @@ public class NetworkFragment extends Fragment {
     }
 
     private String findDeviceAt(float svgX, float svgY) {
-        String bestId      = null;
+        String bestId       = null;
         float  smallestArea = Float.MAX_VALUE;
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             RectF bounds   = entry.getValue().bounds;
@@ -1184,10 +1134,7 @@ public class NetworkFragment extends Fragment {
             expanded.inset(inset, inset);
             if (expanded.contains(svgX, svgY)) {
                 float area = bounds.width() * bounds.height();
-                if (area < smallestArea) {
-                    smallestArea = area;
-                    bestId = entry.getKey();
-                }
+                if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
             }
         }
         return bestId;
@@ -1197,18 +1144,15 @@ public class NetworkFragment extends Fragment {
 
     private void onDeviceTapped(String deviceId) {
         Set<String> provisioned = getProvisionedFromPrefs();
-        DeviceInfo device = deviceMap.get(deviceId);
+        DeviceInfo  device      = deviceMap.get(deviceId);
 
-        // ✅ Highlight always (better UX)
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
 
-        if (device != null && device.element != null) {
+        if (device != null && device.element != null)
             applyColorToDevice(device.element, COLOR_SELECTED);
-        }
         reRenderSvg();
 
-        // ✅ Already provisioned → go to Test screen
         if (provisioned.contains(deviceId)) {
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
@@ -1219,7 +1163,6 @@ public class NetworkFragment extends Fragment {
             return;
         }
 
-        // ✅ Not provisioned → go to detail screen
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
@@ -1227,6 +1170,7 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
         startActivity(intent);
     }
+
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
         DeviceInfo  device      = deviceMap.get(selectedDeviceId);
@@ -1248,11 +1192,11 @@ public class NetworkFragment extends Fragment {
     private void clampMatrix() {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
-        float scale = Math.max(minZoom, Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
-        float dW    = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
-        float dH    = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
-        float vW    = binding.svgView.getWidth();
-        float vH    = binding.svgView.getHeight();
+        float scale  = Math.max(minZoom, Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
+        float dW     = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
+        float dH     = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+        float vW     = binding.svgView.getWidth();
+        float vH     = binding.svgView.getHeight();
         float transX = matrixValues[Matrix.MTRANS_X];
         float transY = matrixValues[Matrix.MTRANS_Y];
         float minTX  = (dW < vW) ? (vW-dW)/2f : Math.min(0f, vW-dW);

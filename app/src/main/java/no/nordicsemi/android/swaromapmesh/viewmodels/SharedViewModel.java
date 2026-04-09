@@ -214,12 +214,15 @@ public class SharedViewModel extends BaseViewModel
             prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, rebuilt).apply();
             provisionedDeviceIds.setValue(new HashSet<>(rebuilt));
             Log.d(TAG, "✅ rebuildProvisionedFromMesh complete — provisioned: " + rebuilt);
-        } else {
+        }
+        else {
             Log.w(TAG, "rebuildProvisionedFromMesh: nothing to rebuild");
         }
 
-        // NetworkFragment ko trigger karo (onResume ya LiveData observer ke through)
-        forceSvgRefresh();
+        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            forceSvgRefresh();
+            Log.d(TAG, "🔄 forceSvgRefresh after import delay");
+        }, 1500);
     }
 
     // =========================================================================
@@ -788,5 +791,8 @@ public class SharedViewModel extends BaseViewModel
         public int    getAddress()            { return address; }
         public String getClientDeviceId()     { return clientDeviceId; }
         public int    getClientElementIndex() { return clientElementIndex; }
+    }
+    public LiveData<Boolean> isAutoSetupInProgress() {
+        return mNrfMeshRepository.isAutoSetupInProgress();
     }
 }

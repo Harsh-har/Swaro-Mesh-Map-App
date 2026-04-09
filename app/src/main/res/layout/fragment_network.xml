@@ -12,12 +12,13 @@
     <ProgressBar
         android:id="@+id/progress_bar"
         style="?android:attr/progressBarStyleLarge"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_width="60dp"
+        android:layout_height="60dp"
         android:layout_gravity="center"
+        android:indeterminateTint="#F2F2F2"
         android:visibility="gone" />
 
-    <!-- PLACEHOLDER: shown before SVG is imported -->
+    <!-- PLACEHOLDER -->
     <LinearLayout
         android:id="@+id/svg_placeholder"
         android:layout_width="match_parent"
@@ -54,7 +55,7 @@
 
     </LinearLayout>
 
-    <!-- SVG MAP: zoom/pan/click -->
+    <!-- SVG MAP -->
     <ImageView
         android:id="@+id/svg_view"
         android:layout_width="match_parent"
@@ -64,5 +65,34 @@
         android:adjustViewBounds="true"
         android:background="@color/black"
         android:contentDescription="SVG Map" />
+
+    <!-- AutoSetup overlay — SABSE LAST MEIN TAAKI SAB KE UPAR AAYE -->
+    <LinearLayout
+        android:id="@+id/auto_setup_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_gravity="center"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:background="#CC000000"
+        android:padding="24dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:id="@+id/progress_bar_setup"
+            style="?android:attr/progressBarStyleLarge"
+            android:layout_width="54dp"
+            android:layout_height="54dp"
+            android:indeterminateTint="#F2F2F2" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Setting up device..."
+            android:textColor="#F2F2F2"
+            android:textSize="16sp" />
+
+    </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

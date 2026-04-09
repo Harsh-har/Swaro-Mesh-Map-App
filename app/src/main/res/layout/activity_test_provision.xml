@@ -230,7 +230,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:layout_marginBottom="10dp"
-                        android:text="Test With MQQT"
+                        android:text="Test With MQTT"
                         android:textColor="@android:color/white"
                         app:backgroundTint="#333333"
                         app:cornerRadius="8dp"

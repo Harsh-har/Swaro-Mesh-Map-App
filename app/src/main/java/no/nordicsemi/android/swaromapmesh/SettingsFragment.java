@@ -162,13 +162,13 @@ public class SettingsFragment extends Fragment implements
                                 getString(R.string.iv_test_mode_info))
                         .show(getChildFragmentManager(), null));
 
-        // ── Last Modified ─────────────────────────────────────────────────────
-        binding.containerLastModified.image
-                .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_time));
-        binding.containerLastModified.title.setText(R.string.last_modified);
-        binding.containerLastModified.text.setVisibility(View.VISIBLE);
-        binding.containerLastModified.getRoot().setVisibility(View.VISIBLE);
-        binding.containerLastModified.getRoot().setClickable(false);
+//        // ── Last Modified ─────────────────────────────────────────────────────
+//        binding.containerLastModified.image
+//                .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_time));
+//        binding.containerLastModified.title.setText(R.string.last_modified);
+//        binding.containerLastModified.text.setVisibility(View.VISIBLE);
+//        binding.containerLastModified.getRoot().setVisibility(View.VISIBLE);
+//        binding.containerLastModified.getRoot().setClickable(true);
 
         // ── MQTT Settings row ─────────────────────────────────────────────────
         binding.containerMqtt.image
