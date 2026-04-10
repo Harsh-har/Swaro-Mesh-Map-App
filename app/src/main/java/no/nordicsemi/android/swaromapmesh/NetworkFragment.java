@@ -97,12 +97,13 @@ public class NetworkFragment extends Fragment {
         Element element;
         RectF bounds;
         String elementId;
+        String areaId;
 
-        DeviceInfo(String id, Element element, RectF bounds, String elementId) {
-            this.id        = id;
-            this.element   = element;
-            this.bounds    = bounds;
-            this.elementId = elementId;
+        DeviceInfo(String id, Element element, RectF bounds,
+                   String elementId, String areaId) {
+            this.id = id; this.element = element;
+            this.bounds = bounds; this.elementId = elementId;
+            this.areaId = areaId;
         }
     }
 
@@ -138,6 +139,7 @@ public class NetworkFragment extends Fragment {
     private final Map<Integer, String> devicesOriginalFill = new HashMap<>();
 
     private final Map<String, Set<String>> iconToDeviceRelations = new HashMap<>();
+    private final Map<String, List<String>> areaMap = new LinkedHashMap<>();
 
     private String selectedDeviceId;
 
@@ -155,7 +157,7 @@ public class NetworkFragment extends Fragment {
 
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 
-        // ── Observer: AutoSetup progress ──────────────────────────────────────
+        // ── AutoSetup observer (existing) ──
         mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
             if (binding == null) return;
             mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
@@ -178,7 +180,7 @@ public class NetworkFragment extends Fragment {
             }
         });
 
-        // ✅ ADD — provisioned devices change hone pe SVG auto-refresh
+        // ── Provisioned devices observer (existing) ──
         mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), provisionedIds -> {
             if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
             if (mAutoSetupInProgress) return;
@@ -188,11 +190,30 @@ public class NetworkFragment extends Fragment {
             reRenderSvg();
         });
 
-        showPlaceholder(true);
-        loadSVGFromAssets("output.svg");
+        // ✅ FIX: SVG URI observer - DYNAMIC IMPORT
+        mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
+            if (binding == null) return;
+
+            if (uri != null) {
+                Log.d(TAG, "📁 Loading dynamic SVG from URI: " + uri);
+                showLoading(true);
+                loadSvg(uri);  // ← Dynamic import yahan hoga
+            } else {
+                Log.d(TAG, "📁 No SVG URI, loading default asset: output.svg");
+                showPlaceholder(true);
+                loadSVGFromAssets("output.svg");
+            }
+        });
+
+        // Default load (agar observer trigger nahi hota)
+        if (mViewModel.getSvgUriValue() != null) {
+            loadSvg(mViewModel.getSvgUriValue());
+        } else {
+            loadSVGFromAssets("output.svg");
+        }
+
         return binding.getRoot();
     }
-
     @Override
     public void onResume() {
         super.onResume();
@@ -503,26 +524,51 @@ public class NetworkFragment extends Fragment {
 
     private Map<String, DeviceInfo> extractDevices(Document document) {
         Map<String, DeviceInfo> devices = new LinkedHashMap<>();
+        areaMap.clear();
         if (document == null) return devices;
         try {
-            Element iconsGroup = findElementById(document.getDocumentElement(), "Icons");
+            Element iconsGroup = findElementById(
+                    document.getDocumentElement(), "Icons");
             if (iconsGroup == null) {
-                Log.w(TAG, "No <g id='Icons'> found — scanning full document");
-                scanForLeafIcons(document.getDocumentElement(), devices);
-            } else {
-                scanForLeafIcons(iconsGroup, devices);
+                Log.w(TAG, "No <g id='Icons'> — scanning full doc");
+                scanForLeafIcons(document.getDocumentElement(), devices, null);
+                return devices;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "Error extracting icon devices", e);
-        }
+            // Icons ke direct child <g> = Area groups
+            NodeList areaNodes = iconsGroup.getChildNodes();
+            for (int i = 0; i < areaNodes.getLength(); i++) {
+                Node aNode = areaNodes.item(i);
+                if (!(aNode instanceof Element)) continue;
+                Element aEl = (Element) aNode;
+                String aTag = aEl.getTagName().toLowerCase();
+                if (aTag.contains(":")) aTag = aTag.substring(aTag.indexOf(':')+1);
+                if (!"g".equals(aTag)) continue;
+                String areaId = aEl.getAttribute("id");
+                if (areaId == null || areaId.isEmpty()) continue;
+                // Is area ke icons scan karo
+                int before = devices.size();
+                scanForLeafIcons(aEl, devices, areaId);
+                int added = devices.size() - before;
+                // areaMap mein track karo
+                List<String> iconIds = new ArrayList<>();
+                for (Map.Entry<String,DeviceInfo> e : devices.entrySet())
+                    if (areaId.equals(e.getValue().areaId)) iconIds.add(e.getKey());
+                areaMap.put(areaId, iconIds);
+                Log.d(TAG, "Area '" + areaId + "' → " + added + " icons");
+            }
+            Log.d(TAG, "Total areas: " + areaMap.size()
+                    + " | Total icons: " + devices.size());
+        } catch (Exception e) { Log.e(TAG, "Error extracting", e); }
         return devices;
     }
 
-    private void scanForLeafIcons(Element el, Map<String, DeviceInfo> devices) {
+    private void scanForLeafIcons(Element el,
+                                  Map<String, DeviceInfo> devices, String areaId) {
         String id = el.getAttribute("id");
         if (!id.isEmpty() && hasDirectRectChild(el)) {
             if (!hasDirectGChild(el)) {
-                processDeviceElement(el, devices);
+                processDeviceElement(el, devices, areaId);
+
                 return;
             }
         }
@@ -532,7 +578,8 @@ public class NetworkFragment extends Fragment {
             if (child instanceof Element) {
                 String tag = ((Element) child).getTagName().toLowerCase();
                 if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-                if ("g".equals(tag)) scanForLeafIcons((Element) child, devices);
+                if ("g".equals(tag)) scanForLeafIcons((Element)child, devices, areaId);
+
             }
         }
     }
@@ -562,17 +609,28 @@ public class NetworkFragment extends Fragment {
         }
         return false;
     }
-
-    private void processDeviceElement(Element el, Map<String, DeviceInfo> devices) {
-        String id = el.getAttribute("id");
+    private void processDeviceElement(Element el,
+                                      Map<String, DeviceInfo> devices, String areaId) {
+    String id = el.getAttribute("id");
         if (id == null || id.isEmpty() || devices.containsKey(id)) return;
         RectF bounds = computeBounds(el);
         if (bounds == null || bounds.isEmpty()) return;
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
-        devices.put(id, new DeviceInfo(id, el, bounds, elementId));
+        devices.put(id, new DeviceInfo(id, el, bounds, elementId, areaId));
+        Log.d(TAG, "Icon added: " + id + " | area: " + areaId);
     }
-
+    // Kisi area ke saare icon DeviceInfo objects lo
+    public List<DeviceInfo> getIconsInArea(String areaId) {
+        List<DeviceInfo> result = new ArrayList<>();
+        List<String> iconIds = areaMap.get(areaId);
+        if (iconIds == null) return result;
+        for (String id : iconIds) {
+            DeviceInfo info = deviceMap.get(id);
+            if (info != null) result.add(info);
+        }
+        return result;
+    }
     private Element findElementById(Element root, String targetId) {
         if (targetId.equals(root.getAttribute("id"))) return root;
         NodeList children = root.getChildNodes();

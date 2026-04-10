@@ -7,8 +7,9 @@
     <uses-feature
         android:name="android.hardware.bluetooth_le"
         android:required="true" />
-    <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
@@ -40,6 +41,9 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".swajaui.AreaSelectionActivity"
+            android:exported="false" />
+        <activity
             android:name=".MqttSettingsActivity"
             android:exported="false" />
         <activity
@@ -53,10 +57,7 @@
             android:exported="false" />
         <activity
             android:name=".swajaui.HomeActivity"
-            android:exported="true" >
-
-        </activity>
-
+            android:exported="true"></activity>
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -91,7 +92,6 @@
         <activity
             android:name=".swajaui.IdentifyActivity"
             android:launchMode="singleTop" />
-
         <activity
             android:name=".swajaui.Select_ActionActivity"
             android:launchMode="singleTop" />
@@ -198,7 +198,6 @@
         <activity
             android:name=".export.ExportNetworkActivity"
             android:launchMode="singleTop" />
-
     </application>
 
 </manifest>
