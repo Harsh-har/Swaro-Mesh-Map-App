@@ -1,6 +1,8 @@
 package no.nordicsemi.android.swaromapmesh;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -20,6 +22,8 @@ import androidx.lifecycle.ViewModelProvider;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.navigation.NavigationBarView;
 
+import java.util.ArrayList;
+
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMainBinding;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -29,18 +33,18 @@ public class MainActivity extends AppCompatActivity implements
         NavigationBarView.OnItemSelectedListener,
         NavigationBarView.OnItemReselectedListener {
 
-    private static final String TAG             = "MainActivity";
+    private static final String TAG              = "MainActivity";
     private static final String CURRENT_FRAGMENT = "CURRENT_FRAGMENT";
 
     private SharedViewModel mViewModel;
 
-    private NetworkFragment        mNetworkFragment;
-    private DevicesFilterActivity  mDevicesFilterFragment;
-    private GroupsFragment         mGroupsFragment;
-    private ProxyFilterFragment    mProxyFilterFragment;
-    private Fragment               mSettingsFragment;
-    private ActivityMainBinding    binding;
-    private BottomNavigationView   bottomNavigationView;
+    private NetworkFragment       mNetworkFragment;
+    private DevicesFilterActivity mDevicesFilterFragment;
+    private GroupsFragment        mGroupsFragment;
+    private ProxyFilterFragment   mProxyFilterFragment;
+    private Fragment              mSettingsFragment;
+    private ActivityMainBinding   binding;
+    private BottomNavigationView  bottomNavigationView;
 
     // ==================== LIFECYCLE ====================
 
@@ -50,6 +54,37 @@ public class MainActivity extends AppCompatActivity implements
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
 
+        // ✅ Check saved URI
+        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        String savedUri = prefs.getString("saved_svg_uri", null);
+
+        // ✅ Agar AreaListActivity se aaye hain toh redirect mat karo
+        boolean fromAreaList = getIntent().getBooleanExtra("from_area_list", false);
+
+        if (savedUri == null) {
+            // Pehli baar — HomeActivity pe bhejo
+            Intent intent = new Intent(this, no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        } else if (!fromAreaList) {
+            // App launch pe — AreaListActivity pe bhejo
+            Uri uri = Uri.parse(savedUri);
+            ArrayList<String> areaList = no.nordicsemi.android.swaromapmesh.swajaui.SvgParser
+                    .parseAreaIds(getContentResolver(), uri);
+            if (!areaList.isEmpty()) {
+                Intent intent = new Intent(this, no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+                intent.putExtra("svg_uri", savedUri);
+                intent.putStringArrayListExtra("area_list", areaList);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+                return;
+            }
+        }
+
+        // ✅ fromAreaList == true — seedha NetworkFragment dikhao
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
@@ -93,15 +128,10 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        setIntent(intent); // ← update stored intent
+        setIntent(intent);
         handleNavigationIntent(intent);
     }
 
-    /**
-     * ✅ Handles both:
-     *   - "navigate_to_network" → switch to Network tab
-     *   - "focus_area_id"       → set focusAreaId in ViewModel (same scope as NetworkFragment)
-     */
     private void handleNavigationIntent(Intent intent) {
         if (intent == null) return;
 
@@ -112,7 +142,6 @@ public class MainActivity extends AppCompatActivity implements
                 + " focusAreaId=" + focusAreaId);
 
         if (navigateToNetwork) {
-            // Switch to Network tab
             if (bottomNavigationView != null) {
                 bottomNavigationView.setSelectedItemId(R.id.action_network);
                 onNavigationItemSelected(
@@ -121,11 +150,8 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         if (focusAreaId != null && !focusAreaId.isEmpty()) {
-            // ✅ Same ViewModel instance as NetworkFragment (requireActivity() scope)
             mViewModel.setFocusAreaId(focusAreaId);
             Log.d(TAG, "🎯 setFocusAreaId: " + focusAreaId);
-
-            // Clear from intent so rotation/resume doesn't re-trigger
             intent.removeExtra("focus_area_id");
         }
     }

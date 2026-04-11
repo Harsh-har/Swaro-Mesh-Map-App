@@ -180,11 +180,11 @@ public class AreaListActivity extends AppCompatActivity {
             rvAreas.setAdapter(new AreaAdapter(items, areaId -> {
                 Log.d(TAG, "Area clicked: " + areaId);
 
-                // ✅ FIX: Intent extra se pass karo — ViewModel scope mismatch avoid
                 Intent intent = new Intent(this, MainActivity.class);
                 intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
                 intent.putExtra("navigate_to_network", true);
-                intent.putExtra("focus_area_id", areaId); // ← KEY FIX
+                intent.putExtra("focus_area_id", areaId);
+                intent.putExtra("from_area_list", true);
                 startActivity(intent);
                 finish();
             }));
