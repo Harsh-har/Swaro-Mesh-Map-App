@@ -110,8 +110,6 @@ public class SharedViewModel extends BaseViewModel
             syncProvisionedWithMeshNetwork();
         });
 
-        // ✅ FIX: NrfMeshRepository ko callback register karo
-        // Jab bhi onNetworkImported fire ho, rebuildProvisionedFromMesh() call hoga
         mNrfMeshRepository.setOnNetworkImportedCallback(this::rebuildProvisionedFromMesh);
     }
 
@@ -123,10 +121,6 @@ public class SharedViewModel extends BaseViewModel
         }
         mScannerRepository.unregisterBroadcastReceivers();
     }
-
-    // =========================================================================
-    // SYNC — stale provisioned IDs remove karo
-    // =========================================================================
     private void syncProvisionedWithMeshNetwork() {
         Set<String> saved = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
@@ -164,22 +158,9 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // ✅ FIX: Import ke baad SVG rebuild karo
+    // ✅ FIX: Import ke baad SVG rebuild
     // =========================================================================
 
-    /**
-     * Mesh JSON import hone ke baad yeh method call karo.
-     *
-     * Problem: Export → Reset → Import ke baad mesh_prefs (SharedPreferences) wipe ho
-     * jaata hai. Mesh network nodes restore hote hain lekin provisioned_devices aur
-     * node_svg_<uuid> mappings lost ho jaate hain. Isliye SVG map kuch nahi dikhata.
-     *
-     * Fix: Mesh ke restored nodes se provisioned IDs rebuild karta hai:
-     *   1. node_svg_<uuid> prefs se svgId restore karta hai (agar exist kare)
-     *   2. Fallback: node name ko svgId maanta hai
-     *   3. Dono ko provisioned_devices set mein dalta hai
-     *   4. forceSvgRefresh() se NetworkFragment ko trigger karta hai
-     */
     public void rebuildProvisionedFromMesh() {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes == null || nodes.isEmpty()) {
@@ -259,6 +240,12 @@ public class SharedViewModel extends BaseViewModel
         try { return Integer.parseInt(s.trim()); }
         catch (NumberFormatException e) { return -1; }
     }
+
+    private final MutableLiveData<String> focusAreaId = new MutableLiveData<>();
+
+    public LiveData<String> getFocusAreaId() { return focusAreaId; }
+
+    public void setFocusAreaId(String areaId) { focusAreaId.setValue(areaId); }
 
     // =========================================================================
     // CLIENT ELEMENT ADDRESS MAPPING

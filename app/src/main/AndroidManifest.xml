@@ -41,8 +41,9 @@
         android:theme="@style/AppTheme"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
-            android:name=".swajaui.AreaSelectionActivity"
-            android:exported="false" />
+            android:name=".swajaui.AreaListActivity"
+            android:exported="false"
+            android:excludeFromRecents="true" />
         <activity
             android:name=".MqttSettingsActivity"
             android:exported="false" />
@@ -57,18 +58,24 @@
             android:exported="false" />
         <activity
             android:name=".swajaui.HomeActivity"
-            android:exported="true"></activity>
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:theme="@style/AppTheme.SplashScreen"
             android:windowSoftInputMode="adjustPan">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
+<!--            <intent-filter>-->
+<!--                <action android:name="android.intent.action.MAIN" />-->
 
-                <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
+<!--                <category android:name="android.intent.category.LAUNCHER" />-->
+<!--            </intent-filter>-->
         </activity>
         <!--
          This activity alias is used to allow opening nRF Blinky from nRF Toolbox.
@@ -97,7 +104,9 @@
             android:launchMode="singleTop" />
         <activity
             android:name=".swajaui.ImportMap_Activity"
-            android:launchMode="singleTop" />
+            android:exported="true">
+
+        </activity>
         <activity
             android:name=".swajaui.Site_CredentialsActivity"
             android:launchMode="singleTop" />

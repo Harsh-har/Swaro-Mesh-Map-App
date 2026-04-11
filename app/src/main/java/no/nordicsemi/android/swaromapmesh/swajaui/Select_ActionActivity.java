@@ -21,20 +21,23 @@ public class Select_ActionActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // ViewBinding init
         binding = ActivitySelectActionBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        // Button click → Next screen
+        // Get name passed from IdentifyActivity
+        String technicianName = getIntent().getStringExtra("technician_name");
+        if (technicianName != null && !technicianName.isEmpty()) {
+            binding.tvSubtitle.setText("Hi " + technicianName + "! What would you like to do?");
+        }
+
         binding.cardFetchSiteData.setOnClickListener(v -> {
             Intent intent = new Intent(this, Site_CredentialsActivity.class);
             startActivity(intent);
-
         });
+
         binding.cardUploadFile.setOnClickListener(v -> {
             Intent intent = new Intent(this, ImportMap_Activity.class);
             startActivity(intent);
-
         });
     }
 }

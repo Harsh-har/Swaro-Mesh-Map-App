@@ -1,33 +1,8 @@
-//package no.nordicsemi.android.swaromesh;
-//
-//import android.content.Intent;
-//import android.os.Bundle;
-//
-//import androidx.appcompat.app.AppCompatActivity;
-//
-//import dagger.hilt.android.AndroidEntryPoint;
-//import no.nordicsemi.android.swaromesh.Map.HomePageActivity;
-//
-//@AndroidEntryPoint
-//public class MainActivity extends AppCompatActivity {
-//
-//    @Override
-//    protected void onCreate(Bundle savedInstanceState) {
-//        setTheme(R.style.AppTheme);
-//        super.onCreate(savedInstanceState);
-//
-//        // Directly start SvgmapActivity
-//        startActivity(new Intent(this, HomePageActivity.class));
-//        finish();
-//    }
-//}
-
-
-
-
 package no.nordicsemi.android.swaromapmesh;
 
+import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
@@ -54,18 +29,20 @@ public class MainActivity extends AppCompatActivity implements
         NavigationBarView.OnItemSelectedListener,
         NavigationBarView.OnItemReselectedListener {
 
+    private static final String TAG             = "MainActivity";
     private static final String CURRENT_FRAGMENT = "CURRENT_FRAGMENT";
 
     private SharedViewModel mViewModel;
 
-    private NetworkFragment mNetworkFragment;
-    private DevicesFilterActivity mDevicesFilterFragment;
-    private GroupsFragment mGroupsFragment;
-    private ProxyFilterFragment mProxyFilterFragment;
-    private Fragment mSettingsFragment;
-    private ActivityMainBinding binding;
+    private NetworkFragment        mNetworkFragment;
+    private DevicesFilterActivity  mDevicesFilterFragment;
+    private GroupsFragment         mGroupsFragment;
+    private ProxyFilterFragment    mProxyFilterFragment;
+    private Fragment               mSettingsFragment;
+    private ActivityMainBinding    binding;
+    private BottomNavigationView   bottomNavigationView;
 
-    private BottomNavigationView bottomNavigationView;
+    // ==================== LIFECYCLE ====================
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
@@ -83,44 +60,77 @@ public class MainActivity extends AppCompatActivity implements
             getSupportActionBar().setTitle(R.string.app_name);
         }
 
-
         // Find fragments from XML
-        mNetworkFragment = (NetworkFragment)
-                getSupportFragmentManager().findFragmentById(R.id.fragment_network);
-
-        mDevicesFilterFragment = (DevicesFilterActivity)
-                getSupportFragmentManager().findFragmentById(R.id.fragment_device_filter);
-
-        mGroupsFragment = (GroupsFragment)
-                getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
-
-        mProxyFilterFragment = (ProxyFilterFragment)
-                getSupportFragmentManager().findFragmentById(R.id.fragment_proxy);
-
-        mSettingsFragment =
-                getSupportFragmentManager().findFragmentById(R.id.fragment_settings);
+        mNetworkFragment       = (NetworkFragment)       getSupportFragmentManager().findFragmentById(R.id.fragment_network);
+        mDevicesFilterFragment = (DevicesFilterActivity) getSupportFragmentManager().findFragmentById(R.id.fragment_device_filter);
+        mGroupsFragment        = (GroupsFragment)        getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
+        mProxyFilterFragment   = (ProxyFilterFragment)   getSupportFragmentManager().findFragmentById(R.id.fragment_proxy);
+        mSettingsFragment      =                         getSupportFragmentManager().findFragmentById(R.id.fragment_settings);
 
         bottomNavigationView = findViewById(R.id.bottom_navigation_view);
         bottomNavigationView.setOnItemSelectedListener(this);
         bottomNavigationView.setOnItemReselectedListener(this);
 
-        // 🔥 IMPORTANT: default fragment handling
         if (savedInstanceState == null) {
             bottomNavigationView.setSelectedItemId(R.id.action_network);
             onNavigationItemSelected(
-                    bottomNavigationView.getMenu().findItem(R.id.action_network)
-            );
+                    bottomNavigationView.getMenu().findItem(R.id.action_network));
         } else {
             int selected = savedInstanceState.getInt(CURRENT_FRAGMENT, R.id.action_network);
             bottomNavigationView.setSelectedItemId(selected);
             onNavigationItemSelected(
-                    bottomNavigationView.getMenu().findItem(selected)
-            );
+                    bottomNavigationView.getMenu().findItem(selected));
         }
-        mViewModel.isConnectedToProxy().observe(this, connected -> {
-            invalidateOptionsMenu();
-        });
+
+        mViewModel.isConnectedToProxy().observe(this, connected -> invalidateOptionsMenu());
+
+        // ✅ Handle intent from onCreate (first launch case)
+        handleNavigationIntent(getIntent());
     }
+
+    // ==================== NEW INTENT (SINGLE_TOP) ====================
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent); // ← update stored intent
+        handleNavigationIntent(intent);
+    }
+
+    /**
+     * ✅ Handles both:
+     *   - "navigate_to_network" → switch to Network tab
+     *   - "focus_area_id"       → set focusAreaId in ViewModel (same scope as NetworkFragment)
+     */
+    private void handleNavigationIntent(Intent intent) {
+        if (intent == null) return;
+
+        boolean navigateToNetwork = intent.getBooleanExtra("navigate_to_network", false);
+        String  focusAreaId       = intent.getStringExtra("focus_area_id");
+
+        Log.d(TAG, "handleNavigationIntent: navigateToNetwork=" + navigateToNetwork
+                + " focusAreaId=" + focusAreaId);
+
+        if (navigateToNetwork) {
+            // Switch to Network tab
+            if (bottomNavigationView != null) {
+                bottomNavigationView.setSelectedItemId(R.id.action_network);
+                onNavigationItemSelected(
+                        bottomNavigationView.getMenu().findItem(R.id.action_network));
+            }
+        }
+
+        if (focusAreaId != null && !focusAreaId.isEmpty()) {
+            // ✅ Same ViewModel instance as NetworkFragment (requireActivity() scope)
+            mViewModel.setFocusAreaId(focusAreaId);
+            Log.d(TAG, "🎯 setFocusAreaId: " + focusAreaId);
+
+            // Clear from intent so rotation/resume doesn't re-trigger
+            intent.removeExtra("focus_area_id");
+        }
+    }
+
+    // ==================== SAVE STATE ====================
 
     @Override
     protected void onSaveInstanceState(@NonNull Bundle outState) {
@@ -128,57 +138,37 @@ public class MainActivity extends AppCompatActivity implements
         outState.putInt(CURRENT_FRAGMENT, bottomNavigationView.getSelectedItemId());
     }
 
-    // ───────────────────── MENU ─────────────────────
+    // ==================== MENU ====================
 
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
-
         Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
-
         getMenuInflater().inflate(
                 isConnected != null && isConnected
                         ? R.menu.menu_connect_icon
                         : R.menu.menu_disconnect_icon,
-                menu
-        );
+                menu);
 
         MenuItem item;
-
         if (isConnected == null || !isConnected) {
-
-            // DISCONNECTED → start blinking
             item = menu.findItem(R.id.action_disconnection_state);
-
             if (item != null) {
-
                 View view = findViewById(item.getItemId());
-
                 if (view != null) {
-
-                    Animation blink =
-                            AnimationUtils.loadAnimation(this, R.anim.blink);
-
+                    Animation blink = AnimationUtils.loadAnimation(this, R.anim.blink);
                     view.startAnimation(blink);
                 }
             }
-
         } else {
-
-            // CONNECTED → stop blinking
             item = menu.findItem(R.id.action_connection_state);
-
             if (item != null) {
-
                 View view = findViewById(item.getItemId());
-
-                if (view != null) {
-                    view.clearAnimation();
-                }
+                if (view != null) view.clearAnimation();
             }
         }
-
         return true;
     }
+
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         if (item.getItemId() == R.id.action_connection_state) {
@@ -191,11 +181,10 @@ public class MainActivity extends AppCompatActivity implements
         return super.onOptionsItemSelected(item);
     }
 
-    // ─────────────────── NAVIGATION ───────────────────
+    // ==================== NAVIGATION ====================
 
     @Override
     public boolean onNavigationItemSelected(@NonNull MenuItem item) {
-
         FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
 
         if (item.getItemId() == R.id.action_network) {
@@ -204,33 +193,25 @@ public class MainActivity extends AppCompatActivity implements
                     .hide(mGroupsFragment)
                     .hide(mProxyFilterFragment)
                     .hide(mSettingsFragment);
-        }
-
-        else if (item.getItemId() == R.id.action_device_filter) {
+        } else if (item.getItemId() == R.id.action_device_filter) {
             ft.hide(mNetworkFragment)
                     .show(mDevicesFilterFragment)
                     .hide(mGroupsFragment)
                     .hide(mProxyFilterFragment)
                     .hide(mSettingsFragment);
-        }
-
-        else if (item.getItemId() == R.id.action_groups) {
+        } else if (item.getItemId() == R.id.action_groups) {
             ft.hide(mNetworkFragment)
                     .hide(mDevicesFilterFragment)
                     .show(mGroupsFragment)
                     .hide(mProxyFilterFragment)
                     .hide(mSettingsFragment);
-        }
-
-        else if (item.getItemId() == R.id.action_proxy) {
+        } else if (item.getItemId() == R.id.action_proxy) {
             ft.hide(mNetworkFragment)
                     .hide(mDevicesFilterFragment)
                     .hide(mGroupsFragment)
                     .show(mProxyFilterFragment)
                     .hide(mSettingsFragment);
-        }
-
-        else if (item.getItemId() == R.id.action_settings) {
+        } else if (item.getItemId() == R.id.action_settings) {
             ft.hide(mNetworkFragment)
                     .hide(mDevicesFilterFragment)
                     .hide(mGroupsFragment)
@@ -248,8 +229,3 @@ public class MainActivity extends AppCompatActivity implements
         // No-op
     }
 }
-
-
-
-
-

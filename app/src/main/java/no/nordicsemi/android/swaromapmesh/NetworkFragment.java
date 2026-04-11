@@ -142,8 +142,10 @@ public class NetworkFragment extends Fragment {
     private final Map<String, List<String>> areaMap = new LinkedHashMap<>();
 
     private String selectedDeviceId;
+    private String pendingFocusAreaId = null;
 
     private float vbX = 0f, vbY = 0f, vbW = 1200f, vbH = 640f;
+    private String currentFocusAreaId = null;
 
     // ==================== LIFECYCLE ====================
 
@@ -179,6 +181,18 @@ public class NetworkFragment extends Fragment {
                 }
             }
         });
+        mViewModel.getFocusAreaId().observe(getViewLifecycleOwner(), areaId -> {
+            Log.d(TAG, "🎯 focusAreaId observer fired: " + areaId); // ← ADD
+            if (areaId == null || areaId.isEmpty()) return;
+            pendingFocusAreaId = areaId;
+            mViewModel.setFocusAreaId(null);
+            Log.d(TAG, "🎯 pendingFocusAreaId set: " + pendingFocusAreaId); // ← ADD
+
+            if (svgDocument != null && !areaMap.isEmpty()) {
+                zoomToArea(areaId);
+                pendingFocusAreaId = null;
+            }
+        });
 
         // ── Provisioned devices observer (existing) ──
         mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), provisionedIds -> {
@@ -205,15 +219,94 @@ public class NetworkFragment extends Fragment {
             }
         });
 
-        // Default load (agar observer trigger nahi hota)
-        if (mViewModel.getSvgUriValue() != null) {
-            loadSvg(mViewModel.getSvgUriValue());
-        } else {
-            loadSVGFromAssets("output.svg");
-        }
+
 
         return binding.getRoot();
     }
+    private void zoomToArea(String areaId) {
+        List<String> iconIds = areaMap.get(areaId);
+        if (iconIds == null || iconIds.isEmpty()) {
+            Log.w(TAG, "zoomToArea: no icons for area " + areaId);
+            return;
+        }
+
+        RectF areaBounds = null;
+        for (String iconId : iconIds) {
+            DeviceInfo info = deviceMap.get(iconId);
+            if (info != null && info.bounds != null) {
+                if (areaBounds == null) areaBounds = new RectF(info.bounds);
+                else areaBounds.union(info.bounds);
+            }
+        }
+        if (areaBounds == null) return;
+
+        // ✅ Filter: sirf yahi area visible
+        currentFocusAreaId = areaId;
+        filterToArea(areaId);
+        reRenderSvg();
+
+        float padding = 80f;
+        areaBounds.inset(-padding, -padding);
+
+        float vW = binding.svgView.getWidth();
+        float vH = binding.svgView.getHeight();
+        if (vW <= 0 || vH <= 0) {
+            binding.svgView.post(() -> zoomToArea(areaId));
+            return;
+        }
+
+        float scaleX = vW / areaBounds.width();
+        float scaleY = vH / areaBounds.height();
+        float targetScale = Math.min(scaleX, scaleY);
+        targetScale = Math.max(minZoom, Math.min(MAX_ZOOM, targetScale));
+
+        float centerX = areaBounds.centerX() - vbX;
+        float centerY = areaBounds.centerY() - vbY;
+
+        float transX = vW / 2f - centerX * targetScale;
+        float transY = vH / 2f - centerY * targetScale;
+
+        Log.d(TAG, "zoomToArea: scale=" + targetScale + " tx=" + transX + " ty=" + transY);
+        animateToMatrix(targetScale, transX, transY);
+    }
+
+    private void filterToArea(String areaId) {
+        if (deviceMap.isEmpty()) return;
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String     id   = entry.getKey();
+            DeviceInfo info = entry.getValue();
+            if (areaId.equals(info.areaId)) {
+                // Is area ka icon — original color restore karo
+                restoreOriginalColors(info.element);
+            } else {
+                // Doosre areas ke icons — transparent karo
+                applyColorToDevice(info.element, COLOR_TRANSPARENT);
+            }
+        }
+    }
+    private void animateToMatrix(float targetScale, float targetTX, float targetTY) {
+        matrix.getValues(matrixValues);
+        float startScale = matrixValues[Matrix.MSCALE_X];
+        float startTX    = matrixValues[Matrix.MTRANS_X];
+        float startTY    = matrixValues[Matrix.MTRANS_Y];
+
+        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+        animator.setDuration(ANIMATION_DURATION);
+        animator.setInterpolator(new DecelerateInterpolator(2f));
+        animator.addUpdateListener(anim -> {
+            if (binding == null) return;
+            float t = (float) anim.getAnimatedValue();
+            matrixValues[Matrix.MSCALE_X] = startScale + (targetScale - startScale) * t;
+            matrixValues[Matrix.MSCALE_Y] = startScale + (targetScale - startScale) * t;
+            matrixValues[Matrix.MTRANS_X] = startTX + (targetTX - startTX) * t;
+            matrixValues[Matrix.MTRANS_Y] = startTY + (targetTY - startTY) * t;
+            matrix.setValues(matrixValues);
+            clampMatrix();
+            binding.svgView.setImageMatrix(matrix);
+        });
+        animator.start();
+    }
+
     @Override
     public void onResume() {
         super.onResume();
@@ -412,7 +505,9 @@ public class NetworkFragment extends Fragment {
                     renderSvg(svg, true);
                     showLoading(false);
                     logDeviceMap();
+                    // ✅ YEH ADD KARO — pending focus apply karo
                 });
+
 
             } catch (Exception e) {
                 Log.e(TAG, "Error loading SVG from URI", e);
@@ -611,14 +706,15 @@ public class NetworkFragment extends Fragment {
     }
     private void processDeviceElement(Element el,
                                       Map<String, DeviceInfo> devices, String areaId) {
-    String id = el.getAttribute("id");
+        String id = el.getAttribute("id");
         if (id == null || id.isEmpty() || devices.containsKey(id)) return;
         RectF bounds = computeBounds(el);
         if (bounds == null || bounds.isEmpty()) return;
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
         devices.put(id, new DeviceInfo(id, el, bounds, elementId, areaId));
-        Log.d(TAG, "Icon added: " + id + " | area: " + areaId);
+        // ← DELETE this line:
+        // Log.d(TAG, "Icon added: " + id + " | area: " + areaId);
     }
     // Kisi area ke saare icon DeviceInfo objects lo
     public List<DeviceInfo> getIconsInArea(String areaId) {
@@ -848,6 +944,13 @@ public class NetworkFragment extends Fragment {
                 fitToView();
                 binding.svgView.invalidate();
                 if (applyDomChanges) reRenderSvg();
+
+                Log.d(TAG, "🎯 renderSvg post — pendingFocusAreaId: " + pendingFocusAreaId); // ← ADD
+                if (pendingFocusAreaId != null) {
+                    final String focusId = pendingFocusAreaId;
+                    pendingFocusAreaId = null;
+                    mainHandler.postDelayed(() -> zoomToArea(focusId), 400);
+                }
             });
         } catch (Exception e) {
             Log.e(TAG, "Error rendering SVG", e);
@@ -1049,18 +1152,20 @@ public class NetworkFragment extends Fragment {
                 applyColorToDevice(info.element, COLOR_TRANSPARENT);
                 Set<String> related = getRelatedDeviceIds(id);
                 devicesToShow.addAll(related);
-                Log.d(TAG, "HIDE icon (provisioned): " + id + "  related: " + related);
             } else if (isSelected) {
                 applyColorToDevice(info.element, COLOR_SELECTED);
-                Log.d(TAG, "RED (selected): " + id);
             } else {
                 restoreOriginalColors(info.element);
             }
         }
         if (devicesToShow.isEmpty()) hideAllDevices();
         else showOnlyRelatedDevices(devicesToShow);
-    }
 
+        // ✅ SIRF YEH ADD KARO — area filter re-apply
+        if (currentFocusAreaId != null) {
+            filterToArea(currentFocusAreaId);
+        }
+    }
     // ==================== TOUCH ====================
 
     private void setupZoomAndPan() {
@@ -1238,6 +1343,7 @@ public class NetworkFragment extends Fragment {
             reRenderSvg();
         }
         selectedDeviceId = null;
+
     }
 
     // ==================== ZOOM & PAN ====================

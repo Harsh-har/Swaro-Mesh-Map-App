@@ -16,7 +16,6 @@ import android.widget.TextView;
 
 import java.util.Date;
 
-import androidx.activity.result.ActivityResultLauncher;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
@@ -52,26 +51,12 @@ public class SettingsFragment extends Fragment implements
     private static final String TAG = SettingsFragment.class.getSimpleName();
     private SharedViewModel mViewModel;
 
-    // ── Existing: JSON network import ────────────────────────────────────────
-    private final ActivityResultLauncher<String> fileSelector =
+    // ── JSON network import only ──────────────────────────────────────────────
+    private final androidx.activity.result.ActivityResultLauncher<String> fileSelector =
             registerForActivityResult(new GetContent(), result -> {
                 if (result != null) {
                     mViewModel.disconnect();
                     mViewModel.getMeshManagerApi().importMeshNetwork(result);
-                }
-            });
-
-    // ── SVG map import ───────────────────────────────────────────────────────
-    private final ActivityResultLauncher<String> svgSelector =
-            registerForActivityResult(new GetContent(), uri -> {
-                if (uri != null) {
-                    requireContext().getContentResolver()
-                            .takePersistableUriPermission(
-                                    uri,
-                                    Intent.FLAG_GRANT_READ_URI_PERMISSION
-                            );
-                    mViewModel.setSvgUri(uri);
-                    Log.d(TAG, "SVG imported: " + uri);
                 }
             });
 
@@ -162,25 +147,15 @@ public class SettingsFragment extends Fragment implements
                                 getString(R.string.iv_test_mode_info))
                         .show(getChildFragmentManager(), null));
 
-//        // ── Last Modified ─────────────────────────────────────────────────────
-//        binding.containerLastModified.image
-//                .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_time));
-//        binding.containerLastModified.title.setText(R.string.last_modified);
-//        binding.containerLastModified.text.setVisibility(View.VISIBLE);
-//        binding.containerLastModified.getRoot().setVisibility(View.VISIBLE);
-//        binding.containerLastModified.getRoot().setClickable(true);
-
         // ── MQTT Settings row ─────────────────────────────────────────────────
         binding.containerMqtt.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
-                        R.drawable.ic_settings));          // use any suitable icon you have
+                        R.drawable.ic_settings));
         binding.containerMqtt.title.setText("MQTT Configuration");
         binding.containerMqtt.text.setVisibility(View.VISIBLE);
-        // Show saved broker host as subtitle so user knows what's configured
         refreshMqttSubtitle(binding);
-        binding.containerMqtt.getRoot().setOnClickListener(v -> {
-            startActivity(new Intent(requireContext(), MqttSettingsActivity.class));
-        });
+        binding.containerMqtt.getRoot().setOnClickListener(v ->
+                startActivity(new Intent(requireContext(), MqttSettingsActivity.class)));
 
         // ── App Version ───────────────────────────────────────────────────────
         final LayoutContainerBinding containerVersion = binding.containerVersion;
@@ -233,19 +208,11 @@ public class SettingsFragment extends Fragment implements
         return binding.getRoot();
     }
 
-    // ── Refresh MQTT subtitle when returning from MqttSettingsActivity ────────
     @Override
     public void onResume() {
         super.onResume();
-        // Re-read prefs every time fragment is visible so subtitle stays fresh
-        // We need the binding — safest to just post to root view
-        // (If you prefer, move binding to a field instead)
     }
 
-    /**
-     * Shows the saved broker host (or "Not configured") as the subtitle
-     * of the MQTT row, so the user can see at a glance what's set.
-     */
     private void refreshMqttSubtitle(FragmentSettingsBinding binding) {
         SharedPreferences prefs = requireContext()
                 .getSharedPreferences(MqttSettingsActivity.PREFS_MQTT, Context.MODE_PRIVATE);
@@ -277,10 +244,6 @@ public class SettingsFragment extends Fragment implements
                     .show(getChildFragmentManager(), null);
             return true;
 
-        } else if (id == R.id.action_import_svg) {
-            svgSelector.launch("image/svg+xml");
-            return true;
-
         } else if (id == R.id.action_export_network) {
             startActivity(new Intent(requireContext(), ExportNetworkActivity.class));
             return true;
@@ -307,6 +270,18 @@ public class SettingsFragment extends Fragment implements
     @Override
     public void onNetworkReset() {
         mViewModel.resetMeshNetwork();
+
+        // Clear saved SVG URI and user data
+        requireContext()
+                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .remove("saved_svg_uri")
+                .apply();
+
+        // Go back to HomeActivity, clear entire back stack
+        Intent intent = new Intent(requireContext(), no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+        intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+        startActivity(intent);
     }
 
     @Override

@@ -27,11 +27,7 @@
         android:id="@+id/action_import_network"
         android:title="@string/action_import_network"
         app:showAsAction="never"/>
-    <!-- NEW: Import SVG map -->
-    <item
-        android:id="@+id/action_import_svg"
-        android:title="Import SVG Map"
-        app:showAsAction="never" />
+
     <item
         android:id="@+id/action_export_network"
         android:title="@string/action_export_network"
