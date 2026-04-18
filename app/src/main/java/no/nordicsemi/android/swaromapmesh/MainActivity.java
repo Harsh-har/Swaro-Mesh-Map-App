@@ -54,27 +54,29 @@ public class MainActivity extends AppCompatActivity implements
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
 
-        // ✅ Check saved URI
-        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        String savedUri = prefs.getString("saved_svg_uri", null);
-
-        // ✅ Agar AreaListActivity se aaye hain toh redirect mat karo
         boolean fromAreaList = getIntent().getBooleanExtra("from_area_list", false);
 
-        if (savedUri == null) {
-            // Pehli baar — HomeActivity pe bhejo
-            Intent intent = new Intent(this, no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
-            finish();
-            return;
-        } else if (!fromAreaList) {
-            // App launch pe — AreaListActivity pe bhejo
-            Uri uri = Uri.parse(savedUri);
-            ArrayList<String> areaList = no.nordicsemi.android.swaromapmesh.swajaui.SvgParser
-                    .parseAreaIds(getContentResolver(), uri);
-            if (!areaList.isEmpty()) {
-                Intent intent = new Intent(this, no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+        if (!fromAreaList) {
+            SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+            String savedUri = prefs.getString("saved_svg_uri", null);
+
+            if (savedUri == null) {
+                Intent intent = new Intent(this,
+                        no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+                return;
+            }
+
+            // ✅ Saved areas directly lo — no HTTP call
+            java.util.Set<String> savedAreaSet = prefs.getStringSet("saved_area_list", null);
+
+            if (savedAreaSet != null && !savedAreaSet.isEmpty()) {
+                // ✅ Instant — no network needed
+                ArrayList<String> areaList = new ArrayList<>(savedAreaSet);
+                Intent intent = new Intent(this,
+                        no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
                 intent.putExtra("svg_uri", savedUri);
                 intent.putStringArrayListExtra("area_list", areaList);
                 intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -82,9 +84,32 @@ public class MainActivity extends AppCompatActivity implements
                 finish();
                 return;
             }
-        }
 
-        // ✅ fromAreaList == true — seedha NetworkFragment dikhao
+            if (!savedUri.startsWith("http://") && !savedUri.startsWith("https://")) {
+                Uri uri = Uri.parse(savedUri);
+                ArrayList<String> areaList = no.nordicsemi.android.swaromapmesh.swajaui.SvgParser
+                        .parseAreaIds(getContentResolver(), uri);
+                if (!areaList.isEmpty()) {
+                    Intent intent = new Intent(this,
+                            no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+                    intent.putExtra("svg_uri", savedUri);
+                    intent.putStringArrayListExtra("area_list", areaList);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                    return;
+                }
+            }
+
+            getSharedPreferences("app_prefs", MODE_PRIVATE)
+                    .edit().remove("saved_svg_uri").remove("saved_area_list").apply();
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        }
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
@@ -95,7 +120,6 @@ public class MainActivity extends AppCompatActivity implements
             getSupportActionBar().setTitle(R.string.app_name);
         }
 
-        // Find fragments from XML
         mNetworkFragment       = (NetworkFragment)       getSupportFragmentManager().findFragmentById(R.id.fragment_network);
         mDevicesFilterFragment = (DevicesFilterActivity) getSupportFragmentManager().findFragmentById(R.id.fragment_device_filter);
         mGroupsFragment        = (GroupsFragment)        getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
@@ -119,10 +143,8 @@ public class MainActivity extends AppCompatActivity implements
 
         mViewModel.isConnectedToProxy().observe(this, connected -> invalidateOptionsMenu());
 
-        // ✅ Handle intent from onCreate (first launch case)
         handleNavigationIntent(getIntent());
     }
-
     // ==================== NEW INTENT (SINGLE_TOP) ====================
 
     @Override
@@ -137,25 +159,32 @@ public class MainActivity extends AppCompatActivity implements
 
         boolean navigateToNetwork = intent.getBooleanExtra("navigate_to_network", false);
         String  focusAreaId       = intent.getStringExtra("focus_area_id");
+        String  svgUriString      = intent.getStringExtra("svg_uri");
 
-        Log.d(TAG, "handleNavigationIntent: navigateToNetwork=" + navigateToNetwork
+        // ✅ YE LOG ADD KARO
+        Log.d(TAG, "handleNavigationIntent: svgUri=" + svgUriString
                 + " focusAreaId=" + focusAreaId);
 
-        if (navigateToNetwork) {
-            if (bottomNavigationView != null) {
-                bottomNavigationView.setSelectedItemId(R.id.action_network);
-                onNavigationItemSelected(
-                        bottomNavigationView.getMenu().findItem(R.id.action_network));
-            }
+        if (svgUriString != null && !svgUriString.isEmpty()) {
+            Uri svgUri = Uri.parse(svgUriString);
+            mViewModel.setSvgUri(svgUri);
+            Log.d(TAG, "✅ setSvgUri called: " + svgUri);
+        } else {
+            Log.w(TAG, "⚠️ svg_uri is NULL in intent");
+        }
+
+        if (navigateToNetwork && bottomNavigationView != null) {
+            bottomNavigationView.setSelectedItemId(R.id.action_network);
+            onNavigationItemSelected(
+                    bottomNavigationView.getMenu().findItem(R.id.action_network));
         }
 
         if (focusAreaId != null && !focusAreaId.isEmpty()) {
             mViewModel.setFocusAreaId(focusAreaId);
-            Log.d(TAG, "🎯 setFocusAreaId: " + focusAreaId);
+            Log.d(TAG, "setFocusAreaId: " + focusAreaId);
             intent.removeExtra("focus_area_id");
         }
     }
-
     // ==================== SAVE STATE ====================
 
     @Override

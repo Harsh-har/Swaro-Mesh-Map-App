@@ -1,22 +1,18 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- res/layout/activity_qr_scanner.xml -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#0d1117">
 
-    <com.journeyapps.barcodescanner.DecoratedBarcodeView
-        android:id="@+id/zxing_barcode_scanner"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
 
-    <!-- Overlay Text -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Scan QR Code"
-        android:textColor="#FFFFFF"
-        android:textSize="18sp"
-        android:layout_gravity="top|center_horizontal"
-        android:layout_marginTop="40dp"/>
+        android:layout_gravity="center"
+        android:text="QR Scanner Start"
+        android:textColor="#F2F2F2"
+        android:textSize="16sp"
+        android:fontFamily="sans-serif-light" />
 
 </FrameLayout>

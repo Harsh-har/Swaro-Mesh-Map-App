@@ -35,6 +35,8 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
+
+import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.ArrayList;
@@ -214,14 +216,13 @@ public class NetworkFragment extends Fragment {
         });
         // ✅ FIX: SVG URI observer - DYNAMIC IMPORT
         mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
+            Log.d(TAG, "📡 getSvgUri observer fired: " + uri); // ✅ ADD
             if (binding == null) return;
-
             if (uri != null) {
-                Log.d(TAG, "📁 Loading dynamic SVG from URI: " + uri);
+                Log.d(TAG, "📁 Loading SVG: " + uri);
                 showLoading(true);
-                loadSvg(uri);  // ← Dynamic import yahan hoga
+                loadSvg(uri);
             } else {
-                Log.d(TAG, "📁 No SVG URI, loading default asset: output.svg");
                 showPlaceholder(true);
                 loadSVGFromAssets("output.svg");
             }
@@ -280,34 +281,6 @@ public class NetworkFragment extends Fragment {
 
         Log.d(TAG, "zoomToArea: scale=" + targetScale + " tx=" + transX + " ty=" + transY);
         animateToMatrix(targetScale, transX, transY);
-    }
-    private void filterToArea(String areaId) {
-        if (deviceMap.isEmpty()) return;
-
-        Set<String> provisioned = getProvisionedFromPrefs(); // ✅ Current provisioned state
-
-        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-            String     id   = entry.getKey();
-            DeviceInfo info = entry.getValue();
-            boolean isProvisioned = provisioned.contains(id);
-
-            if (areaId.equals(info.areaId)) {
-                // Focus area
-                if (isProvisioned) {
-                    // ✅ Provisioned icon - transparent
-                    applyColorToDevice(info.element, COLOR_TRANSPARENT);
-                } else if (id.equals(selectedDeviceId)) {
-                    // Selected icon - red
-                    applyColorToDevice(info.element, COLOR_SELECTED);
-                } else {
-                    // Unprovisioned icon - original color
-                    restoreOriginalColors(info.element);
-                }
-            } else {
-                // Other areas - completely transparent
-                applyColorToDevice(info.element, COLOR_TRANSPARENT);
-            }
-        }
     }
     private void animateToMatrix(float targetScale, float targetTX, float targetTY) {
         matrix.getValues(matrixValues);
@@ -491,20 +464,32 @@ public class NetworkFragment extends Fragment {
         showLoading(true);
         loadExecutor.execute(() -> {
             try {
-                InputStream is1 = requireContext().getContentResolver().openInputStream(uri);
-                if (is1 == null) {
+                String uriString = uri.toString();
+                InputStream is1, is2;
+
+                if (uriString.startsWith("file://")) {
+                    // ✅ QR case — local cached file
+                    File f = new File(uri.getPath());
+                    is1 = new java.io.FileInputStream(f);
+                    is2 = new java.io.FileInputStream(f);
+                } else {
+                    // ✅ Gallery case — content:// URI
+                    is1 = requireContext().getContentResolver().openInputStream(uri);
+                    is2 = requireContext().getContentResolver().openInputStream(uri);
+                }
+
+                if (is1 == null || is2 == null) {
                     mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
                     return;
                 }
-                SVG svg = SVG.getFromInputStream(is1);
-                is1.close();
 
-                InputStream is2      = requireContext().getContentResolver().openInputStream(uri);
-                Document    document = parseDocument(is2);
-                if (is2 != null) is2.close();
+                SVG      svg      = SVG.getFromInputStream(is1);
+                is1.close();
+                Document document = parseDocument(is2);
+                is2.close();
 
                 if (document != null) parseViewBox(document);
-                Map<String, DeviceInfo> devices = extractDevices(document);
+                Map<String, DeviceInfo>  devices   = extractDevices(document);
                 Map<String, Set<String>> relations = parseRelations(document);
 
                 mainHandler.post(() -> {
@@ -529,9 +514,7 @@ public class NetworkFragment extends Fragment {
                     renderSvg(svg, true);
                     showLoading(false);
                     logDeviceMap();
-                    // ✅ YEH ADD KARO — pending focus apply karo
                 });
-
 
             } catch (Exception e) {
                 Log.e(TAG, "Error loading SVG from URI", e);
@@ -539,7 +522,7 @@ public class NetworkFragment extends Fragment {
             }
         });
     }
-
+    // ✅ New helper method
     private void logDeviceMap() {
         if (deviceMap.isEmpty()) { Log.w(TAG, "No icon devices found"); return; }
         for (Map.Entry<String, DeviceInfo> e : deviceMap.entrySet()) {
@@ -744,17 +727,6 @@ public class NetworkFragment extends Fragment {
         // ← DELETE this line:
         // Log.d(TAG, "Icon added: " + id + " | area: " + areaId);
     }
-    // Kisi area ke saare icon DeviceInfo objects lo
-    public List<DeviceInfo> getIconsInArea(String areaId) {
-        List<DeviceInfo> result = new ArrayList<>();
-        List<String> iconIds = areaMap.get(areaId);
-        if (iconIds == null) return result;
-        for (String id : iconIds) {
-            DeviceInfo info = deviceMap.get(id);
-            if (info != null) result.add(info);
-        }
-        return result;
-    }
     private Element findElementById(Element root, String targetId) {
         if (targetId.equals(root.getAttribute("id"))) return root;
         NodeList children = root.getChildNodes();
@@ -951,9 +923,6 @@ public class NetworkFragment extends Fragment {
     }
 
     // ==================== SVG RENDERING ====================
-
-    private void renderSvg(SVG svg) { renderSvg(svg, false); }
-
     private void renderSvg(SVG svg, boolean applyDomChanges) {
         try {
             int renderW = Math.max(1, (int) vbW);

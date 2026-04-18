@@ -1,6 +1,7 @@
 package no.nordicsemi.android.swaromapmesh.swajaui;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
@@ -10,26 +11,23 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.MainActivity;
 import no.nordicsemi.android.swaromapmesh.R;
@@ -57,7 +55,6 @@ public class AreaListActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_area_list);
 
-        // ✅ NO ViewModel here — scope mismatch fix
         rvAreas     = findViewById(R.id.rvAreas);
         emptyView   = findViewById(R.id.emptyView);
         tvSiteTitle = findViewById(R.id.tvSiteTitle);
@@ -81,7 +78,18 @@ public class AreaListActivity extends AppCompatActivity {
                 String name = path.replace(".svg", "").replace("_", " ").toUpperCase();
                 tvSiteTitle.setText(name);
             }
-            countDevicesPerArea(uri, areaList);
+
+            SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+            String savedCountsJson = prefs.getString("saved_counts", null);
+
+            if (savedCountsJson != null) {
+                // ✅ Counts already hain — instant show
+                int[] counts = new com.google.gson.Gson().fromJson(savedCountsJson, int[].class);
+                showAreas(areaList, counts);
+            } else {
+                // ✅ Local file se count karo — no HTTP
+                countDevicesPerArea(uri, areaList);
+            }
         } else {
             showAreas(areaList, new int[areaList.size()]);
         }
@@ -99,12 +107,23 @@ public class AreaListActivity extends AppCompatActivity {
         executor.execute(() -> {
             int[] counts = new int[areas.size()];
             try {
-                InputStream is = getContentResolver().openInputStream(uri);
+                InputStream is;
+                String uriString = uri.toString();
+
+                if (uriString.startsWith("file://")) {
+                    // ✅ Local cached file — no network
+                    is = new FileInputStream(new File(uri.getPath()));
+                } else {
+                    // content:// — gallery case
+                    is = getContentResolver().openInputStream(uri);
+                }
+
                 if (is != null) {
                     Document doc = parseDocument(is);
                     is.close();
                     if (doc != null) {
-                        Element iconsGroup = findElementById(doc.getDocumentElement(), "Icons");
+                        Element iconsGroup = findElementById(
+                                doc.getDocumentElement(), "Icons");
                         if (iconsGroup != null) {
                             for (int i = 0; i < areas.size(); i++) {
                                 Element areaEl = findElementById(iconsGroup, areas.get(i));
@@ -185,6 +204,7 @@ public class AreaListActivity extends AppCompatActivity {
                 intent.putExtra("navigate_to_network", true);
                 intent.putExtra("focus_area_id", areaId);
                 intent.putExtra("from_area_list", true);
+                intent.putExtra("svg_uri", svgUriString);
                 startActivity(intent);
                 finish();
             }));
