@@ -37,9 +37,6 @@ public class ImportMap_Activity extends AppCompatActivity {
                     selectedSvgUri = uri;
                     if (btnUpload != null) {
                         btnUpload.setEnabled(true);
-                        btnUpload.setBackgroundTintList(
-                                android.content.res.ColorStateList.valueOf(
-                                        android.graphics.Color.parseColor("#2D6EFF")));
                     }
                     Toast.makeText(this, "SVG file selected!", Toast.LENGTH_SHORT).show();
                 }

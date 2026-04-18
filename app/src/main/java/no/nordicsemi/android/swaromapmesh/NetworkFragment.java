@@ -175,7 +175,9 @@ public class NetworkFragment extends Fragment {
 
                 if (svgDocument != null && !deviceMap.isEmpty()) {
                     selectedDeviceId = null;
+                    // ✅ Always read fresh from prefs — LiveData may have been blocked
                     Set<String> provisioned = getProvisionedFromPrefs();
+                    Log.d(TAG, "✅ AutoSetup DONE — provisioned from prefs: " + provisioned);
                     refreshAllColors(provisioned);
                     reRenderSvg();
                 }
@@ -197,13 +199,19 @@ public class NetworkFragment extends Fragment {
         // ── Provisioned devices observer (existing) ──
         mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), provisionedIds -> {
             if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
-            if (mAutoSetupInProgress) return;
+            // ✅ AutoSetup chal raha ho tab bhi prefs update hone do
+            // Sirf render mat karo — AutoSetup DONE pe render hoga
+            if (mAutoSetupInProgress) {
+                Log.d(TAG, "provisionedDeviceIds changed during AutoSetup — will render after DONE");
+                return;
+            }
             Log.d(TAG, "provisionedDeviceIds changed — refreshing SVG: " + provisionedIds);
             selectedDeviceId = null;
-            refreshAllColors(provisionedIds);
+            // ✅ Prefs se fresh lo — LiveData sync issue avoid karne ke liye
+            Set<String> provisioned = getProvisionedFromPrefs();
+            refreshAllColors(provisioned);
             reRenderSvg();
         });
-
         // ✅ FIX: SVG URI observer - DYNAMIC IMPORT
         mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
             if (binding == null) return;
@@ -240,10 +248,14 @@ public class NetworkFragment extends Fragment {
         }
         if (areaBounds == null) return;
 
-        // ✅ Filter: sirf yahi area visible
+        // ✅ Set focus area ID first
         currentFocusAreaId = areaId;
-        filterToArea(areaId);
-        reRenderSvg();
+
+        // ✅ Apply filter with current provisioned state
+        Set<String> provisioned = getProvisionedFromPrefs();
+        applyAreaFilterWithProvisionedState(areaId, provisioned);
+
+        reRenderSvg(); // ✅ Re-render to show changes
 
         float padding = 80f;
         areaBounds.inset(-padding, -padding);
@@ -269,17 +281,30 @@ public class NetworkFragment extends Fragment {
         Log.d(TAG, "zoomToArea: scale=" + targetScale + " tx=" + transX + " ty=" + transY);
         animateToMatrix(targetScale, transX, transY);
     }
-
     private void filterToArea(String areaId) {
         if (deviceMap.isEmpty()) return;
+
+        Set<String> provisioned = getProvisionedFromPrefs(); // ✅ Current provisioned state
+
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
+            boolean isProvisioned = provisioned.contains(id);
+
             if (areaId.equals(info.areaId)) {
-                // Is area ka icon — original color restore karo
-                restoreOriginalColors(info.element);
+                // Focus area
+                if (isProvisioned) {
+                    // ✅ Provisioned icon - transparent
+                    applyColorToDevice(info.element, COLOR_TRANSPARENT);
+                } else if (id.equals(selectedDeviceId)) {
+                    // Selected icon - red
+                    applyColorToDevice(info.element, COLOR_SELECTED);
+                } else {
+                    // Unprovisioned icon - original color
+                    restoreOriginalColors(info.element);
+                }
             } else {
-                // Doosre areas ke icons — transparent karo
+                // Other areas - completely transparent
                 applyColorToDevice(info.element, COLOR_TRANSPARENT);
             }
         }
@@ -306,7 +331,6 @@ public class NetworkFragment extends Fragment {
         });
         animator.start();
     }
-
     @Override
     public void onResume() {
         super.onResume();
@@ -325,12 +349,12 @@ public class NetworkFragment extends Fragment {
         }
 
         if (svgDocument == null || deviceMap.isEmpty()) return;
-
         if (mAutoSetupInProgress) return;
 
         selectedDeviceId = null;
+        // ✅ Always fresh from prefs
         Set<String> provisioned = getProvisionedFromPrefs();
-        Log.d(TAG, "onResume — provisioned: " + provisioned);
+        Log.d(TAG, "onResume — provisioned from prefs: " + provisioned);
         refreshAllColors(provisioned);
         reRenderSvg();
     }
@@ -590,8 +614,11 @@ public class NetworkFragment extends Fragment {
         String rawText = relationGroup.getTextContent();
         if (rawText == null || rawText.trim().isEmpty()) return result;
 
+        // ✅ FIX: Pattern updated to support ":" in icon IDs like "PDRI:Relay Node5"
+        // Old: [\\w-]+ — did not match ":"
+        // New: [\\w:.-]+ — matches "PDRI:Relay Node5" style ids
         Pattern pattern = Pattern.compile(
-                "\\(\\s*([\\w-]+(?:\\s+[\\w-]+)*)\\s+([\\w-]+)\\s*\\)");
+                "\\(\\s*([\\w:.\\-]+(?:\\s+[\\w:.\\-]+)*)\\s+([\\w:.\\-]+)\\s*\\)");
         Matcher matcher = pattern.matcher(rawText);
 
         while (matcher.find()) {
@@ -604,12 +631,13 @@ public class NetworkFragment extends Fragment {
                     result.put(iconId, related);
                 }
                 related.add(deviceId);
-                Log.d(TAG, "Relation parsed: " + iconId + " → " + deviceId);
+                Log.d(TAG, "Relation parsed: iconId='" + iconId + "' → deviceId='" + deviceId + "'");
             }
         }
+
+        Log.d(TAG, "Total relations parsed: " + result.size());
         return result;
     }
-
     private Set<String> getRelatedDeviceIds(String iconId) {
         Set<String> related = iconToDeviceRelations.get(iconId);
         return related != null ? related : new HashSet<>();
@@ -1142,15 +1170,23 @@ public class NetworkFragment extends Fragment {
 
     private void refreshAllColors(Set<String> provisionedIds) {
         if (deviceMap.isEmpty()) return;
+
         Set<String> devicesToShow = new HashSet<>();
+
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
             boolean isProvisioned = provisionedIds != null && provisionedIds.contains(id);
             boolean isSelected    = id.equals(selectedDeviceId);
+
+            // ✅ ADD THIS LOG
+            Log.d(TAG, "refreshAllColors: id=" + id + " isProvisioned=" + isProvisioned);
+
             if (isProvisioned) {
                 applyColorToDevice(info.element, COLOR_TRANSPARENT);
                 Set<String> related = getRelatedDeviceIds(id);
+                // ✅ ADD THIS LOG
+                Log.d(TAG, "refreshAllColors: related devices for " + id + " = " + related);
                 devicesToShow.addAll(related);
             } else if (isSelected) {
                 applyColorToDevice(info.element, COLOR_SELECTED);
@@ -1158,15 +1194,44 @@ public class NetworkFragment extends Fragment {
                 restoreOriginalColors(info.element);
             }
         }
+
+        // ✅ ADD THIS LOG
+        Log.d(TAG, "refreshAllColors: devicesToShow=" + devicesToShow);
+
         if (devicesToShow.isEmpty()) hideAllDevices();
         else showOnlyRelatedDevices(devicesToShow);
 
-        // ✅ SIRF YEH ADD KARO — area filter re-apply
         if (currentFocusAreaId != null) {
-            filterToArea(currentFocusAreaId);
+            applyAreaFilterWithProvisionedState(currentFocusAreaId, provisionedIds);
         }
     }
-    // ==================== TOUCH ====================
+    // ✅ New method - Area filter with provisioned state
+    private void applyAreaFilterWithProvisionedState(String areaId, Set<String> provisionedIds) {
+        if (deviceMap.isEmpty() || provisionedIds == null) return;
+
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String     id   = entry.getKey();
+            DeviceInfo info = entry.getValue();
+            boolean isProvisioned = provisionedIds.contains(id);
+
+            if (areaId.equals(info.areaId)) {
+                // Focus area ke icons
+                if (isProvisioned) {
+                    // ✅ Provisioned icon - transparent rahega
+                    applyColorToDevice(info.element, COLOR_TRANSPARENT);
+                } else if (id.equals(selectedDeviceId)) {
+                    // Selected icon
+                    applyColorToDevice(info.element, COLOR_SELECTED);
+                } else {
+                    // Normal icon - original color restore
+                    restoreOriginalColors(info.element);
+                }
+            } else {
+                // Doosre areas ke icons - always transparent
+                applyColorToDevice(info.element, COLOR_TRANSPARENT);
+            }
+        }
+    }    // ==================== TOUCH ====================
 
     private void setupZoomAndPan() {
         binding.svgView.setScaleType(ImageView.ScaleType.MATRIX);
@@ -1304,7 +1369,6 @@ public class NetworkFragment extends Fragment {
     }
 
     // ==================== DEVICE TAP LOGIC ====================
-
     private void onDeviceTapped(String deviceId) {
         Set<String> provisioned = getProvisionedFromPrefs();
         DeviceInfo  device      = deviceMap.get(deviceId);
@@ -1312,28 +1376,69 @@ public class NetworkFragment extends Fragment {
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
 
-        if (device != null && device.element != null)
-            applyColorToDevice(device.element, COLOR_SELECTED);
+        if (device != null && device.element != null) {
+            if (provisioned.contains(deviceId)) {
+                applyColorToDevice(device.element, COLOR_TRANSPARENT);
+            } else {
+                applyColorToDevice(device.element, COLOR_SELECTED);
+            }
+        }
         reRenderSvg();
+
+        // ✅ Display ke liye pure name (user ko dikhana)
+        String displayName = extractPureDeviceName(deviceId);
+
+        // ✅ Backend ke liye original ID (relation mapping ke liye)
+        String originalId = deviceId;
+
+        Log.d(TAG, "Original ID: " + originalId + " → Display Name: " + displayName);
 
         if (provisioned.contains(deviceId)) {
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, originalId);      // Original for mapping
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, displayName);    // Pure for display
+            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                     device != null ? device.elementId : null);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
             startActivity(intent);
             return;
         }
 
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
-        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, deviceId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID, originalId);      // Original for mapping
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, displayName);    // Pure for display
+        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                 device != null ? device.elementId : null);
-        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME, deviceId);
         startActivity(intent);
     }
+    // ✅ Simple extraction method
+    // ✅ Extract pure device name (remove area prefix AND trailing numbers)
+    private String extractPureDeviceName(String fullDeviceId) {
+        if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
 
+        // Step 1: Remove area prefix (e.g., "PDRI:", "AREA2:", etc.)
+        String name = fullDeviceId;
+        int colonIndex = name.lastIndexOf(":");
+        if (colonIndex != -1) {
+            name = name.substring(colonIndex + 1).trim();
+        }
+
+        // Step 2: Remove trailing numbers and spaces
+        // Examples:
+        // "Relay Node1" → "Relay Node"
+        // "Relay Node 2" → "Relay Node"
+        // "Relay Node3" → "Relay Node"
+        name = name.replaceAll("\\s*\\d+$", "");  // Removes " 1", " 2", " 123"
+        name = name.replaceAll("\\d+$", "");       // Removes trailing numbers without space
+
+        // Step 3: Clean up any double spaces
+        name = name.replaceAll("\\s+", " ").trim();
+
+        // If result is empty, return original name without area
+        return name.isEmpty() ? (fullDeviceId.contains(":") ?
+                fullDeviceId.substring(fullDeviceId.indexOf(":") + 1).trim() : fullDeviceId) : name;
+    }
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
         DeviceInfo  device      = deviceMap.get(selectedDeviceId);

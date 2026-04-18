@@ -30,8 +30,13 @@ public class Select_ActionActivity extends AppCompatActivity {
             binding.tvSubtitle.setText("Hi " + technicianName + "! What would you like to do?");
         }
 
+        // Continue button click → Next screen
+        binding.btnBack.setOnClickListener(v -> {
+            Intent intent = new Intent(this, IdentifyActivity.class);
+            startActivity(intent);
+        });
         binding.cardFetchSiteData.setOnClickListener(v -> {
-            Intent intent = new Intent(this, Site_CredentialsActivity.class);
+            Intent intent = new Intent(this, QRScannerActivity.class);
             startActivity(intent);
         });
 

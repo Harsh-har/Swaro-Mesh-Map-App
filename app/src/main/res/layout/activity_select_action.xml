@@ -60,7 +60,7 @@
         android:layout_height="wrap_content"
         android:text="STEP 2 OF 3"
         android:textColor="@color/steptext"
-        android:textSize="12sp"
+        android:textSize="15sp"
         android:letterSpacing="0.08"
         android:paddingStart="20dp"
         android:paddingTop="8dp"
@@ -75,7 +75,7 @@
         android:layout_height="wrap_content"
         android:text="Select Action"
         android:textColor="@color/heading_text"
-        android:textSize="28sp"
+        android:textSize="27.3sp"
         android:layout_marginLeft="20dp"
         android:textStyle="bold"
         app:layout_constraintTop_toBottomOf="@id/tvStepIndicator"
@@ -89,7 +89,7 @@
         android:layout_height="wrap_content"
         android:text="Hi ! What would you like to do?"
         android:textColor="@color/subheading_text"
-        android:textSize="14sp"
+        android:textSize="16sp"
         app:layout_constraintTop_toBottomOf="@id/tvTitle"
         app:layout_constraintStart_toStartOf="parent"
         android:layout_marginLeft="20dp"
@@ -101,17 +101,17 @@
         android:layout_width="373dp"
         android:layout_height="114dp"
         app:cardBackgroundColor="#1A1A1A"
-        app:cardCornerRadius="12dp"
+        app:cardCornerRadius="15dp"
         app:cardElevation="0dp"
         android:clickable="true"
         android:focusable="true"
-        android:layout_marginLeft="36dp"
-        android:layout_marginRight="36dp"
+        android:layout_marginLeft="20dp"
+        android:layout_marginRight="20dp"
         android:foreground="?attr/selectableItemBackground"
         app:layout_constraintTop_toBottomOf="@id/tvSubtitle"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
-        android:layout_marginTop="20dp">
+        android:layout_marginTop="36dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -128,12 +128,12 @@
                 android:backgroundTint="#2A2A2A">
 
                 <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
                     android:layout_gravity="center"
-                    android:src="@drawable/ic_database"
                     android:contentDescription="Fetch Site Data Icon"
-                    app:tint="#FFFFFF" />
+                    android:src="@drawable/ic_database"
+                    app:tint="#D9D9D9" />
             </FrameLayout>
 
             <!-- Text Content -->
@@ -149,13 +149,13 @@
                     android:layout_height="wrap_content"
                     android:text="Fetch Site Data"
                     android:textColor="@color/heading_text"
-                    android:textSize="16sp"
+                    android:textSize="17.85sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Retrieve site info via Site ID &amp; password"
+                    android:text="Retrieve site info via Site ID &amp; \npassword"
                     android:textColor="@color/subheading_text"
                     android:textSize="13.65sp"
                     android:layout_marginTop="2dp" />
@@ -168,7 +168,7 @@
                 android:src="@drawable/arrow_forward"
                 android:contentDescription="Navigate"
                 app:tint="#444444"
-                android:layout_marginStart="8dp" />
+                android:layout_marginRight="20dp" />
 
         </LinearLayout>
     </androidx.cardview.widget.CardView>
@@ -179,10 +179,10 @@
         android:layout_width="372dp"
         android:layout_height="114dp"
         app:cardBackgroundColor="#1A1A1A"
-        app:cardCornerRadius="12dp"
+        app:cardCornerRadius="15dp"
         app:cardElevation="0dp"
-        android:layout_marginRight="36dp"
-        android:layout_marginLeft="36dp"
+        android:layout_marginRight="20dp"
+        android:layout_marginLeft="20dp"
         android:clickable="true"
         android:focusable="true"
         android:foreground="?attr/selectableItemBackground"
@@ -211,7 +211,7 @@
                     android:layout_gravity="center"
                     android:src="@drawable/ic_upload"
                     android:contentDescription="Upload File Icon"
-                    app:tint="#FFFFFF" />
+                    app:tint="#D9D9D9" />
             </FrameLayout>
 
             <!-- Text Content -->
@@ -227,28 +227,32 @@
                     android:layout_height="wrap_content"
                     android:text="Upload File"
                     android:textColor="@color/heading_text"
-                    android:textSize="16sp"
+                    android:textSize="17.85sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="Push config, firmware, or diagnostic files"
+                    android:text="Push config, firmware, or diagnostic \nfiles"
                     android:textColor="@color/subheading_text"
                     android:textSize="13.65sp" />
             </LinearLayout>
 
             <!-- Arrow Icon -->
             <ImageView
-                android:layout_width="20dp"
-                android:layout_height="20dp"
+                android:layout_width="19dp"
+                android:layout_height="19dp"
                 android:src="@drawable/arrow_forward"
                 android:contentDescription="Navigate"
                 app:tint="#444444"
-                android:layout_marginStart="8dp" />
+                android:layout_marginRight="20dp"
+                />
 
         </LinearLayout>
     </androidx.cardview.widget.CardView>
+
+    <androidx.constraintlayout.widget.Group android:layout_width="wrap_content"
+        android:layout_height="wrap_content" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

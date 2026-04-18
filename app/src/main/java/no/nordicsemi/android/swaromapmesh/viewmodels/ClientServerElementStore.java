@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.util.Log;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 
@@ -40,6 +42,11 @@ public final class ClientServerElementStore {
             sPrefs = sAppContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         }
         return sPrefs;
+    }
+
+    // ✅ Public getter for NrfMeshRepository to iterate keys
+    public static SharedPreferences getPrefsPublic() {
+        return getPrefs();
     }
 
     private static boolean checkInit(String caller) {
@@ -97,7 +104,8 @@ public final class ClientServerElementStore {
     // =========================================================================
 
     public static void saveServerUnicastAddress(String deviceId, int unicastAddress) {
-        if (!checkInit("saveServerUnicastAddress") || isEmpty(deviceId, "saveServerUnicastAddress")) return;
+        if (!checkInit("saveServerUnicastAddress")
+                || isEmpty(deviceId, "saveServerUnicastAddress")) return;
         getPrefs().edit().putInt(PRE_SVR_UNICAST + deviceId, unicastAddress).apply();
     }
 
@@ -106,12 +114,34 @@ public final class ClientServerElementStore {
         return getPrefs().getInt(PRE_SVR_UNICAST + deviceId, -1);
     }
 
+    // ✅ NEW: Unicast address se stored key dhundho
+    // e.g. unicast=0x0002 → "pdri:relay node1"
+    public static String getKeyByUnicastAddress(int unicastAddress) {
+        SharedPreferences prefs = getPrefs();
+        if (prefs == null) return null;
+        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            if (!entry.getKey().startsWith(PRE_SVR_UNICAST)) continue;
+            Object val = entry.getValue();
+            if (val instanceof Integer && (Integer) val == unicastAddress) {
+                // "server_unicast_pdri:relay node1" → "pdri:relay node1"
+                String key = entry.getKey().substring(PRE_SVR_UNICAST.length());
+                Log.d(TAG, "getKeyByUnicastAddress: 0x"
+                        + String.format("%04X", unicastAddress) + " → " + key);
+                return key;
+            }
+        }
+        Log.w(TAG, "getKeyByUnicastAddress: no key found for unicast=0x"
+                + String.format("%04X", unicastAddress));
+        return null;
+    }
+
     // =========================================================================
     // SERVER — mesh element index
     // =========================================================================
 
     public static void saveServerMeshElementIndex(String deviceId, int meshElementIndex) {
-        if (!checkInit("saveServerMeshElementIndex") || isEmpty(deviceId, "saveServerMeshElementIndex")) return;
+        if (!checkInit("saveServerMeshElementIndex")
+                || isEmpty(deviceId, "saveServerMeshElementIndex")) return;
         getPrefs().edit().putInt(PRE_SVR_MESH_IDX + deviceId, meshElementIndex).apply();
     }
 
@@ -125,7 +155,8 @@ public final class ClientServerElementStore {
     // =========================================================================
 
     public static void saveServerPrimaryElementAddress(String deviceId, int primaryAddress) {
-        if (!checkInit("saveServerPrimaryElementAddress") || isEmpty(deviceId, "saveServerPrimaryElementAddress")) return;
+        if (!checkInit("saveServerPrimaryElementAddress")
+                || isEmpty(deviceId, "saveServerPrimaryElementAddress")) return;
         getPrefs().edit().putInt(PRE_SVR_PRIM_ADDR + deviceId, primaryAddress).apply();
     }
 
@@ -139,7 +170,8 @@ public final class ClientServerElementStore {
     // =========================================================================
 
     public static void saveServerSvgElementId(String deviceId, int svgElementId) {
-        if (!checkInit("saveServerSvgElementId") || isEmpty(deviceId, "saveServerSvgElementId")) return;
+        if (!checkInit("saveServerSvgElementId")
+                || isEmpty(deviceId, "saveServerSvgElementId")) return;
         getPrefs().edit().putInt(PRE_SVR_SVG_ID + deviceId, svgElementId).apply();
         Log.d(TAG, "✅ Saved SVG element ID: " + deviceId + " = " + svgElementId);
     }
@@ -147,6 +179,44 @@ public final class ClientServerElementStore {
     public static int getServerSvgElementId(String deviceId) {
         if (!checkInit("getServerSvgElementId") || deviceId == null) return -1;
         return getPrefs().getInt(PRE_SVR_SVG_ID + deviceId, -1);
+    }
+
+    // ✅ NEW: SVG element ID se stored key dhundho
+    // e.g. svgElementId=1 → "pdri:relay node1"
+    // e.g. svgElementId=5 → "pdri:relay node5"
+    public static String getKeyBySvgElementId(int svgElementId) {
+        SharedPreferences prefs = getPrefs();
+        if (prefs == null) return null;
+        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            if (!entry.getKey().startsWith(PRE_SVR_SVG_ID)) continue;
+            Object val = entry.getValue();
+            if (val instanceof Integer && (Integer) val == svgElementId) {
+                // "server_svg_element_id_pdri:relay node1" → "pdri:relay node1"
+                String key = entry.getKey().substring(PRE_SVR_SVG_ID.length());
+                Log.d(TAG, "getKeyBySvgElementId: svgId=" + svgElementId + " → " + key);
+                return key;
+            }
+        }
+        Log.w(TAG, "getKeyBySvgElementId: no key found for svgElementId=" + svgElementId);
+        return null;
+    }
+
+    // =========================================================================
+    // ✅ Get all keys that have SVG element IDs saved
+    // Used by NrfMeshRepository.resolveKeyByNodeName() for suffix matching
+    // =========================================================================
+
+    public static List<String> getAllServerSvgKeys() {
+        List<String> result = new ArrayList<>();
+        SharedPreferences prefs = getPrefs();
+        if (prefs == null) return result;
+        for (String key : prefs.getAll().keySet()) {
+            if (key.startsWith(PRE_SVR_SVG_ID)) {
+                // Strip prefix → "pdri:relay node1", "pdri:relay node5" etc.
+                result.add(key.substring(PRE_SVR_SVG_ID.length()));
+            }
+        }
+        return result;
     }
 
     // =========================================================================
@@ -185,7 +255,8 @@ public final class ClientServerElementStore {
     public static void clearDevice(String deviceId) {
         if (getPrefs() == null || deviceId == null) return;
         SharedPreferences.Editor editor = getPrefs().edit();
-        for (int i = 0; i <= 40; i++) editor.remove(PRE_CLIENT_ADDR + deviceId + "_" + i);
+        for (int i = 0; i <= 40; i++)
+            editor.remove(PRE_CLIENT_ADDR + deviceId + "_" + i);
         editor.remove(PRE_SVR_UNICAST   + deviceId);
         editor.remove(PRE_SVR_MESH_IDX  + deviceId);
         editor.remove(PRE_SVR_PRIM_ADDR + deviceId);

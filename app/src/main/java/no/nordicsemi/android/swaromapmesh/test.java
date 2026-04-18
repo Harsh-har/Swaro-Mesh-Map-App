@@ -1,540 +1,785 @@
-//package no.nordicsemi.android.swaromapmesh;
+//package no.nordicsemi.android.swaromapmesh.viewmodels;
 //
-//import android.app.Activity;
-//import android.content.Intent;
-//import android.os.Bundle;
+//import android.content.Context;
+//import android.content.SharedPreferences;
+//import android.net.Uri;
+//import android.os.Build;
 //import android.util.Log;
-//import android.view.MenuItem;
-//import android.view.View;
 //
-//import androidx.activity.result.ActivityResultLauncher;
-//import androidx.activity.result.contract.ActivityResultContracts;
 //import androidx.annotation.NonNull;
 //import androidx.annotation.Nullable;
-//import androidx.appcompat.app.AppCompatActivity;
-//import androidx.core.content.ContextCompat;
-//import androidx.lifecycle.ViewModelProvider;
-//import androidx.recyclerview.widget.LinearLayoutManager;
-//import androidx.recyclerview.widget.RecyclerView;
+//import androidx.lifecycle.LiveData;
+//import androidx.lifecycle.MutableLiveData;
 //
-//import com.google.android.material.snackbar.Snackbar;
+//import java.io.OutputStream;
+//import java.util.ArrayList;
+//import java.util.HashMap;
+//import java.util.HashSet;
+//import java.util.List;
+//import java.util.Map;
+//import java.util.Set;
 //
-//import java.util.Locale;
+//import javax.inject.Inject;
 //
-//import dagger.hilt.android.AndroidEntryPoint;
+//import dagger.hilt.android.lifecycle.HiltViewModel;
+//import dagger.hilt.android.qualifiers.ApplicationContext;
+//import no.nordicsemi.android.swaromapmesh.ApplicationKey;
+//import no.nordicsemi.android.swaromapmesh.MeshNetwork;
+//import no.nordicsemi.android.swaromapmesh.NodeKey;
 //import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
-//import no.nordicsemi.android.swaromapmesh.adapter.ProvisioningProgressAdapter;
-//import no.nordicsemi.android.swaromapmesh.databinding.ActivityMeshProvisionerBinding;
-//import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentAuthenticationInput;
-//import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentConfigurationComplete;
-//import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentProvisioningFailedError;
-//import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentSelectOOBType;
-//import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentUnicastAddress;
-//import no.nordicsemi.android.swaromapmesh.keys.AppKeysActivity;
-//import no.nordicsemi.android.swaromapmesh.node.dialog.DialogFragmentNodeName;
-//import no.nordicsemi.android.swaromapmesh.provisionerstates.ProvisioningCapabilities;
-//import no.nordicsemi.android.swaromapmesh.provisionerstates.ProvisioningFailedState;
-//import no.nordicsemi.android.swaromapmesh.provisionerstates.UnprovisionedMeshNode;
-//import no.nordicsemi.android.swaromapmesh.utils.AuthenticationOOBMethods;
-//import no.nordicsemi.android.swaromapmesh.utils.InputOOBAction;
-//import no.nordicsemi.android.swaromapmesh.utils.MeshParserUtils;
-//import no.nordicsemi.android.swaromapmesh.utils.OutputOOBAction;
-//import no.nordicsemi.android.swaromapmesh.utils.ProvisionerStates;
-//import no.nordicsemi.android.swaromapmesh.utils.StaticOOBType;
-//import no.nordicsemi.android.swaromapmesh.utils.Utils;
-//import no.nordicsemi.android.swaromapmesh.viewmodels.ProvisionerProgress;
-//import no.nordicsemi.android.swaromapmesh.viewmodels.ProvisioningViewModel;
+//import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
+//import no.nordicsemi.android.swaromapmesh.transport.Element;
+//import no.nordicsemi.android.swaromapmesh.transport.MeshModel;
+//import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+//import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 //
-//import static no.nordicsemi.android.swaromapmesh.utils.Utils.RESULT_KEY;
+//@HiltViewModel
+//public class SharedViewModel extends BaseViewModel
+//        implements NetworkExportUtils.NetworkExportCallbacks {
 //
-//@AndroidEntryPoint
-//public class ProvisioningActivity extends AppCompatActivity implements
-//        DialogFragmentOobPublicKey.DialogFragmentOobPublicKeysListener,
-//        DialogFragmentSelectOOBType.DialogFragmentSelectOOBTypeListener,
-//        DialogFragmentAuthenticationInput.ProvisionerInputFragmentListener,
-//        DialogFragmentNodeName.DialogFragmentNodeNameListener,
-//        DialogFragmentUnicastAddress.DialogFragmentUnicastAddressListener,
-//        DialogFragmentProvisioningFailedError.DialogFragmentProvisioningFailedErrorListener,
-//        DialogFragmentConfigurationComplete.ConfigurationCompleteListener {
+//    private static final String TAG = "SharedViewModel";
 //
-//    private static final String DIALOG_FRAGMENT_PROVISIONING_FAILED = "DIALOG_FRAGMENT_PROVISIONING_FAILED";
-//    private static final String DIALOG_FRAGMENT_AUTH_INPUT_TAG = "DIALOG_FRAGMENT_AUTH_INPUT_TAG";
-//    private static final String DIALOG_FRAGMENT_CONFIGURATION_STATUS = "DIALOG_FRAGMENT_CONFIGURATION_STATUS";
-//    private static final String TAG = "ProvisioningActivity";
+//    private final ScannerRepository mScannerRepository;
+//    private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 //
-//    private ActivityMeshProvisionerBinding binding;
-//    private ProvisioningViewModel mViewModel;
-//    private ExtendedBluetoothDevice mDevice;
+//    // ── SharedPreferences keys ─────────────────────────────────────────────
+//    private static final String PREFS_NAME                         = "mesh_prefs";
+//    private static final String KEY_PROXY_ENABLED                  = "proxy_enabled";
+//    private static final String KEY_SELECTED_DEVICE                = "selected_device";
+//    private static final String KEY_SIGNAL_THRESHOLD               = "signal_threshold";
+//    private static final String KEY_SVG_URI                        = "svg_uri";
+//    private static final String KEY_PROVISIONED_DEVICES            = "provisioned_devices";
+//    private static final String KEY_SERVER_SVG_DEVICE_ID           = "server_svg_device_id";
+//    private static final String KEY_ELEMENT_ADDRESS_MAPPING_PREFIX = "element_addr_";
+//    private static final String KEY_ELEMENT_ID_MAPPING_PREFIX      = "element_id_";
+//    private static final String KEY_CLIENT_ADDRESS_MAPPING_PREFIX  = "client_addr_";
+//    private static final String DEFAULT_SELECTED_DEVICE            = "All Device";
 //
-//    private final ActivityResultLauncher<Intent> appKeySelector = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-//        if (result.getResultCode() == RESULT_OK && result.getData() != null) {
-//            final ApplicationKey appKey = result.getData().getParcelableExtra(RESULT_KEY);
-//            if (appKey != null) {
-//                mViewModel.getNetworkLiveData().setSelectedAppKey(appKey);
-//            }
-//        }
-//    });
+//    private final SharedPreferences prefs;
+//
+//    // ── LiveData ───────────────────────────────────────────────────────────
+//    private final MutableLiveData<Boolean>     proxyEnabled         = new MutableLiveData<>();
+//    private final MutableLiveData<String>      selectedDevice       = new MutableLiveData<>(DEFAULT_SELECTED_DEVICE);
+//    private final MutableLiveData<Integer>     signalThreshold      = new MutableLiveData<>(DevicesAdapter.SIGNAL_DEFAULT);
+//    private final MutableLiveData<Uri>         svgUri               = new MutableLiveData<>();
+//    private final MutableLiveData<String>      selectedDeviceId     = new MutableLiveData<>();
+//    private final MutableLiveData<Set<String>> provisionedDeviceIds = new MutableLiveData<>(new HashSet<>());
+//
+//    private final MutableLiveData<List<ExtendedBluetoothDevice>> filteredDevices =
+//            new MutableLiveData<>(new ArrayList<>());
+//    private final MutableLiveData<List<ExtendedBluetoothDevice>> allUnprovisionedDevices =
+//            new MutableLiveData<>(new ArrayList<>());
+//
+//    private final MutableLiveData<String> mSelectedSvgDeviceId = new MutableLiveData<>();
+//    private final MutableLiveData<String> mServerSvgDeviceId   = new MutableLiveData<>();
+//    private final Map<String, String>     nodeToSvgMap         = new HashMap<>();
+//
+//    // =========================================================================
+//    // Constructor
+//    // =========================================================================
+//    @Inject
+//    SharedViewModel(
+//            @NonNull final NrfMeshRepository nrfMeshRepository,
+//            @NonNull final ScannerRepository scannerRepository,
+//            @ApplicationContext @NonNull final Context context
+//    ) {
+//        super(nrfMeshRepository);
+//
+//        ClientServerElementStore.init(context);
+//
+//        mScannerRepository = scannerRepository;
+//        scannerRepository.registerBroadcastReceivers();
+//
+//        prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+//
+//        proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
+//        selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
+//        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
+//
+//        final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
+//        if (savedSvgUri != null) svgUri.setValue(Uri.parse(savedSvgUri));
+//
+//        Set<String> savedProvisioned = prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
+//        provisionedDeviceIds.setValue(new HashSet<>(savedProvisioned));
+//
+//        String savedServerId = prefs.getString(KEY_SERVER_SVG_DEVICE_ID, null);
+//        if (savedServerId != null) mServerSvgDeviceId.setValue(savedServerId);
+//
+//        // ── Observe nodes: sync stale IDs AND rebuild after import ────────────
+//        getNodes().observeForever(nodes -> {
+//            syncProvisionedWithMeshNetwork();
+//        });
+//
+//        mNrfMeshRepository.setOnNetworkImportedCallback(this::rebuildProvisionedFromMesh);
+//    }
 //
 //    @Override
-//    protected void onCreate(final Bundle savedInstanceState) {
-//        super.onCreate(savedInstanceState);
-//        binding = ActivityMeshProvisionerBinding.inflate(getLayoutInflater());
-//        setContentView(binding.getRoot());
-//        mViewModel = new ViewModelProvider(this).get(ProvisioningViewModel.class);
+//    protected void onCleared() {
+//        super.onCleared();
+//        if (!mNrfMeshRepository.getBleMeshManager().isConnected()) {
+//            mNrfMeshRepository.disconnect();
+//        }
+//        mScannerRepository.unregisterBroadcastReceivers();
+//    }
+//    private void syncProvisionedWithMeshNetwork() {
+//        Set<String> saved = new HashSet<>(
+//                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
+//        if (saved.isEmpty()) return;
 //
-//        final Intent intent = getIntent();
-//        mDevice = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
-//        if (mDevice == null) {
-//            finish();
+//        List<ProvisionedMeshNode> meshNodes = getAllProvisionedNodes();
+//        if (meshNodes == null || meshNodes.isEmpty()) {
+//            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()).apply();
+//            provisionedDeviceIds.setValue(new HashSet<>());
+//            Log.d(TAG, "🧹 syncProvisioned: mesh empty — cleared all");
 //            return;
 //        }
 //
-//        final String deviceName = mDevice.getName() != null ? mDevice.getName() : getString(R.string.unknown_device);
-//        final String deviceAddress = mDevice.getAddress() != null ? mDevice.getAddress() : getString(R.string.unknown_address);
-//
-//        setSupportActionBar(binding.toolbar);
-//        if (getSupportActionBar() != null) {
-//            getSupportActionBar().setTitle(deviceName);
-//            getSupportActionBar().setSubtitle(deviceAddress);
-//            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+//        Set<String> validMeshIds = new HashSet<>();
+//        for (ProvisionedMeshNode node : meshNodes) {
+//            if (node.getNodeName() != null) validMeshIds.add(node.getNodeName());
+//            String svgId = getSvgIdFromNode(node);
+//            if (svgId != null) validMeshIds.add(svgId);
 //        }
 //
-//        if (savedInstanceState == null) {
-//            mViewModel.connect(this, mDevice, false);
-//            mViewModel.setDeviceMacAddress(mDevice.getAddress());
-//            Log.d(TAG, "MAC Address stored: " + mDevice.getAddress());
-//        }
-//
-//        binding.containerName.image
-//                .setBackground(ContextCompat.getDrawable(this, R.drawable.ic_label_outline));
-//        binding.containerName.title.setText(R.string.summary_name);
-//        binding.containerName.text.setVisibility(View.VISIBLE);
-//        binding.containerName.getRoot().setOnClickListener(v -> {
-//            final DialogFragmentNodeName dialogFragmentNodeName = DialogFragmentNodeName.newInstance(deviceName);
-//            dialogFragmentNodeName.show(getSupportFragmentManager(), null);
-//        });
-//
-//        binding.containerUnicast.image
-//                .setBackground(ContextCompat.getDrawable(this, R.drawable.ic_lan_24dp));
-//        binding.containerUnicast.title.setText(R.string.title_unicast_address);
-//        binding.containerUnicast.text.setVisibility(View.VISIBLE);
-//        binding.containerUnicast.getRoot().setOnClickListener(v -> {
-//            final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//            if (node != null && node.getProvisioningCapabilities() != null) {
-//                final int elementCount = node.getProvisioningCapabilities().getNumberOfElements();
-//                final DialogFragmentUnicastAddress dialogFragmentFlags = DialogFragmentUnicastAddress.
-//                        newInstance(mViewModel.getNetworkLiveData().getMeshNetwork().getUnicastAddress(), elementCount);
-//                dialogFragmentFlags.show(getSupportFragmentManager(), null);
-//            }
-//        });
-//
-//        binding.containerAppKeys.image
-//                .setBackground(ContextCompat.getDrawable(this, R.drawable.ic_vpn_key_24dp));
-//        binding.containerAppKeys.title.setText(R.string.title_app_keys);
-//        binding.containerAppKeys.text.setVisibility(View.VISIBLE);
-//        binding.containerAppKeys.getRoot().setOnClickListener(v -> {
-//            final Intent manageAppKeys = new Intent(ProvisioningActivity.this, AppKeysActivity.class);
-//            manageAppKeys.putExtra(Utils.EXTRA_DATA, Utils.ADD_APP_KEY);
-//            appKeySelector.launch(manageAppKeys);
-//        });
-//
-//        mViewModel.getConnectionState().observe(this, binding.connectionState::setText);
-//
-//        mViewModel.isConnected().observe(this, connected -> {
-//            final boolean isComplete = mViewModel.isProvisioningComplete();
-//            if (isComplete) {
-//                return;
-//            }
-//
-//            if (connected != null && !connected)
-//                finish();
-//        });
-//
-//        mViewModel.isDeviceReady().observe(this, deviceReady -> {
-//            if (mViewModel.getBleMeshManager().isDeviceReady()) {
-//                binding.connectivityProgressContainer.setVisibility(View.GONE);
-//                final boolean isComplete = mViewModel.isProvisioningComplete();
-//                if (isComplete) {
-//                    binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-//                    binding.infoProvisioningStatusContainer.getRoot().setVisibility(View.VISIBLE);
-//                    setupProvisionerStateObservers();
-//                    return;
-//                }
-//                binding.dataContainer.setVisibility(View.VISIBLE);
-//            }
-//        });
-//
-//        mViewModel.isReconnecting().observe(this, isReconnecting -> {
-//            if (isReconnecting != null && isReconnecting) {
-//                mViewModel.getUnprovisionedMeshNode().removeObservers(this);
-//                binding.infoProvisioningStatusContainer.getRoot().setVisibility(View.GONE);
-//                binding.dataContainer.setVisibility(View.GONE);
-//                binding.provisioningProgressBar.setVisibility(View.GONE);
-//                binding.connectivityProgressContainer.setVisibility(View.VISIBLE);
+//        Set<String> cleaned = new HashSet<>();
+//        for (String id : saved) {
+//            if (validMeshIds.contains(id)) {
+//                cleaned.add(id);
 //            } else {
-//                setResultIntent();
+//                Log.d(TAG, "🧹 syncProvisioned: removing stale → " + id);
 //            }
-//        });
+//        }
 //
-//        mViewModel.getNetworkLiveData().observe(this, meshNetworkLiveData -> {
-//            binding.containerName.text.setText(meshNetworkLiveData.getNodeName());
-//            final ApplicationKey applicationKey = meshNetworkLiveData.getSelectedAppKey();
-//            if (applicationKey != null) {
-//                binding.containerAppKeys.text.setText(MeshParserUtils.bytesToHex(applicationKey.getKey(), false));
-//            } else {
-//                binding.containerAppKeys.text.setText(getString(R.string.no_app_keys));
-//            }
-//            binding.containerUnicast.text.setText(getString(R.string.hex_format,
-//                    String.format(Locale.US, "%04X", meshNetworkLiveData.getMeshNetwork().getUnicastAddress())));
-//        });
-//
-//        mViewModel.getUnprovisionedMeshNode().observe(this, meshNode -> {
-//            if (meshNode != null) {
-//                final ProvisioningCapabilities capabilities = meshNode.getProvisioningCapabilities();
-//                if (capabilities != null) {
-//                    binding.provisioningProgressBar.setVisibility(View.INVISIBLE);
-//                    binding.actionProvisionDevice.setText(R.string.provision_action);
-//                    binding.containerUnicast.getRoot().setVisibility(View.VISIBLE);
-//                    final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-//                    if (network != null) {
-//                        try {
-//                            final int elementCount = capabilities.getNumberOfElements();
-//                            final Provisioner provisioner = network.getSelectedProvisioner();
-//                            final int unicast = network.nextAvailableUnicastAddress(elementCount, provisioner);
-//                            network.assignUnicastAddress(unicast);
-//                        } catch (IllegalArgumentException ex) {
-//                            binding.actionProvisionDevice.setEnabled(false);
-//                            mViewModel.displaySnackBar(this, binding.coordinator,
-//                                    ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
-//                                    Snackbar.LENGTH_LONG);
-//                        }
-//                    }
-//
-//                    if (meshNode.getMacAddress() == null || meshNode.getMacAddress().isEmpty()) {
-//                        meshNode.setMacAddress(mDevice.getAddress());
-//                        Log.d(TAG, "MAC address set in UnprovisionedMeshNode: " + mDevice.getAddress());
-//                    }
-//                }
-//            }
-//        });
-//
-//        binding.actionProvisionDevice.setOnClickListener(v -> {
-//            final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//
-//            if (node == null) {
-//                mDevice.setName(mViewModel.getNetworkLiveData().getNodeName());
-//                mViewModel.getNrfMeshRepository().identifyNode(mDevice);
-//                return;
-//            }
-//
-//            try {
-//                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-//                    node.setMacAddress(mDevice.getAddress());
-//                    Log.d(TAG, "MAC address set before provisioning: " + mDevice.getAddress());
-//                }
-//
-//                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-//                setupProvisionerStateObservers();
-//                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-//
-//                mViewModel.getMeshManagerApi().startProvisioning(node);
-//
-//            } catch (IllegalArgumentException ex) {
-//                mViewModel.displaySnackBar(
-//                        this,
-//                        binding.coordinator,
-//                        ex.getMessage() == null
-//                                ? getString(R.string.unknown_error)
-//                                : ex.getMessage(),
-//                        Snackbar.LENGTH_LONG
-//                );
-//            }
-//        });
-//
-//        if (savedInstanceState == null) {
-//            mViewModel.getNetworkLiveData().resetSelectedAppKey();
+//        if (cleaned.size() != saved.size()) {
+//            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, cleaned).apply();
+//            provisionedDeviceIds.setValue(cleaned);
+//            Log.d(TAG, "✅ syncProvisioned done — remaining: " + cleaned);
 //        }
 //    }
 //
-//    @Override
-//    public boolean onOptionsItemSelected(final MenuItem item) {
-//        if (item.getItemId() == android.R.id.home) {
-//            onBackPressed();
-//            return true;
+//    // =========================================================================
+//    // ✅ FIX: Import ke baad SVG rebuild
+//    // =========================================================================
+//
+//    public void rebuildProvisionedFromMesh() {
+//        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+//        if (nodes == null || nodes.isEmpty()) {
+//            Log.w(TAG, "rebuildProvisionedFromMesh: no nodes found — nothing to rebuild");
+//            return;
 //        }
-//        return false;
+//
+//        Set<String> rebuilt = new HashSet<>();
+//
+//        for (ProvisionedMeshNode node : nodes) {
+//            final String uuid = node.getUuid();
+//
+//            // Step 1: node_svg_ prefs se svgId lo (agar export se pehle map kiya tha)
+//            String svgId = prefs.getString("node_svg_" + uuid, null);
+//            if (svgId != null && !svgId.isEmpty()) {
+//                rebuilt.add(svgId);
+//                // in-memory map bhi restore karo taaki getSvgIdFromNode() kaam kare
+//                nodeToSvgMap.put(uuid, svgId);
+//                Log.d(TAG, "rebuildProvisionedFromMesh: uuid→svgId  " + uuid + " → " + svgId);
+//            }
+//
+//            // Step 2: Node name bhi add karo (fallback — provisioning ke waqt
+//            //         node name == svgDeviceId hota tha)
+//            String nodeName = node.getNodeName();
+//            if (nodeName != null && !nodeName.isEmpty()) {
+//                rebuilt.add(nodeName);
+//                Log.d(TAG, "rebuildProvisionedFromMesh: nodeName → " + nodeName);
+//            }
+//        }
+//
+//        if (!rebuilt.isEmpty()) {
+//            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, rebuilt).apply();
+//            provisionedDeviceIds.setValue(new HashSet<>(rebuilt));
+//            Log.d(TAG, "✅ rebuildProvisionedFromMesh complete — provisioned: " + rebuilt);
+//        }
+//        else {
+//            Log.w(TAG, "rebuildProvisionedFromMesh: nothing to rebuild");
+//        }
+//
+//        new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+//            forceSvgRefresh();
+//            Log.d(TAG, "🔄 forceSvgRefresh after import delay");
+//        }, 1500);
 //    }
 //
-//    @Override
-//    public void onBackPressed() {
-//        super.onBackPressed();
-//        disconnect();
+//    // =========================================================================
+//    // ELEMENT ID (SVG shape ID — user assigned)
+//    // =========================================================================
+//
+//    /**
+//     * DeviceDetailActivity yeh call karta hai — svgDeviceId ke liye elementId save karo.
+//     */
+//    public void saveElementId(@NonNull String svgDeviceId, @NonNull String elementId) {
+//        String key = KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId;
+//        prefs.edit().putString(key, elementId).apply();
+//
+//        // ✅ ClientServerElementStore mein bhi save karo agar number hai
+//        try {
+//            int svgElementIdInt = Integer.parseInt(elementId.trim());
+//            String normalizedId = svgDeviceId.trim().toLowerCase();
+//            ClientServerElementStore.saveServerSvgElementId(normalizedId, svgElementIdInt);
+//            Log.d(TAG, "✅ saveElementId: " + svgDeviceId + " = " + elementId
+//                    + " (also saved in Store as " + normalizedId + " = " + svgElementIdInt + ")");
+//        } catch (NumberFormatException e) {
+//            Log.w(TAG, "saveElementId: elementId not a number — Store not updated: " + elementId);
+//        }
 //    }
 //
-//    @Override
-//    protected void onDestroy() {
-//        super.onDestroy();
-//        disconnect();
+//    @Nullable
+//    public String getElementId(@NonNull String svgDeviceId) {
+//        return prefs.getString(KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId, null);
 //    }
 //
-//    @Override
-//    public void onPinInputComplete(final String pin) {
-//        mViewModel.getMeshManagerApi().setProvisioningAuthentication(pin);
+//    public int getSvgElementIdAsInt(@NonNull String svgDeviceId) {
+//        String s = getElementId(svgDeviceId);
+//        if (s == null) return -1;
+//        try { return Integer.parseInt(s.trim()); }
+//        catch (NumberFormatException e) { return -1; }
 //    }
 //
-//    @Override
-//    public void onPinInputCanceled() {
-//        final String message = getString(R.string.provisioning_cancelled);
-//        final Snackbar snackbar = Snackbar.make(binding.coordinator, message, Snackbar.LENGTH_LONG);
-//        snackbar.show();
-//        disconnect();
+//    private final MutableLiveData<String> focusAreaId = new MutableLiveData<>();
+//
+//    public LiveData<String> getFocusAreaId() { return focusAreaId; }
+//
+//    public void setFocusAreaId(String areaId) { focusAreaId.setValue(areaId); }
+//
+//    // =========================================================================
+//    // CLIENT ELEMENT ADDRESS MAPPING
+//    // =========================================================================
+//
+//    public void saveClientElementAddress(@NonNull String svgDeviceId,
+//                                         int elementIndex, int elementAddress) {
+//        String key = KEY_ELEMENT_ADDRESS_MAPPING_PREFIX + svgDeviceId + "_" + elementIndex;
+//        prefs.edit().putInt(key, elementAddress).apply();
+//        Log.d(TAG, "✅ saveClientElementAddress: " + svgDeviceId
+//                + "[" + elementIndex + "] = 0x" + String.format("%04X", elementAddress));
 //    }
 //
-//    @Override
-//    public boolean onNodeNameUpdated(@NonNull final String nodeName) {
-//        mViewModel.getNetworkLiveData().setNodeName(nodeName);
+//    public void saveAllClientElementAddresses(@NonNull String svgDeviceId,
+//                                              @NonNull Map<Integer, Integer> elementAddresses) {
+//        for (Map.Entry<Integer, Integer> entry : elementAddresses.entrySet()) {
+//            saveClientElementAddress(svgDeviceId, entry.getKey(), entry.getValue());
+//        }
+//        Log.d(TAG, "✅ saveAllClientElementAddresses: "
+//                + elementAddresses.size() + " for " + svgDeviceId);
+//    }
+//
+//    // =========================================================================
+//    // NODE DELETE
+//    // =========================================================================
+//
+//    public void removeNodeFromNetwork(ProvisionedMeshNode node) {
+//        if (node == null) return;
+//        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+//        if (nodes != null) {
+//            nodes.remove(node);
+//            Log.d(TAG, "🔥 Node removed: " + node.getNodeName());
+//        }
+//    }
+//
+//    public boolean fullyDeleteNode(@NonNull ProvisionedMeshNode adapterNode) {
+//        ProvisionedMeshNode realNode = null;
+//        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+//        if (nodes != null) {
+//            for (ProvisionedMeshNode n : nodes) {
+//                if (n.getUuid().equals(adapterNode.getUuid())) { realNode = n; break; }
+//            }
+//        }
+//        if (realNode == null) { Log.e(TAG, "❌ Node not found in network"); return false; }
+//
+//        String nodeName = realNode.getNodeName();
+//        String svgId    = getSvgIdFromNode(realNode);
+//        Log.d(TAG, "fullyDeleteNode: nodeName=" + nodeName + " svgId=" + svgId);
+//
+//        boolean deleted = getNetworkLiveData().getMeshNetwork().deleteNode(realNode);
+//        if (!deleted) { Log.e(TAG, "❌ Mesh delete failed"); return false; }
+//
+//        if (svgId != null) unmarkDeviceProvisioned(svgId);
+//        if (nodeName != null && !nodeName.equals(svgId)) unmarkDeviceProvisioned(nodeName);
+//        removeAllMatchingProvisioned(nodeName, svgId);
+//        nodeToSvgMap.remove(realNode.getUuid());
+//        prefs.edit().remove("node_svg_" + realNode.getUuid()).apply();
+//        forceSvgRefresh();
+//        Log.d(TAG, "✅ fullyDeleteNode complete: " + nodeName);
 //        return true;
 //    }
 //
-//    @Override
-//    public boolean setUnicastAddress(final int unicastAddress) {
-//        final MeshNetwork network = mViewModel.getMeshManagerApi().getMeshNetwork();
-//        if (network != null) {
-//            return network.assignUnicastAddress(unicastAddress);
+//    // =========================================================================
+//    // PROVISIONED DEVICE IDs
+//    // =========================================================================
+//
+//    public LiveData<Set<String>> getProvisionedDeviceIds() { return provisionedDeviceIds; }
+//
+//    public boolean isDeviceProvisioned(String svgDeviceId) {
+//        if (svgDeviceId == null) return false;
+//        Set<String> set = provisionedDeviceIds.getValue();
+//        return set != null && set.contains(svgDeviceId);
+//    }
+//
+//    public void markDeviceProvisioned(String svgDeviceId) {
+//        if (svgDeviceId == null) return;
+//        Set<String> current = new HashSet<>();
+//        if (provisionedDeviceIds.getValue() != null) current.addAll(provisionedDeviceIds.getValue());
+//        current.add(svgDeviceId);
+//        provisionedDeviceIds.setValue(current);
+//        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
+//        Log.d(TAG, "✅ markDeviceProvisioned: " + svgDeviceId);
+//    }
+//
+//    public void unmarkDeviceProvisioned(String svgDeviceId) {
+//        if (svgDeviceId == null) return;
+//        Set<String> current = new HashSet<>(
+//                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
+//        if (current.remove(svgDeviceId)) {
+//            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, current).apply();
+//            provisionedDeviceIds.setValue(new HashSet<>(current));
+//            Log.d(TAG, "✅ unmarkDeviceProvisioned: " + svgDeviceId);
+//        } else {
+//            Log.w(TAG, "⚠️ unmarkDeviceProvisioned: not found → " + svgDeviceId);
+//        }
+//    }
+//
+//    private void removeAllMatchingProvisioned(@Nullable String nodeName, @Nullable String svgId) {
+//        Set<String> current = new HashSet<>(
+//                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
+//        Set<String> toRemove = new HashSet<>();
+//        for (String id : current) {
+//            boolean matchesNode = nodeName != null && (id.equals(nodeName) || id.contains(nodeName));
+//            boolean matchesSvg  = svgId    != null && (id.equals(svgId)    || id.contains(svgId));
+//            if (matchesNode || matchesSvg) {
+//                toRemove.add(id);
+//                Log.d(TAG, "🧹 removeAllMatchingProvisioned: removing → " + id);
+//            }
+//        }
+//        if (!toRemove.isEmpty()) {
+//            current.removeAll(toRemove);
+//            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, current).apply();
+//            provisionedDeviceIds.setValue(new HashSet<>(current));
+//        }
+//    }
+//
+//    public void forceSvgRefresh() {
+//        Set<String> fresh = new HashSet<>(
+//                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
+//        provisionedDeviceIds.setValue(fresh);
+//        Log.d(TAG, "🔄 forceSvgRefresh — provisioned: " + fresh);
+//    }
+//
+//    public void clearProvisionedDevices() {
+//        provisionedDeviceIds.setValue(new HashSet<>());
+//        prefs.edit().remove(KEY_PROVISIONED_DEVICES).apply();
+//    }
+//
+//    // =========================================================================
+//    // NODE ↔ SVG MAPPING
+//    // =========================================================================
+//
+//    public void mapNodeToSvg(String nodeUuid, String svgId) {
+//        if (nodeUuid == null || svgId == null) return;
+//        nodeToSvgMap.put(nodeUuid, svgId);
+//        prefs.edit().putString("node_svg_" + nodeUuid, svgId).apply();
+//        Log.d(TAG, "✅ mapNodeToSvg: " + nodeUuid + " → " + svgId);
+//    }
+//
+//    public String getSvgIdFromNode(ProvisionedMeshNode node) {
+//        if (node == null) return null;
+//        String svgId = nodeToSvgMap.get(node.getUuid());
+//        if (svgId == null) {
+//            svgId = prefs.getString("node_svg_" + node.getUuid(), null);
+//            if (svgId != null) nodeToSvgMap.put(node.getUuid(), svgId);
+//        }
+//        return svgId;
+//    }
+//
+//    public void autoMapNodeToCurrentSvg(ProvisionedMeshNode node) {
+//        if (node == null) return;
+//        String svgId = getSelectedSvgDeviceId();
+//        if (svgId == null) { Log.w(TAG, "autoMapNodeToCurrentSvg: svgId is null"); return; }
+//        mapNodeToSvg(node.getUuid(), svgId);
+//    }
+//
+//    // =========================================================================
+//    // CLIENT PUBLISH ADDRESS MAPPING
+//    // =========================================================================
+//
+//    public void saveServerPublishMapping(@NonNull String serverSvgDeviceId, int serverElementIndex,
+//                                         @NonNull String clientSvgDeviceId, int clientElementIndex) {
+//        String key = KEY_CLIENT_ADDRESS_MAPPING_PREFIX + serverSvgDeviceId + "_" + serverElementIndex;
+//        prefs.edit().putString(key, clientSvgDeviceId + ":" + clientElementIndex).apply();
+//        Log.d(TAG, "✅ saveServerPublishMapping: " + serverSvgDeviceId
+//                + "[" + serverElementIndex + "] → " + clientSvgDeviceId + "[" + clientElementIndex + "]");
+//    }
+//
+//    public void saveClientToServerMapping(@NonNull String clientSvgId,
+//                                          int elementIndex,
+//                                          @NonNull String serverSvgId) {
+//        String key = "client_to_server_" + clientSvgId + "_" + elementIndex;
+//        prefs.edit().putString(key, serverSvgId).apply();
+//        Log.d(TAG, "✅ Client → Server mapping saved: "
+//                + clientSvgId + "[" + elementIndex + "] → " + serverSvgId);
+//    }
+//
+//    public String getServerSvgIdForClient(@NonNull String clientSvgId, int elementIndex) {
+//        String key = "client_to_server_" + clientSvgId + "_" + elementIndex;
+//        String serverSvgId = prefs.getString(key, null);
+//        Log.d(TAG, "🔍 getServerSvgIdForClient: "
+//                + clientSvgId + "[" + elementIndex + "] → " + serverSvgId);
+//        return serverSvgId;
+//    }
+//
+//    // =========================================================================
+//    // PROVISIONING HELPERS
+//    // =========================================================================
+//
+//    public void onClientProvisioned(@NonNull ProvisionedMeshNode clientNode,
+//                                    @NonNull String svgDeviceId) {
+//        List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+//            sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
+//        }
+//        Map<Integer, Integer> elementAddresses = new HashMap<>();
+//        for (int i = 0; i < sorted.size() && i < 40; i++) {
+//            elementAddresses.put(i + 1, sorted.get(i).getElementAddress());
+//        }
+//        saveAllClientElementAddresses(svgDeviceId, elementAddresses);
+//        Log.d(TAG, "✅ onClientProvisioned: saved "
+//                + elementAddresses.size() + " for " + svgDeviceId);
+//    }
+//
+//    // =========================================================================
+//    // NETWORK
+//    // =========================================================================
+//
+//    public LiveData<String> getNetworkLoadState()  { return mNrfMeshRepository.getNetworkLoadState(); }
+//    public LiveData<String> getNetworkExportState() { return networkExportState; }
+//    public void setSelectedGroup(final int address) { mNrfMeshRepository.setSelectedGroup(address); }
+//
+//    public void exportMeshNetwork(@NonNull final OutputStream stream) {
+//        NetworkExportUtils.exportMeshNetwork(getMeshManagerApi(), stream, this);
+//    }
+//    public void exportMeshNetwork() {
+//        NetworkExportUtils.exportMeshNetwork(getMeshManagerApi(),
+//                NrfMeshRepository.EXPORT_PATH,
+//                getNetworkLiveData().getNetworkName() + ".json", this);
+//    }
+//
+//    @Override public void onNetworkExported() {
+//        networkExportState.postValue(
+//                getNetworkLiveData().getMeshNetwork().getMeshName() + " exported successfully.");
+//    }
+//    @Override public void onNetworkExportFailed(@NonNull final String error) {
+//        networkExportState.postValue(error);
+//    }
+//
+//    // =========================================================================
+//    // SVG URI
+//    // =========================================================================
+//
+//    public LiveData<Uri> getSvgUri()  { return svgUri; }
+//    public Uri getSvgUriValue()       { return svgUri.getValue(); }
+//    public boolean hasSvg()           { return svgUri.getValue() != null; }
+//
+//    public void setSvgUri(@NonNull Uri uri) {
+//        svgUri.setValue(uri);
+//        prefs.edit().putString(KEY_SVG_URI, uri.toString()).apply();
+//    }
+//    public void clearSvgUri() {
+//        svgUri.setValue(null);
+//        prefs.edit().remove(KEY_SVG_URI).apply();
+//    }
+//
+//    // =========================================================================
+//    // PROXY
+//    // =========================================================================
+//
+//    public LiveData<Boolean> getProxyEnabled() { return proxyEnabled; }
+//    public boolean isProxyEnabled() { Boolean v = proxyEnabled.getValue(); return v != null && v; }
+//    public void setProxyEnabled(boolean enabled) {
+//        proxyEnabled.setValue(enabled);
+//        prefs.edit().putBoolean(KEY_PROXY_ENABLED, enabled).apply();
+//    }
+//
+//    // =========================================================================
+//    // DEVICE NAME FILTER
+//    // =========================================================================
+//
+//    public void setDeviceNameFilter(String filter) {
+//        prefs.edit().putString("device_name_filter", filter).apply();
+//    }
+//    public String getDeviceNameFilterValue() {
+//        return prefs.getString("device_name_filter", "");
+//    }
+//
+//    // =========================================================================
+//    // SELECTED DEVICE
+//    // =========================================================================
+//
+//    public LiveData<String> getSelectedDevice()    { return selectedDevice; }
+//    public String getSelectedDeviceValue() {
+//        String v = selectedDevice.getValue();
+//        return v != null ? v : DEFAULT_SELECTED_DEVICE;
+//    }
+//    public boolean isDeviceSelected(String deviceName) {
+//        return deviceName != null && deviceName.equals(getSelectedDeviceValue());
+//    }
+//    public void setSelectedDevice(String device) {
+//        if (device == null) device = DEFAULT_SELECTED_DEVICE;
+//        selectedDevice.setValue(device);
+//        prefs.edit().putString(KEY_SELECTED_DEVICE, device).apply();
+//    }
+//    public void clearSelectedDevice() { setSelectedDevice(DEFAULT_SELECTED_DEVICE); }
+//
+//    // =========================================================================
+//    // SIGNAL THRESHOLD
+//    // =========================================================================
+//
+//    public LiveData<Integer> getSignalThreshold() { return signalThreshold; }
+//    public int getSignalThresholdValue() {
+//        Integer v = signalThreshold.getValue();
+//        return v != null ? v : DevicesAdapter.SIGNAL_DEFAULT;
+//    }
+//    public void setSignalThreshold(int threshold) {
+//        int sanitized = (threshold == DevicesAdapter.SIGNAL_100)
+//                ? DevicesAdapter.SIGNAL_100 : DevicesAdapter.SIGNAL_DEFAULT;
+//        signalThreshold.setValue(sanitized);
+//        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, sanitized).apply();
+//    }
+//    public void clearSignalThreshold() { setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT); }
+//
+//    // =========================================================================
+//    // AUTO APP KEY
+//    // =========================================================================
+//
+//    @Nullable
+//    public ApplicationKey getDefaultAppKey() {
+//        try {
+//            MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+//            if (network == null) return null;
+//            List<ApplicationKey> appKeys = network.getAppKeys();
+//            if (appKeys == null || appKeys.isEmpty()) return null;
+//            return appKeys.get(0);
+//        } catch (Exception e) { return null; }
+//    }
+//
+//    public boolean isDefaultAppKeyBound(@NonNull final ProvisionedMeshNode node) {
+//        ApplicationKey key = getDefaultAppKey();
+//        if (key == null) return false;
+//        for (NodeKey k : node.getAddedAppKeys()) {
+//            if (k.getIndex() == key.getKeyIndex()) return true;
 //        }
 //        return false;
 //    }
 //
-//    @Override
-//    public int getNextUnicastAddress(final int elementCount) {
-//        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-//        return network.nextAvailableUnicastAddress(elementCount, network.getSelectedProvisioner());
+//    public boolean isAutoAppKeyDone(int unicastAddress) {
+//        return prefs.getBoolean("app_key_done_" + unicastAddress, false);
+//    }
+//    public void setAutoAppKeyDone(int unicastAddress) {
+//        prefs.edit().putBoolean("app_key_done_" + unicastAddress, true).apply();
 //    }
 //
-//    @Override
-//    public void onProvisioningFailed() {
-//        disconnect();
-//        setResult(Activity.RESULT_CANCELED);
-//        finish();
+//    // =========================================================================
+//    // FILTERED DEVICES
+//    // =========================================================================
+//
+//    public LiveData<List<ExtendedBluetoothDevice>> getFilteredDevices() { return filteredDevices; }
+//    public List<ExtendedBluetoothDevice> getFilteredDevicesValue() {
+//        List<ExtendedBluetoothDevice> v = filteredDevices.getValue();
+//        return v != null ? v : new ArrayList<>();
 //    }
-//
-//    @Override
-//    public void onPublicKeyDialogCancelled() {
-//        disconnect();
-//        finish();
+//    public void setFilteredDevices(List<ExtendedBluetoothDevice> devices) {
+//        filteredDevices.setValue(devices != null ? devices : new ArrayList<>());
 //    }
+//    public void clearFilteredDevices() { filteredDevices.setValue(new ArrayList<>()); }
 //
-//    private void disconnect() {
-//        mViewModel.getUnprovisionedMeshNode().removeObservers(this);
-//        mViewModel.disconnect();
+//    // =========================================================================
+//    // ALL UNPROVISIONED DEVICES
+//    // =========================================================================
+//
+//    public LiveData<List<ExtendedBluetoothDevice>> getAllUnprovisionedDevices() {
+//        return allUnprovisionedDevices;
 //    }
-//
-//    public void setupProvisionerStateObservers() {
-//        binding.infoProvisioningStatusContainer.getRoot().setVisibility(View.VISIBLE);
-//
-//        final RecyclerView recyclerView = binding.infoProvisioningStatusContainer.recyclerViewProvisioningProgress;
-//        recyclerView.setLayoutManager(new LinearLayoutManager(this));
-//        final ProvisioningProgressAdapter adapter = new ProvisioningProgressAdapter(mViewModel.getProvisioningStatus());
-//        recyclerView.setAdapter(adapter);
-//
-//        mViewModel.getProvisioningStatus().observe(this, provisioningStateLiveData -> {
-//            if (provisioningStateLiveData != null) {
-//                final ProvisionerProgress provisionerProgress = provisioningStateLiveData.getProvisionerProgress();
-//                adapter.refresh(provisioningStateLiveData.getStateList());
-//                if (provisionerProgress != null) {
-//                    final ProvisionerStates state = provisionerProgress.getState();
-//                    switch (state) {
-//                        case PROVISIONING_FAILED:
-//                            if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_PROVISIONING_FAILED) == null) {
-//                                final String statusMessage = ProvisioningFailedState.parseProvisioningFailure(this, provisionerProgress.getStatusReceived());
-//                                DialogFragmentProvisioningFailedError message = DialogFragmentProvisioningFailedError.newInstance(getString(R.string.title_error_provisioning_failed), statusMessage);
-//                                message.show(getSupportFragmentManager(), DIALOG_FRAGMENT_PROVISIONING_FAILED);
-//                            }
-//                            break;
-//                        case PROVISIONING_AUTHENTICATION_STATIC_OOB_WAITING:
-//                        case PROVISIONING_AUTHENTICATION_OUTPUT_OOB_WAITING:
-//                        case PROVISIONING_AUTHENTICATION_INPUT_OOB_WAITING:
-//                            if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_AUTH_INPUT_TAG) == null) {
-//                                DialogFragmentAuthenticationInput dialogFragmentAuthenticationInput = DialogFragmentAuthenticationInput.
-//                                        newInstance(mViewModel.getUnprovisionedMeshNode().getValue());
-//                                dialogFragmentAuthenticationInput.show(getSupportFragmentManager(), DIALOG_FRAGMENT_AUTH_INPUT_TAG);
-//                            }
-//                            break;
-//                        case PROVISIONING_AUTHENTICATION_INPUT_ENTERED:
-//                            final DialogFragmentAuthenticationInput fragment = (DialogFragmentAuthenticationInput) getSupportFragmentManager().
-//                                    findFragmentByTag(DIALOG_FRAGMENT_AUTH_INPUT_TAG);
-//                            if (fragment != null)
-//                                fragment.dismiss();
-//                            break;
-//                        case DEFAULT_TTL_STATUS_RECEIVED:
-//                            if (mViewModel.isDefaultTtlReceived()) {
-//                                if(mViewModel.getNetworkLiveData().getAppKeys().isEmpty()){
-//                                    if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_CONFIGURATION_STATUS) == null) {
-//                                        DialogFragmentConfigurationComplete fragmentConfigComplete = DialogFragmentConfigurationComplete.
-//                                                newInstance(getString(R.string.title_configuration_complete), getString(R.string.configuration_complete_summary));
-//                                        fragmentConfigComplete.show(getSupportFragmentManager(), DIALOG_FRAGMENT_CONFIGURATION_STATUS);
-//                                    }
-//                                }
-//                            }
-//                            break;
-//                        case APP_KEY_STATUS_RECEIVED:
-//                            if (getSupportFragmentManager().findFragmentByTag(DIALOG_FRAGMENT_CONFIGURATION_STATUS) == null) {
-//                                DialogFragmentConfigurationComplete fragmentConfigComplete = DialogFragmentConfigurationComplete.
-//                                        newInstance(getString(R.string.title_configuration_complete), getString(R.string.configuration_complete_summary));
-//                                fragmentConfigComplete.show(getSupportFragmentManager(), DIALOG_FRAGMENT_CONFIGURATION_STATUS);
-//                            }
-//                            break;
-//                        case PROVISIONER_UNASSIGNED:
-//                            setResultIntent();
-//                            break;
-//                        default:
-//                            break;
-//                    }
-//                }
-//                binding.dataContainer.setVisibility(View.GONE);
-//            }
-//        });
+//    public List<ExtendedBluetoothDevice> getAllUnprovisionedDevicesValue() {
+//        List<ExtendedBluetoothDevice> v = allUnprovisionedDevices.getValue();
+//        return v != null ? v : new ArrayList<>();
 //    }
-//
-//    @Override
-//    public void onConfigurationCompleted() {
-//        setResultIntent();
+//    public void setAllUnprovisionedDevices(List<ExtendedBluetoothDevice> devices) {
+//        allUnprovisionedDevices.setValue(devices != null ? devices : new ArrayList<>());
 //    }
-//
-//    private void setResultIntent() {
-//        final Intent returnIntent = new Intent();
-//
-//        // Add device info for auto-connect
-//        returnIntent.putExtra(Utils.EXTRA_DEVICE, mDevice);
-//        returnIntent.putExtra(Utils.EXTRA_TARGET_PROXY_MAC, mDevice.getAddress());
-//        returnIntent.putExtra(Utils.EXTRA_AUTO_CONNECT_AFTER_PROVISIONING, true);
-//
-//        if (mViewModel.isProvisioningComplete()) {
-//            returnIntent.putExtra(Utils.PROVISIONING_COMPLETED, true);
-//            returnIntent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
-//
-//            final ProvisionerProgress progress = mViewModel.getProvisioningStatus().getProvisionerProgress();
-//            if (progress != null && progress.getState() == ProvisionerStates.PROVISIONER_UNASSIGNED) {
-//                returnIntent.putExtra(Utils.PROVISIONER_UNASSIGNED, true);
-//            } else {
-//                if (mViewModel.isCompositionDataStatusReceived()) {
-//                    returnIntent.putExtra(Utils.COMPOSITION_DATA_COMPLETED, true);
-//                    if (mViewModel.isDefaultTtlReceived()) {
-//                        returnIntent.putExtra(Utils.DEFAULT_GET_COMPLETED, true);
-//                        if (mViewModel.getNetworkLiveData().getMeshNetwork().getAppKeys().isEmpty() || mViewModel.isAppKeyAddCompleted()) {
-//                            returnIntent.putExtra(Utils.APP_KEY_ADD_COMPLETED, true);
-//                        }
-//                    }
-//                }
-//            }
-//        }
-//
-//        setResult(Activity.RESULT_OK, returnIntent);
-//        finish();
-//    }
-//
-//    @Override
-//    public void onPublicKeyAdded(@Nullable final byte[] publicKey) {
-//        final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//        if (node != null) {
-//            node.setProvisioneePublicKeyXY(publicKey);
-//
-//            if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-//                node.setMacAddress(mDevice.getAddress());
-//                Log.d(TAG, "MAC address set in onPublicKeyAdded: " + mDevice.getAddress());
-//            }
-//
-//            if (node.getProvisioningCapabilities().getAvailableOOBTypes().size() == 1 &&
-//                    node.getProvisioningCapabilities().getAvailableOOBTypes().get(0) == AuthenticationOOBMethods.NO_OOB_AUTHENTICATION) {
-//                onNoOOBSelected();
-//            } else {
-//                final DialogFragmentSelectOOBType fragmentSelectOOBType = DialogFragmentSelectOOBType.newInstance(node.getProvisioningCapabilities());
-//                fragmentSelectOOBType.show(getSupportFragmentManager(), null);
-//            }
+//    public void addUnprovisionedDevice(ExtendedBluetoothDevice device) {
+//        if (device == null) return;
+//        List<ExtendedBluetoothDevice> current = getAllUnprovisionedDevicesValue();
+//        if (!current.contains(device)) {
+//            current.add(device);
+//            allUnprovisionedDevices.setValue(current);
 //        }
 //    }
+//    public void clearAllUnprovisionedDevices() { allUnprovisionedDevices.setValue(new ArrayList<>()); }
 //
-//    @Override
-//    public void onNoOOBSelected() {
-//        final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//        if (node != null) {
-//            try {
-//                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-//                    node.setMacAddress(mDevice.getAddress());
-//                }
+//    // =========================================================================
+//    // FILTER UTILITY
+//    // =========================================================================
 //
-//                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-//                setupProvisionerStateObservers();
-//                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-//                mViewModel.getMeshManagerApi().startProvisioning(node);
-//            } catch (IllegalArgumentException ex) {
-//                mViewModel.displaySnackBar(this, binding.coordinator,
-//                        ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
-//                        Snackbar.LENGTH_LONG);
-//            }
-//        }
+//    public boolean isFilterActive() {
+//        return !getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE)
+//                || getSignalThresholdValue() != DevicesAdapter.SIGNAL_DEFAULT;
 //    }
 //
-//    @Override
-//    public void onStaticOOBSelected(final StaticOOBType staticOOBType) {
-//        final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//        if (node != null) {
-//            try {
-//                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-//                    node.setMacAddress(mDevice.getAddress());
-//                }
+//    public String getActiveFilterDescription() {
+//        StringBuilder sb = new StringBuilder();
+//        if (!getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE))
+//            sb.append("Device: ").append(getSelectedDeviceValue());
+//        if (getSignalThresholdValue() == DevicesAdapter.SIGNAL_100) {
+//            if (sb.length() > 0) sb.append(" | ");
+//            sb.append("Signal ≥ 100%");
+//        }
+//        return sb.length() > 0 ? "Filter: " + sb : "No filter active";
+//    }
 //
-//                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-//                setupProvisionerStateObservers();
-//                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-//                mViewModel.getMeshManagerApi().startProvisioningWithStaticOOB(node);
-//            } catch (IllegalArgumentException ex) {
-//                mViewModel.displaySnackBar(this, binding.coordinator,
-//                        ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
-//                        Snackbar.LENGTH_LONG);
+//    public void resetAllFilters() {
+//        clearSelectedDevice();
+//        clearSignalThreshold();
+//        applyCurrentFilter();
+//    }
+//
+//    public List<ExtendedBluetoothDevice> applyFilter(List<ExtendedBluetoothDevice> devices) {
+//        if (devices == null) return new ArrayList<>();
+//        String  nameFilter      = getSelectedDeviceValue();
+//        int     threshold       = getSignalThresholdValue();
+//        boolean hasDeviceFilter = !nameFilter.equals(DEFAULT_SELECTED_DEVICE);
+//        boolean hasSignalFilter = threshold != DevicesAdapter.SIGNAL_DEFAULT;
+//        if (!hasDeviceFilter && !hasSignalFilter) return new ArrayList<>(devices);
+//        List<ExtendedBluetoothDevice> filtered = new ArrayList<>();
+//        String lowerFilter = nameFilter.toLowerCase();
+//        for (ExtendedBluetoothDevice device : devices) {
+//            boolean deviceOk = !hasDeviceFilter
+//                    || (device.getName() != null
+//                    && device.getName().toLowerCase().contains(lowerFilter));
+//            boolean signalOk = !hasSignalFilter || matchesSignalThreshold(device, threshold);
+//            if (deviceOk && signalOk) filtered.add(device);
+//        }
+//        return filtered;
+//    }
+//
+//    private boolean matchesSignalThreshold(@NonNull ExtendedBluetoothDevice device, int threshold) {
+//        int rssiPercent = (int) (100.0f * (127.0f + device.getRssi()) / (127.0f + 20.0f));
+//        return rssiPercent >= threshold;
+//    }
+//
+//    public void applyCurrentFilter() {
+//        setFilteredDevices(applyFilter(getAllUnprovisionedDevicesValue()));
+//    }
+//
+//    // =========================================================================
+//    // SCANNER REPOSITORY
+//    // =========================================================================
+//
+//    public ScannerRepository getScannerRepository() { return mScannerRepository; }
+//    public LiveData<ScannerLiveData> getScannerResults() {
+//        return mScannerRepository.getScannerResults();
+//    }
+//
+//    // =========================================================================
+//    // SELECTED SVG DEVICE ID (transient)
+//    // =========================================================================
+//
+//    public LiveData<String> getSelectedSvgDeviceIdLiveData() { return mSelectedSvgDeviceId; }
+//    @Nullable public String getSelectedSvgDeviceId()         { return mSelectedSvgDeviceId.getValue(); }
+//    public void setSelectedSvgDeviceId(@Nullable String svgDeviceId) {
+//        mSelectedSvgDeviceId.setValue(svgDeviceId);
+//        Log.d(TAG, "setSelectedSvgDeviceId: " + svgDeviceId);
+//    }
+//    public void clearSelectedSvgDeviceId() { mSelectedSvgDeviceId.setValue(null); }
+//
+//    // =========================================================================
+//    // SERVER SVG DEVICE ID (persistent)
+//    // =========================================================================
+//
+//    public void setServerSvgDeviceId(@Nullable String serverSvgDeviceId) {
+//        mServerSvgDeviceId.setValue(serverSvgDeviceId);
+//        if (serverSvgDeviceId != null)
+//            prefs.edit().putString(KEY_SERVER_SVG_DEVICE_ID, serverSvgDeviceId).apply();
+//        else
+//            prefs.edit().remove(KEY_SERVER_SVG_DEVICE_ID).apply();
+//        Log.d(TAG, "setServerSvgDeviceId: " + serverSvgDeviceId);
+//    }
+//    public LiveData<String> getServerSvgDeviceIdLiveData() { return mServerSvgDeviceId; }
+//    @Nullable public String getServerSvgDeviceId()         { return mServerSvgDeviceId.getValue(); }
+//    public void clearServerSvgDeviceId() {
+//        mServerSvgDeviceId.setValue(null);
+//        prefs.edit().remove(KEY_SERVER_SVG_DEVICE_ID).apply();
+//    }
+//
+//    // =========================================================================
+//    // UTILITY
+//    // =========================================================================
+//
+//    @Nullable
+//    public ProvisionedMeshNode findNodeBySvgDeviceId(@Nullable String svgDeviceId) {
+//        if (svgDeviceId == null) return null;
+//        try {
+//            MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+//            if (network == null) return null;
+//            List<ProvisionedMeshNode> nodes = network.getNodes();
+//            if (nodes == null || nodes.isEmpty()) return null;
+//            for (ProvisionedMeshNode node : nodes) {
+//                if (svgDeviceId.equalsIgnoreCase(node.getNodeName())) return node;
 //            }
+//            if (nodes.size() == 1) return nodes.get(0);
+//        } catch (Exception e) { Log.e(TAG, "findNodeBySvgDeviceId error", e); }
+//        return null;
+//    }
+//
+//    public boolean selectNodeBySvgDeviceId(@Nullable String svgDeviceId) {
+//        ProvisionedMeshNode node = findNodeBySvgDeviceId(svgDeviceId);
+//        if (node != null) { setSelectedMeshNode(node); return true; }
+//        return false;
+//    }
+//
+//    public int getProvisionedNodeCount() {
+//        try {
+//            MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+//            if (network == null) return 0;
+//            List<ProvisionedMeshNode> nodes = network.getNodes();
+//            return nodes != null ? nodes.size() : 0;
+//        } catch (Exception e) { return 0; }
+//    }
+//
+//    @Nullable
+//    public List<ProvisionedMeshNode> getAllProvisionedNodes() {
+//        try {
+//            MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+//            if (network == null) return null;
+//            return network.getNodes();
+//        } catch (Exception e) {
+//            Log.e(TAG, "getAllProvisionedNodes error", e);
+//            return null;
 //        }
 //    }
 //
-//    @Override
-//    public void onOutputOOBActionSelected(final OutputOOBAction action) {
-//        final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//        if (node != null) {
-//            try {
-//                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-//                    node.setMacAddress(mDevice.getAddress());
-//                }
+//    // =========================================================================
+//    // Helper class
+//    // =========================================================================
 //
-//                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-//                setupProvisionerStateObservers();
-//                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-//                mViewModel.getMeshManagerApi().startProvisioningWithOutputOOB(node, action);
-//            } catch (IllegalArgumentException ex) {
-//                mViewModel.displaySnackBar(this, binding.coordinator,
-//                        ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
-//                        Snackbar.LENGTH_LONG);
-//            }
+//    public static class PublishConfig {
+//        private final int    address;
+//        private final String clientDeviceId;
+//        private final int    clientElementIndex;
+//
+//        public PublishConfig(int address, String clientDeviceId, int clientElementIndex) {
+//            this.address            = address;
+//            this.clientDeviceId     = clientDeviceId;
+//            this.clientElementIndex = clientElementIndex;
 //        }
+//
+//        public int    getAddress()            { return address; }
+//        public String getClientDeviceId()     { return clientDeviceId; }
+//        public int    getClientElementIndex() { return clientElementIndex; }
 //    }
-//
-//    @Override
-//    public void onInputOOBActionSelected(final InputOOBAction action) {
-//        final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
-//        if (node != null) {
-//            try {
-//                if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
-//                    node.setMacAddress(mDevice.getAddress());
-//                }
-//
-//                node.setNodeName(mViewModel.getNetworkLiveData().getNodeName());
-//                setupProvisionerStateObservers();
-//                binding.provisioningProgressBar.setVisibility(View.VISIBLE);
-//                mViewModel.getMeshManagerApi().startProvisioningWithInputOOB(node, action);
-//            } catch (IllegalArgumentException ex) {
-//                mViewModel.displaySnackBar(this, binding.coordinator,
-//                        ex.getMessage() == null ? getString(R.string.unknown_error) : ex.getMessage(),
-//                        Snackbar.LENGTH_LONG);
-//            }
-//        }
+//    public LiveData<Boolean> isAutoSetupInProgress() {
+//        return mNrfMeshRepository.isAutoSetupInProgress();
 //    }
 //}

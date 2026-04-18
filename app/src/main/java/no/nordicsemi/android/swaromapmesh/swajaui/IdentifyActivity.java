@@ -70,7 +70,11 @@ public class IdentifyActivity extends AppCompatActivity {
 
     private void setButtonActive() {
         binding.btnContinue.setEnabled(true);
-        binding.btnContinue.setTextColor(android.graphics.Color.WHITE);
+        binding.btnContinue.setTextColor(
+                android.content.res.ColorStateList.valueOf(
+                        android.graphics.Color.parseColor("#F2F2F2") // Select test Color
+                )
+        );
         binding.btnContinue.setBackgroundTintList(
                 android.content.res.ColorStateList.valueOf(
                         android.graphics.Color.parseColor("#00A1F1") // Active blue

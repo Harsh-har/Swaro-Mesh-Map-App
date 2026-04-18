@@ -134,19 +134,44 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
+        // ✅ Build valid ids set including SVG-style ids
         Set<String> validMeshIds = new HashSet<>();
         for (ProvisionedMeshNode node : meshNodes) {
-            if (node.getNodeName() != null) validMeshIds.add(node.getNodeName());
+            String nodeName = node.getNodeName();
+            if (nodeName != null) {
+                validMeshIds.add(nodeName); // "Relay Node"
+            }
             String svgId = getSvgIdFromNode(node);
             if (svgId != null) validMeshIds.add(svgId);
         }
 
         Set<String> cleaned = new HashSet<>();
-        for (String id : saved) {
-            if (validMeshIds.contains(id)) {
-                cleaned.add(id);
-            } else {
-                Log.d(TAG, "🧹 syncProvisioned: removing stale → " + id);
+        for (String savedId : saved) {
+            // ✅ Direct match check
+            if (validMeshIds.contains(savedId)) {
+                cleaned.add(savedId);
+                continue;
+            }
+
+            // ✅ Suffix match: "PDRI:Relay Node5" → pure name "relay node"
+            // Compare against each mesh node name
+            boolean matched = false;
+            String savedPure = extractPureName(savedId); // "relay node"
+            for (ProvisionedMeshNode node : meshNodes) {
+                String nodeName = node.getNodeName();
+                if (nodeName == null) continue;
+                String nodePure = nodeName.trim().toLowerCase();
+                if (nodePure.equals(savedPure)) {
+                    cleaned.add(savedId); // ✅ Keep it — it belongs to this node
+                    matched = true;
+                    Log.d(TAG, "✅ syncProvisioned: suffix match kept → " + savedId
+                            + " (node: " + nodeName + ")");
+                    break;
+                }
+            }
+
+            if (!matched) {
+                Log.d(TAG, "🧹 syncProvisioned: removing stale → " + savedId);
             }
         }
 
@@ -157,6 +182,15 @@ public class SharedViewModel extends BaseViewModel
         }
     }
 
+    // ✅ Helper: "PDRI:Relay Node5" → "relay node"
+    private String extractPureName(String fullId) {
+        if (fullId == null) return "";
+        String name = fullId.trim().toLowerCase();
+        int colon = name.lastIndexOf(":");
+        if (colon != -1) name = name.substring(colon + 1).trim();
+        name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+        return name;
+    }
     // =========================================================================
     // ✅ FIX: Import ke baad SVG rebuild
     // =========================================================================
@@ -213,22 +247,26 @@ public class SharedViewModel extends BaseViewModel
     /**
      * DeviceDetailActivity yeh call karta hai — svgDeviceId ke liye elementId save karo.
      */
+// REPLACE the existing saveElementId() with this:
     public void saveElementId(@NonNull String svgDeviceId, @NonNull String elementId) {
+        // Save in prefs with original key
         String key = KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId;
         prefs.edit().putString(key, elementId).apply();
 
-        // ✅ ClientServerElementStore mein bhi save karo agar number hai
         try {
             int svgElementIdInt = Integer.parseInt(elementId.trim());
-            String normalizedId = svgDeviceId.trim().toLowerCase();
-            ClientServerElementStore.saveServerSvgElementId(normalizedId, svgElementIdInt);
+
+            // ✅ Save ONLY with full lowercased key: "pdri:relay node1"
+            // Do NOT save under pure name — it breaks resolveKeyByNodeName suffix matching
+            String fullKey = svgDeviceId.trim().toLowerCase();
+            ClientServerElementStore.saveServerSvgElementId(fullKey, svgElementIdInt);
+
             Log.d(TAG, "✅ saveElementId: " + svgDeviceId + " = " + elementId
-                    + " (also saved in Store as " + normalizedId + " = " + svgElementIdInt + ")");
+                    + " (also saved in Store as " + fullKey + " = " + svgElementIdInt + ")");
         } catch (NumberFormatException e) {
             Log.w(TAG, "saveElementId: elementId not a number — Store not updated: " + elementId);
         }
     }
-
     @Nullable
     public String getElementId(@NonNull String svgDeviceId) {
         return prefs.getString(KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId, null);

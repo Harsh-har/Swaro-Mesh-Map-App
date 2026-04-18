@@ -21,6 +21,7 @@ import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -32,6 +33,7 @@ import dagger.hilt.android.AndroidEntryPoint;
 
 import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
@@ -244,9 +246,6 @@ public class TestProvisionActivity extends AppCompatActivity {
             return false;
         }
     }
-
-    // ── Address loading ───────────────────────────────────────────────────────
-
     private void loadAddressesFromNodes(List<ProvisionedMeshNode> nodes) {
         if (deviceId == null) {
             setAddressFields("N/A", "N/A");
@@ -254,38 +253,104 @@ public class TestProvisionActivity extends AppCompatActivity {
         }
 
         ProvisionedMeshNode matched = null;
+        int targetUnicast = -1;
 
-        for (ProvisionedMeshNode node : nodes) {
-            if (deviceId.equalsIgnoreCase(node.getNodeName())) {
-                matched = node;
-                Log.d(TAG, "Node matched by name: " + node.getNodeName());
-                break;
+        // ✅ Priority 1: elementId → stored unicast address se match
+        // "PDRI:Relay Node1" ka elementId=1 → store mein "pdri:relay node1" key hai
+        // jiske saath unicast address bhi stored hai
+        if (elementId != null && !elementId.isEmpty()) {
+            try {
+                int targetSvgId = Integer.parseInt(elementId.trim());
+
+                // elementId se stored key dhundho
+                String storedKey = ClientServerElementStore.getKeyBySvgElementId(targetSvgId);
+                Log.d(TAG, "elementId=" + targetSvgId + " → storedKey=" + storedKey);
+
+                if (storedKey != null) {
+                    // Is key ke liye stored unicast address lo
+                    targetUnicast = ClientServerElementStore.getServerUnicastAddress(storedKey);
+                    Log.d(TAG, "storedKey=" + storedKey
+                            + " → storedUnicast=0x" + String.format("%04X", targetUnicast));
+
+                    if (targetUnicast != -1) {
+                        // Nodes mein se woh node dhundho jiska unicast match kare
+                        for (ProvisionedMeshNode node : nodes) {
+                            if (node.getUnicastAddress() == targetUnicast) {
+                                matched = node;
+                                Log.d(TAG, "✅ Matched by unicast=0x"
+                                        + String.format("%04X", targetUnicast)
+                                        + " node=" + node.getNodeName());
+                                break;
+                            }
+                        }
+                    }
+                }
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "elementId not a number: " + elementId);
             }
         }
 
-        if (matched == null && nodes.size() == 1) {
-            matched = nodes.get(0);
-            Log.d(TAG, "Single node fallback: " + matched.getNodeName());
+        // ✅ Priority 2: Exact SVG device id match by node name
+        if (matched == null) {
+            for (ProvisionedMeshNode node : nodes) {
+                if (deviceId.equalsIgnoreCase(node.getNodeName())) {
+                    matched = node;
+                    Log.d(TAG, "✅ Matched by exact name: " + node.getNodeName());
+                    break;
+                }
+            }
+        }
+
+        // ✅ Priority 3: Pure name + index hint
+        // Agar pure name same hai toh elementId se index use karo
+        if (matched == null) {
+            String pureSvgName = extractPureName(deviceId); // "relay node"
+            List<ProvisionedMeshNode> candidates = new ArrayList<>();
+            for (ProvisionedMeshNode node : nodes) {
+                String nodePure = extractPureName(node.getNodeName());
+                if (nodePure.equals(pureSvgName)) {
+                    candidates.add(node);
+                }
+            }
+
+            if (candidates.size() == 1) {
+                matched = candidates.get(0);
+                Log.d(TAG, "✅ Matched by pure name (single candidate): " + matched.getNodeName());
+            } else if (candidates.size() > 1) {
+                // Multiple same-name nodes — cannot distinguish without unicast
+                Log.w(TAG, "⚠️ Multiple candidates for '" + pureSvgName
+                        + "' — cannot distinguish. Count=" + candidates.size());
+                // Last resort: pehla lo
+                matched = candidates.get(0);
+            }
         }
 
         if (matched != null) {
             String mac = matched.getMacAddress();
             if (mac == null || mac.isEmpty()) mac = "N/A";
-
             int unicastInt  = matched.getUnicastAddress();
             mUnicastAddress = unicastInt;
             String unicast  = String.format("0x%04X", unicastInt);
-
-            Log.d(TAG, "MAC=" + mac + " Unicast=" + unicast);
+            Log.d(TAG, "Final: deviceId=" + deviceId
+                    + " elementId=" + elementId
+                    + " MAC=" + mac
+                    + " Unicast=" + unicast);
             setAddressFields(mac, unicast);
-
         } else {
-            Log.w(TAG, "No node matched for deviceId=" + deviceId);
+            Log.w(TAG, "❌ No node matched for deviceId=" + deviceId);
             mUnicastAddress = -1;
             setAddressFields("N/A", "N/A");
         }
     }
 
+    private String extractPureName(String fullId) {
+        if (fullId == null) return "";
+        String name = fullId.trim().toLowerCase();
+        int colon = name.lastIndexOf(":");
+        if (colon != -1) name = name.substring(colon + 1).trim();
+        name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+        return name;
+    }
     private void setAddressFields(String mac, String unicast) {
         if (tvMacAddress != null)     tvMacAddress.setText(mac);
         if (tvUnicastAddress != null) tvUnicastAddress.setText(unicast);

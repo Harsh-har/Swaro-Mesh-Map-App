@@ -545,9 +545,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private void onProvisioningCompleted(final ProvisionedMeshNode node) {
         mIsProvisioningComplete = true;
         mProvisionedMeshNode    = node;
-
-        mIsAutoSetupInProgress.postValue(true); // ✅ SIRF YEH LINE ADD KARO
-
+        mIsAutoSetupInProgress.postValue(true);
         mIsReconnecting.postValue(true);
         mBleMeshManager.disconnect().enqueue();
         loadNodes();
@@ -998,7 +996,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mIsAutoSetupInProgress.postValue(true);
         final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
-
             Log.w(TAG_BIND, "startAutoAppKeyBind: No AppKey — skip.");
             mIsAutoSetupInProgress.postValue(false);
             return;
@@ -1010,7 +1007,23 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mAutoBindNode        = node;
         mIsBindingInProgress = false;
 
-        final String normalizedName = normalizeId(node.getNodeName());
+        // ✅ STEP 1: resolveKeyByNodeName se key lo (unicast-aware)
+        final String rawName = normalizeId(node.getNodeName());
+        final String normalizedName;
+        String resolved = resolveKeyByNodeName(rawName);
+        normalizedName = (resolved != null) ? resolved : rawName;
+
+        // ✅ STEP 2: Is node ka unicast address turant store karo
+        // Taaki dusra same-name node aane par distinguish ho sake
+        if (normalizedName != null && !normalizedName.isEmpty()) {
+            int existingUnicast = ClientServerElementStore.getServerUnicastAddress(normalizedName);
+            if (existingUnicast == -1 || existingUnicast == 0xFFFFFFFF) {
+                ClientServerElementStore.saveServerUnicastAddress(
+                        normalizedName, node.getUnicastAddress());
+                Log.d(TAG_BIND, "✅ Early unicast save: " + normalizedName
+                        + " = 0x" + String.format("%04X", node.getUnicastAddress()));
+            }
+        }
 
         boolean isServerNode         = false;
         boolean isClientNode         = false;
@@ -1035,7 +1048,10 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
         }
 
-        Log.d(TAG_BIND, "START AUTO BIND: " + node.getNodeName());
+        Log.d(TAG_BIND, "START AUTO BIND: " + node.getNodeName()
+                + " resolvedKey=" + normalizedName
+                + " unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+
         if (isServerNode) {
             Log.d(TAG_BIND, "Element Address=0x" + String.format("%04X", serverElementAddress));
         }
@@ -1064,7 +1080,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                             normalizedName, node.getUnicastAddress());
                     ClientServerElementStore.saveServerPrimaryElementAddress(
                             normalizedName, serverElementAddress);
-                    Log.d(TAG_BIND, "✅ Server updated: new unicast=0x"
+                    Log.d(TAG_BIND, "✅ Server updated: unicast=0x"
                             + String.format("%04X", node.getUnicastAddress())
                             + " elementAddr=0x"
                             + String.format("%04X", serverElementAddress));
@@ -1072,8 +1088,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
                 int existingSvgId = ClientServerElementStore.getServerSvgElementId(normalizedName);
                 if (existingSvgId == -1) {
-                    Log.w(TAG_BIND, "⚠️ svgId not yet set for " + normalizedName
-                            + " — triggerAutoPublication will be skipped until svgId is set");
+                    Log.w(TAG_BIND, "⚠️ svgId not yet set for " + normalizedName);
                 } else {
                     Log.d(TAG_BIND, "✅ svgId=" + existingSvgId + " ready for " + normalizedName);
                 }
@@ -1089,7 +1104,78 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
         mHandler.postDelayed(this::sendNextAutoBind, 500);
     }
+    // =========================================================================
+// ✅ NEW: BLE node name → stored SVG key via suffix match
+// BLE gives "relay node", store has key "pdri:relay node1"
+// This finds the right key so svgId lookup works correctly
+// =========================================================================
+    private String resolveKeyByNodeName(String normalizedNodeName) {
+        if (normalizedNodeName == null || normalizedNodeName.isEmpty()) return null;
 
+        // Direct lookup first
+        int direct = ClientServerElementStore.getServerSvgElementId(normalizedNodeName);
+        if (direct != -1) {
+            Log.d(TAG_BIND, "resolveKeyByNodeName: direct match '" + normalizedNodeName + "'");
+            return normalizedNodeName;
+        }
+
+        // Suffix match — collect ALL matches
+        List<String> allKeys = ClientServerElementStore.getAllServerSvgKeys();
+        List<String> matches = new ArrayList<>();
+
+        for (String storedKey : allKeys) {
+            String withoutPrefix = storedKey;
+            int colon = withoutPrefix.lastIndexOf(":");
+            if (colon != -1) withoutPrefix = withoutPrefix.substring(colon + 1).trim();
+            String pureName = withoutPrefix
+                    .replaceAll("\\s*\\d+$", "")
+                    .replaceAll("\\d+$", "")
+                    .trim();
+            if (pureName.equals(normalizedNodeName)) {
+                matches.add(storedKey);
+            }
+        }
+
+        if (matches.isEmpty()) {
+            Log.w(TAG_BIND, "resolveKeyByNodeName: no match for '" + normalizedNodeName + "'");
+            return null;
+        }
+
+        if (matches.size() == 1) {
+            Log.d(TAG_BIND, "resolveKeyByNodeName: suffix match '"
+                    + normalizedNodeName + "' → '" + matches.get(0) + "'");
+            return matches.get(0);
+        }
+
+        // ✅ Multiple matches — current node ke unicast se sahi key dhundho
+        if (mAutoBindNode != null) {
+            int currentUnicast = mAutoBindNode.getUnicastAddress();
+            for (String key : matches) {
+                int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
+                if (storedUnicast != -1 && storedUnicast == currentUnicast) {
+                    Log.d(TAG_BIND, "resolveKeyByNodeName: unicast match 0x"
+                            + String.format("%04X", currentUnicast) + " → '" + key + "'");
+                    return key;
+                }
+            }
+
+            // ✅ Unicast match nahi mila = naya node
+            // Woh key lo jiska unicast abhi store nahi hua (-1)
+            for (String key : matches) {
+                int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
+                if (storedUnicast == -1) {
+                    Log.d(TAG_BIND, "resolveKeyByNodeName: new node → unset key '"
+                            + key + "' unicast will be 0x"
+                            + String.format("%04X", mAutoBindNode.getUnicastAddress()));
+                    return key;
+                }
+            }
+        }
+
+        // Fallback
+        Log.w(TAG_BIND, "resolveKeyByNodeName: fallback first match: " + matches.get(0));
+        return matches.get(0);
+    }
     private void sendNextAutoBind() {
 
         if (mAutoBindNode == null) {
@@ -1174,8 +1260,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return;
         }
         final int appKeyIndex = appKeys.get(0).getKeyIndex();
-
-        final String serverDeviceId = normalizeId(serverNode.getNodeName());
+        final String rawServerName = normalizeId(serverNode.getNodeName());
+        final String resolvedServerName = resolveKeyByNodeName(rawServerName);
+        final String serverDeviceId = (resolvedServerName != null) ? resolvedServerName : rawServerName;
         if (serverDeviceId == null || serverDeviceId.isEmpty()) {
             Log.e(TAG_BIND, "triggerAutoPublication: server has no name — abort");
             return;
@@ -1292,8 +1379,10 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     private void saveClientElementAddresses(@NonNull final ProvisionedMeshNode node) {
+        final String rawClientName = normalizeId(node.getNodeName());
+        final String resolvedClientName = resolveKeyByNodeName(rawClientName);
+        final String deviceId = (resolvedClientName != null) ? resolvedClientName : rawClientName;
 
-        final String deviceId = normalizeId(node.getNodeName());
         if (deviceId == null || deviceId.isEmpty()) {
             Log.w(TAG_BIND, "saveClientElementAddresses: no node name — skip");
             return;
