@@ -42,17 +42,19 @@
         android:usesCleartextTraffic="true"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".swajaui.AreaClientListActivity"
+            android:exported="false" />
+        <activity
             android:name=".swajaui.MapActivity"
             android:exported="false" />
         <activity
             android:name=".swajaui.QRScannerActivity"
             android:exported="false"
             android:screenOrientation="portrait" />
-
         <activity
             android:name=".swajaui.CaptureActivityPortrait"
             android:screenOrientation="portrait"
-            android:theme="@style/Theme.AppCompat.NoActionBar"/>
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
 
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -82,8 +84,7 @@
             android:exported="false" />
         <activity
             android:name=".swajaui.HomeActivity"
-            android:exported="true">
-        </activity>
+            android:exported="true" />
         <activity
             android:name=".MainActivity"
             android:exported="true"

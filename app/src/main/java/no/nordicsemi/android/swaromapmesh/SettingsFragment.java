@@ -36,6 +36,7 @@ import no.nordicsemi.android.swaromapmesh.keys.AppKeysActivity;
 import no.nordicsemi.android.swaromapmesh.keys.NetKeysActivity;
 import no.nordicsemi.android.swaromapmesh.provisioners.ProvisionersActivity;
 import no.nordicsemi.android.swaromapmesh.scenes.ScenesActivity;
+import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -51,7 +52,6 @@ public class SettingsFragment extends Fragment implements
     private static final String TAG = SettingsFragment.class.getSimpleName();
     private SharedViewModel mViewModel;
 
-    // ── JSON network import only ──────────────────────────────────────────────
     private final androidx.activity.result.ActivityResultLauncher<String> fileSelector =
             registerForActivityResult(new GetContent(), result -> {
                 if (result != null) {
@@ -59,8 +59,6 @@ public class SettingsFragment extends Fragment implements
                     mViewModel.getMeshManagerApi().importMeshNetwork(result);
                 }
             });
-
-    // ────────────────────────────────────────────────────────────────────────
 
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
@@ -78,7 +76,7 @@ public class SettingsFragment extends Fragment implements
         final FragmentSettingsBinding binding =
                 FragmentSettingsBinding.inflate(getLayoutInflater());
 
-        // ── Network Name ──────────────────────────────────────────────────────
+        // Network Name
         binding.containerNetworkName.image
                 .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_label));
         binding.containerNetworkName.title.setText(R.string.name);
@@ -89,7 +87,7 @@ public class SettingsFragment extends Fragment implements
             fragment.show(getChildFragmentManager(), null);
         });
 
-        // ── Provisioners ──────────────────────────────────────────────────────
+        // Provisioners
         binding.containerProvisioners.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_provisioner_24dp));
@@ -98,7 +96,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerProvisioners.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), ProvisionersActivity.class)));
 
-        // ── Net Keys ──────────────────────────────────────────────────────────
+        // Net Keys
         binding.containerNetKeys.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp));
@@ -110,7 +108,7 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
-        // ── App Keys ──────────────────────────────────────────────────────────
+        // App Keys
         binding.containerAppKeys.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp));
@@ -119,7 +117,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerAppKeys.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), AppKeysActivity.class)));
 
-        // ── Scenes ────────────────────────────────────────────────────────────
+        // Scenes
         binding.containerScenes.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_baseline_palette_24dp));
@@ -128,7 +126,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerScenes.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), ScenesActivity.class)));
 
-        // ── IV Test Mode ──────────────────────────────────────────────────────
+        // IV Test Mode
         binding.containerIvTestMode.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp));
@@ -147,7 +145,7 @@ public class SettingsFragment extends Fragment implements
                                 getString(R.string.iv_test_mode_info))
                         .show(getChildFragmentManager(), null));
 
-        // ── MQTT Settings row ─────────────────────────────────────────────────
+        // MQTT Settings
         binding.containerMqtt.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_settings));
@@ -157,7 +155,22 @@ public class SettingsFragment extends Fragment implements
         binding.containerMqtt.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), MqttSettingsActivity.class)));
 
-        // ── App Version ───────────────────────────────────────────────────────
+        // ================================================================
+        // AREA CLIENT LIST - ADD THIS SECTION
+        // ================================================================
+        binding.containerAreaClient.image
+                .setBackground(ContextCompat.getDrawable(requireContext(),
+                        R.drawable.ic_settings));
+        binding.containerAreaClient.title.setText("Area Client List");
+        binding.containerAreaClient.text.setVisibility(View.VISIBLE);
+        binding.containerAreaClient.text.setText("View all client addresses");
+        binding.containerAreaClient.getRoot().setOnClickListener(v -> {
+            Log.d(TAG, "Area Client List clicked");
+            Intent intent = new Intent(requireContext(), AreaClientListActivity.class);
+            startActivity(intent);
+        });
+
+        // App Version
         final LayoutContainerBinding containerVersion = binding.containerVersion;
         containerVersion.getRoot().setClickable(false);
         containerVersion.image
@@ -172,7 +185,7 @@ public class SettingsFragment extends Fragment implements
             Log.e(TAG, "Version not found", e);
         }
 
-        // ── LiveData observers ────────────────────────────────────────────────
+        // LiveData observers
         mViewModel.getNetworkLiveData().observe(getViewLifecycleOwner(), meshNetworkLiveData -> {
             if (meshNetworkLiveData != null) {
                 binding.containerNetworkName.text
@@ -225,8 +238,6 @@ public class SettingsFragment extends Fragment implements
         }
     }
 
-    // ── Options Menu ──────────────────────────────────────────────────────────
-
     @Override
     public void onCreateOptionsMenu(@NonNull final Menu menu,
                                     @NonNull final MenuInflater inflater) {
@@ -260,8 +271,6 @@ public class SettingsFragment extends Fragment implements
         return false;
     }
 
-    // ── Dialog callbacks ──────────────────────────────────────────────────────
-
     @Override
     public void onNetworkNameEntered(@NonNull final String name) {
         mViewModel.getNetworkLiveData().setNetworkName(name);
@@ -271,14 +280,12 @@ public class SettingsFragment extends Fragment implements
     public void onNetworkReset() {
         mViewModel.resetMeshNetwork();
 
-        // Clear saved SVG URI and user data
         requireContext()
                 .getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 .edit()
                 .remove("saved_svg_uri")
                 .apply();
 
-        // Go back to HomeActivity, clear entire back stack
         Intent intent = new Intent(requireContext(), no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);

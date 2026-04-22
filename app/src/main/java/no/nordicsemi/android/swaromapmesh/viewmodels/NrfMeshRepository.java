@@ -20,6 +20,7 @@ import static no.nordicsemi.android.swaromapmesh.ble.BleMeshManager.MESH_PROXY_U
 
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
@@ -163,7 +164,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private int mPendingReverseClientElementAddr = -1;
     private int mPendingReverseAppKeyIndex       = -1;
 
-    // ── ✅ FIX: Import ke baad SVG rebuild karne ke liye callback ─────────────
+    // ── Import callback ────────────────────────────────────────────────────────
     private Runnable mOnNetworkImportedCallback = null;
 
     // ── Runnables ─────────────────────────────────────────────────────────────
@@ -172,6 +173,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         stopScan();
         mIsReconnecting.postValue(false);
     };
+
+    // ── Auto setup progress ────────────────────────────────────────────────────
+    private final MutableLiveData<Boolean> mIsAutoSetupInProgress = new MutableLiveData<>();
 
     // =========================================================================
     // Constructor
@@ -189,14 +193,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mHandler = new Handler(Looper.getMainLooper());
     }
 
-    // =========================================================================
-    // ✅ FIX: SharedViewModel apna callback register karega import ke liye
-    // =========================================================================
-
-    /**
-     * SharedViewModel yeh call karta hai constructor mein.
-     * Jab bhi onNetworkImported fire ho, rebuildProvisionedFromMesh() call hoga.
-     */
     public void setOnNetworkImportedCallback(@Nullable Runnable callback) {
         mOnNetworkImportedCallback = callback;
     }
@@ -231,11 +227,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     LiveData<Element>    getSelectedElement()           { return mSelectedElement; }
     LiveData<Provisioner> getSelectedProvisioner()      { return mSelectedProvisioner; }
     LiveData<MeshModel>  getSelectedModel()             { return mSelectedModel; }
-
-    // Fields section mein add karo
-    private final MutableLiveData<Boolean> mIsAutoSetupInProgress = new MutableLiveData<>();
-    // Getter
-    LiveData<Boolean> isAutoSetupInProgress() { return mIsAutoSetupInProgress; }
+    LiveData<Boolean> isAutoSetupInProgress()           { return mIsAutoSetupInProgress; }
 
     void clearTransactionStatus() {
         if (mTransactionStatus.getValue() != null) mTransactionStatus.postValue(null);
@@ -472,15 +464,10 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     @Override
     public void onNetworkImported(final MeshNetwork meshNetwork) {
         loadNetwork(meshNetwork);
-
-        // ✅ FIX: Import hone ke baad SharedViewModel ko rebuild trigger karo
-        // Yeh callback SharedViewModel ke constructor mein set hota hai.
-        // rebuildProvisionedFromMesh() call hoga jo SVG map ko restore karega.
         if (mOnNetworkImportedCallback != null) {
             mHandler.post(mOnNetworkImportedCallback);
             Log.d(TAG, "✅ onNetworkImported: rebuildProvisionedFromMesh callback fired");
         }
-
         mNetworkImportState.postValue(meshNetwork.getMeshName()
                 + " has been successfully imported.\n"
                 + "In order to start sending messages to this network, please change the "
@@ -542,6 +529,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mProvisioningStateLiveData.onMeshNodeStateUpdated(
                 ProvisionerStates.fromStatusCode(state.getState()));
     }
+
     private void onProvisioningCompleted(final ProvisionedMeshNode node) {
         mIsProvisioningComplete = true;
         mProvisionedMeshNode    = node;
@@ -552,6 +540,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mHandler.post(() -> mConnectionState.postValue("Scanning for provisioned node"));
         mHandler.postDelayed(mReconnectRunnable, 1000);
     }
+
     private void loadNodes() {
         final List<ProvisionedMeshNode> nodes = new ArrayList<>();
         final String provisionerUuid = mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
@@ -747,6 +736,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                                 element.getMeshModels().get(status.getModelIdentifier()));
                     }
 
+                    // ── Pending reverse publication (server → client) ──────────
                     if (mPendingReverseServerUnicast != -1) {
                         final int serverUnicast     = mPendingReverseServerUnicast;
                         final int serverElementAddr = mPendingReverseServerElementAddr;
@@ -1007,23 +997,19 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mAutoBindNode        = node;
         mIsBindingInProgress = false;
 
-        // ✅ STEP 1: resolveKeyByNodeName se key lo (unicast-aware)
-        final String rawName = normalizeId(node.getNodeName());
-        final String normalizedName;
-        String resolved = resolveKeyByNodeName(rawName);
-        normalizedName = (resolved != null) ? resolved : rawName;
+        // ── STEP 1: Resolve the store key for this node (server nodes only) ──
+        // Client nodes use plain normalizeId() — they have their own simple key
+        final String rawName       = normalizeId(node.getNodeName());
+        final String resolvedKey   = resolveServerKeyByNodeName(rawName);
+        // resolvedKey = "pdri:relay node1" for server, or null for client
+        // For storage we use resolvedKey if found, else rawName
+        final String storeKey = (resolvedKey != null) ? resolvedKey : rawName;
 
-        // ✅ STEP 2: Is node ka unicast address turant store karo
-        // Taaki dusra same-name node aane par distinguish ho sake
-        if (normalizedName != null && !normalizedName.isEmpty()) {
-            int existingUnicast = ClientServerElementStore.getServerUnicastAddress(normalizedName);
-            if (existingUnicast == -1 || existingUnicast == 0xFFFFFFFF) {
-                ClientServerElementStore.saveServerUnicastAddress(
-                        normalizedName, node.getUnicastAddress());
-                Log.d(TAG_BIND, "✅ Early unicast save: " + normalizedName
-                        + " = 0x" + String.format("%04X", node.getUnicastAddress()));
-            }
-        }
+        Log.d(TAG_BIND, "START AUTO BIND: nodeName='" + node.getNodeName()
+                + "' rawName='" + rawName
+                + "' resolvedKey='" + resolvedKey
+                + "' storeKey='" + storeKey
+                + "' unicast=0x" + String.format("%04X", node.getUnicastAddress()));
 
         boolean isServerNode         = false;
         boolean isClientNode         = false;
@@ -1048,55 +1034,61 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
         }
 
-        Log.d(TAG_BIND, "START AUTO BIND: " + node.getNodeName()
-                + " resolvedKey=" + normalizedName
-                + " unicast=0x" + String.format("%04X", node.getUnicastAddress()));
-
-        if (isServerNode) {
-            Log.d(TAG_BIND, "Element Address=0x" + String.format("%04X", serverElementAddress));
-        }
-
-        int svgId = ClientServerElementStore.getServerSvgElementId(normalizedName);
-        Log.d(TAG_BIND, "Type: "
-                + (isServerNode ? "SERVER" : "")
-                + (isClientNode ? (isServerNode ? "+CLIENT" : "CLIENT") : "")
-                + (svgId != -1 ? " | Element Id=" + svgId : " | svgId NOT SET"));
-
-        if (isServerNode && normalizedName != null && !normalizedName.isEmpty()) {
+        // ── STEP 2: Save server info under resolvedKey (full key like "pdri:relay node1") ──
+        if (isServerNode && storeKey != null && !storeKey.isEmpty()) {
             if (serverElementAddress == -1) {
                 Log.e(TAG_BIND, "❌ serverElementAddress not found — save skip");
             } else {
-                int existing = ClientServerElementStore.getServerUnicastAddress(normalizedName);
+                int existing = ClientServerElementStore.getServerUnicastAddress(storeKey);
                 if (existing == -1) {
                     ClientServerElementStore.saveCompleteServerInfo(
-                            normalizedName,
+                            storeKey,
                             node.getUnicastAddress(),
                             0,
                             serverElementAddress
                     );
-                    Log.d(TAG_BIND, "✅ Server saved first time");
+                    Log.d(TAG_BIND, "✅ Server saved first time under key='" + storeKey + "'");
                 } else {
                     ClientServerElementStore.saveServerUnicastAddress(
-                            normalizedName, node.getUnicastAddress());
+                            storeKey, node.getUnicastAddress());
                     ClientServerElementStore.saveServerPrimaryElementAddress(
-                            normalizedName, serverElementAddress);
-                    Log.d(TAG_BIND, "✅ Server updated: unicast=0x"
-                            + String.format("%04X", node.getUnicastAddress())
-                            + " elementAddr=0x"
-                            + String.format("%04X", serverElementAddress));
+                            storeKey, serverElementAddress);
+                    Log.d(TAG_BIND, "✅ Server updated: key='" + storeKey
+                            + "' unicast=0x" + String.format("%04X", node.getUnicastAddress())
+                            + " elementAddr=0x" + String.format("%04X", serverElementAddress));
                 }
 
-                int existingSvgId = ClientServerElementStore.getServerSvgElementId(normalizedName);
+                int existingSvgId = ClientServerElementStore.getServerSvgElementId(storeKey);
                 if (existingSvgId == -1) {
-                    Log.w(TAG_BIND, "⚠️ svgId not yet set for " + normalizedName);
+                    Log.w(TAG_BIND, "⚠️ svgId not yet set for key='" + storeKey + "'");
                 } else {
-                    Log.d(TAG_BIND, "✅ svgId=" + existingSvgId + " ready for " + normalizedName);
+                    Log.d(TAG_BIND, "✅ svgId=" + existingSvgId
+                            + " ready for key='" + storeKey + "'");
                 }
             }
         }
 
+        // ── STEP 3: For client nodes, save unicast under plain rawName key ──
+        // e.g. rawName = "relay node" — client addresses will be saved here later
+        if (isClientNode && rawName != null && !rawName.isEmpty()) {
+            int existingClientUnicast =
+                    ClientServerElementStore.getServerUnicastAddress(rawName);
+            if (existingClientUnicast == -1) {
+                ClientServerElementStore.saveServerUnicastAddress(
+                        rawName, node.getUnicastAddress());
+                Log.d(TAG_BIND, "✅ Client unicast saved: key='" + rawName
+                        + "' unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+            }
+        }
+
+        int svgId = ClientServerElementStore.getServerSvgElementId(storeKey);
+        Log.d(TAG_BIND, "Type: "
+                + (isServerNode ? "SERVER" : "")
+                + (isClientNode ? (isServerNode ? "+CLIENT" : "CLIENT") : "")
+                + (svgId != -1 ? " | svgId=" + svgId : " | svgId NOT SET"));
+
         if (mPendingBindOperations.isEmpty()) {
-            if (isClientNode) saveClientElementAddresses(node);
+            if (isClientNode) saveClientElementAddresses(node, rawName);
             mAutoBindNode = null;
             mIsAutoSetupInProgress.postValue(false);
             return;
@@ -1104,89 +1096,105 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
         mHandler.postDelayed(this::sendNextAutoBind, 500);
     }
+
     // =========================================================================
-// ✅ NEW: BLE node name → stored SVG key via suffix match
-// BLE gives "relay node", store has key "pdri:relay node1"
-// This finds the right key so svgId lookup works correctly
-// =========================================================================
-    private String resolveKeyByNodeName(String normalizedNodeName) {
+    // resolveServerKeyByNodeName
+    // ─────────────────────────────────────────────────────────────────────────
+    // ONLY for SERVER nodes — finds the full store key like "pdri:relay node1"
+    // by suffix-matching against ClientServerElementStore keys that have a svgId set.
+    //
+    // Client nodes do NOT use this — they are stored under plain normalizeId() key.
+    // =========================================================================
+    private String resolveServerKeyByNodeName(String normalizedNodeName) {
         if (normalizedNodeName == null || normalizedNodeName.isEmpty()) return null;
 
-        // Direct lookup first
+        // Direct lookup first — exact match
         int direct = ClientServerElementStore.getServerSvgElementId(normalizedNodeName);
         if (direct != -1) {
-            Log.d(TAG_BIND, "resolveKeyByNodeName: direct match '" + normalizedNodeName + "'");
+            Log.d(TAG_BIND, "resolveServerKey: direct match '" + normalizedNodeName + "'");
             return normalizedNodeName;
         }
 
-        // Suffix match — collect ALL matches
+        // Suffix match against keys that have svgId stored
+        // e.g. "pdri:relay node1" → strip prefix and digits → "relay node"
         List<String> allKeys = ClientServerElementStore.getAllServerSvgKeys();
         List<String> matches = new ArrayList<>();
 
         for (String storedKey : allKeys) {
-            String withoutPrefix = storedKey;
-            int colon = withoutPrefix.lastIndexOf(":");
-            if (colon != -1) withoutPrefix = withoutPrefix.substring(colon + 1).trim();
-            String pureName = withoutPrefix
-                    .replaceAll("\\s*\\d+$", "")
-                    .replaceAll("\\d+$", "")
-                    .trim();
+            String pureName = extractPureNameFromKey(storedKey);
             if (pureName.equals(normalizedNodeName)) {
                 matches.add(storedKey);
             }
         }
 
         if (matches.isEmpty()) {
-            Log.w(TAG_BIND, "resolveKeyByNodeName: no match for '" + normalizedNodeName + "'");
+            Log.w(TAG_BIND, "resolveServerKey: no svgId-key match for '"
+                    + normalizedNodeName + "' — node may be client-only");
             return null;
         }
 
         if (matches.size() == 1) {
-            Log.d(TAG_BIND, "resolveKeyByNodeName: suffix match '"
+            Log.d(TAG_BIND, "resolveServerKey: suffix match '"
                     + normalizedNodeName + "' → '" + matches.get(0) + "'");
             return matches.get(0);
         }
 
-        // ✅ Multiple matches — current node ke unicast se sahi key dhundho
+        // Multiple matches — disambiguate by current node's unicast address
         if (mAutoBindNode != null) {
             int currentUnicast = mAutoBindNode.getUnicastAddress();
             for (String key : matches) {
                 int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
                 if (storedUnicast != -1 && storedUnicast == currentUnicast) {
-                    Log.d(TAG_BIND, "resolveKeyByNodeName: unicast match 0x"
+                    Log.d(TAG_BIND, "resolveServerKey: unicast match 0x"
                             + String.format("%04X", currentUnicast) + " → '" + key + "'");
                     return key;
                 }
             }
-
-            // ✅ Unicast match nahi mila = naya node
-            // Woh key lo jiska unicast abhi store nahi hua (-1)
+            // New node — pick a key with unicast not yet assigned
             for (String key : matches) {
                 int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
                 if (storedUnicast == -1) {
-                    Log.d(TAG_BIND, "resolveKeyByNodeName: new node → unset key '"
-                            + key + "' unicast will be 0x"
+                    Log.d(TAG_BIND, "resolveServerKey: new node → unset key '"
+                            + key + "' unicast=0x"
                             + String.format("%04X", mAutoBindNode.getUnicastAddress()));
                     return key;
                 }
             }
         }
 
-        // Fallback
-        Log.w(TAG_BIND, "resolveKeyByNodeName: fallback first match: " + matches.get(0));
+        Log.w(TAG_BIND, "resolveServerKey: fallback first match: " + matches.get(0));
         return matches.get(0);
     }
-    private void sendNextAutoBind() {
 
+    // =========================================================================
+    // extractPureNameFromKey
+    // ─────────────────────────────────────────────────────────────────────────
+    // "pdri:relay node1"  → "relay node"
+    // "relay node1"       → "relay node"
+    // "pdri:relay node 2" → "relay node"
+    // =========================================================================
+    private String extractPureNameFromKey(String key) {
+        if (key == null) return "";
+        String name = key.trim().toLowerCase();
+        // Strip area prefix (everything before and including last ":")
+        int colon = name.lastIndexOf(":");
+        if (colon != -1) name = name.substring(colon + 1).trim();
+        // Strip trailing digits and spaces
+        name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+        return name;
+    }
+
+    // =========================================================================
+    // sendNextAutoBind
+    // =========================================================================
+    private void sendNextAutoBind() {
         if (mAutoBindNode == null) {
             Log.w(TAG_BIND, "sendNextAutoBind: node null — stop.");
             return;
         }
-
         if (mIsBindingInProgress) return;
 
         if (mAutoBindIndex >= mPendingBindOperations.size()) {
-
             Log.d(TAG_BIND, "✅ ALL MODELS BOUND for node 0x"
                     + String.format("%04X", mAutoBindNode.getUnicastAddress()));
 
@@ -1200,15 +1208,17 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 }
             }
 
+            final String rawName = normalizeId(mAutoBindNode.getNodeName());
+
             if (isClientNode) {
-                saveClientElementAddresses(mAutoBindNode);
+                // ✅ Client addresses saved under plain rawName key
+                saveClientElementAddresses(mAutoBindNode, rawName);
             }
 
             if (isServerNode) {
                 final ProvisionedMeshNode serverNode = mAutoBindNode;
                 mHandler.postDelayed(() -> triggerAutoPublication(serverNode), 2000);
             } else {
-                // Client-only node — setup complete, progress band karo
                 mIsAutoSetupInProgress.postValue(false);
             }
 
@@ -1247,8 +1257,19 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
     }
 
+    // =========================================================================
+    // triggerAutoPublication
+    // ─────────────────────────────────────────────────────────────────────────
+    // Called after server node binds all models.
+    //
+    // KEY FIX:
+    //   Server key  = resolveServerKeyByNodeName("relay node") → "pdri:relay node1"
+    //   Client key  = normalizeId(candidate.getNodeName())     → "relay node"
+    //                 (client addresses are saved under plain node name)
+    //
+    // This separation is what makes getClientAddress() return the correct value.
+    // =========================================================================
     private void triggerAutoPublication(@NonNull final ProvisionedMeshNode serverNode) {
-
         if (mMeshNetwork == null) {
             Log.e(TAG_BIND, "triggerAutoPublication: mMeshNetwork null — abort");
             return;
@@ -1260,34 +1281,49 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return;
         }
         final int appKeyIndex = appKeys.get(0).getKeyIndex();
-        final String rawServerName = normalizeId(serverNode.getNodeName());
-        final String resolvedServerName = resolveKeyByNodeName(rawServerName);
-        final String serverDeviceId = (resolvedServerName != null) ? resolvedServerName : rawServerName;
-        if (serverDeviceId == null || serverDeviceId.isEmpty()) {
-            Log.e(TAG_BIND, "triggerAutoPublication: server has no name — abort");
+
+        // ── Resolve server store key ──────────────────────────────────────────
+        final String rawServerName    = normalizeId(serverNode.getNodeName());
+        final String serverStoreKey   = resolveServerKeyByNodeName(rawServerName);
+
+        if (serverStoreKey == null || serverStoreKey.isEmpty()) {
+            Log.e(TAG_BIND, "triggerAutoPublication: cannot resolve server store key"
+                    + " for nodeName='" + serverNode.getNodeName() + "' — abort");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        final int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverDeviceId);
+        // ── Get server svgId ──────────────────────────────────────────────────
+        final int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverStoreKey);
         if (serverSvgId == -1) {
-            Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for '"
-                    + serverDeviceId + "' — abort.");
+            Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for key='"
+                    + serverStoreKey + "' — abort."
+                    + " Make sure saveElementId() was called from DeviceDetailActivity.");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
+        // ── Get server element address ────────────────────────────────────────
         final int serverElementAddr =
-                ClientServerElementStore.getServerPrimaryElementAddress(serverDeviceId);
+                ClientServerElementStore.getServerPrimaryElementAddress(serverStoreKey);
         if (serverElementAddr == -1) {
-            Log.e(TAG_BIND, "triggerAutoPublication: server primary element addr not found — abort");
+            Log.e(TAG_BIND, "triggerAutoPublication: server primary element addr"
+                    + " not found for key='" + serverStoreKey + "' — abort");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        Log.d(TAG_BIND, "triggerAutoPublication ▶ server=" + serverDeviceId
+        Log.d(TAG_BIND, "triggerAutoPublication ▶"
+                + " serverKey='" + serverStoreKey + "'"
                 + " svgId=" + serverSvgId
                 + " serverElem=0x" + String.format("%04X", serverElementAddr));
 
-        int clientElementAddr  = -1;
-        int clientUnicast      = -1;
+        // ── Find matching client ──────────────────────────────────────────────
+        // Client addresses are stored under plain normalizeId(nodeName) key
+        // e.g. "relay node" → index=serverSvgId → clientElementAddr
+        int clientElementAddr = -1;
+        int clientUnicast     = -1;
+        String matchedClientKey = null;
 
         final String provisionerUuid =
                 mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
@@ -1296,9 +1332,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
             if (candidate.getUnicastAddress() == serverNode.getUnicastAddress()) continue;
 
-            final String devId = normalizeId(candidate.getNodeName());
-            if (devId == null) continue;
-
+            // Check candidate has GenericOnOffClient model
             boolean hasClient = false;
             for (Element el : candidate.getElements().values()) {
                 for (MeshModel m : el.getMeshModels().values()) {
@@ -1311,20 +1345,32 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
             if (!hasClient) continue;
 
-            final int addr = ClientServerElementStore.getClientAddress(devId, serverSvgId);
+            // ✅ KEY FIX: Client addresses are saved under plain normalizeId(nodeName)
+            // e.g. candidate.getNodeName() = "Relay Node" → devKey = "relay node"
+            // ClientServerElementStore.saveAll("relay node", {0: 0x0003, 1: 0x0004, ...})
+            // So lookup: getClientAddress("relay node", serverSvgId)
+            final String devKey = normalizeId(candidate.getNodeName());
+
+            final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
             if (addr != -1) {
                 clientElementAddr = addr;
                 clientUnicast     = candidate.getUnicastAddress();
-                Log.d(TAG_BIND, "✅ Client match: " + devId
-                        + " index=" + serverSvgId
-                        + " clientElem=0x" + String.format("%04X", clientElementAddr));
+                matchedClientKey  = devKey;
+                Log.d(TAG_BIND, "✅ Client match: devKey='" + devKey
+                        + "' svgId=" + serverSvgId
+                        + " clientElem=0x" + String.format("%04X", clientElementAddr)
+                        + " clientUnicast=0x" + String.format("%04X", clientUnicast));
                 break;
+            } else {
+                Log.d(TAG_BIND, "  no client addr for devKey='" + devKey
+                        + "' svgId=" + serverSvgId);
             }
         }
 
         if (clientElementAddr == -1 || clientUnicast == -1) {
-            Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId="
-                    + serverSvgId + " — publication skipped");
+            Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId=" + serverSvgId
+                    + " — publication skipped."
+                    + " Make sure client was provisioned first and saveClientElementAddresses() ran.");
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
@@ -1334,8 +1380,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         final int finalServerElem    = serverElementAddr;
         final int finalServerUnicast = serverNode.getUnicastAddress();
 
-        Log.d(TAG_BIND, "📤 PUB STEP1: clientNode=0x"
-                + String.format("%04X", finalClientUnicast)
+        // ── STEP 1: Client → Server publication ──────────────────────────────
+        Log.d(TAG_BIND, "📤 PUB STEP1 (client→server):"
+                + " clientUnicast=0x" + String.format("%04X", finalClientUnicast)
                 + " clientElem=0x" + String.format("%04X", finalClientElem)
                 + " → serverElem=0x" + String.format("%04X", finalServerElem));
 
@@ -1352,12 +1399,14 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             );
         } catch (Exception e) {
             Log.e(TAG_BIND, "❌ PUB STEP1 failed: " + e.getMessage());
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
+        // ── STEP 2: Server → Client publication (reverse) ────────────────────
         mHandler.postDelayed(() -> {
-            Log.d(TAG_BIND, "📤 PUB STEP2 (reverse): serverNode=0x"
-                    + String.format("%04X", finalServerUnicast)
+            Log.d(TAG_BIND, "📤 PUB STEP2 (server→client):"
+                    + " serverUnicast=0x" + String.format("%04X", finalServerUnicast)
                     + " serverElem=0x" + String.format("%04X", finalServerElem)
                     + " → clientElem=0x" + String.format("%04X", finalClientElem));
             try {
@@ -1372,19 +1421,98 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                         )
                 );
             } catch (Exception e) {
-                Log.e(TAG_BIND, "❌ PUB STEP2 (reverse) failed: " + e.getMessage());
+                Log.e(TAG_BIND, "❌ PUB STEP2 failed: " + e.getMessage());
             }
-            mIsAutoSetupInProgress.postValue(false); // ← ADD (success & failure dono pe)
+            mIsAutoSetupInProgress.postValue(false);
         }, 1500);
+        // ── Find matching client — SAME AREA ONLY ──
+        String serverAreaId = ClientServerElementStore.getServerAreaId(serverStoreKey);
+        Log.d(TAG_BIND, "triggerAutoPublication: serverAreaId='" + serverAreaId + "'");
+
+        for (ProvisionedMeshNode candidate : mMeshNetwork.getNodes()) {
+            if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
+            if (candidate.getUnicastAddress() == serverNode.getUnicastAddress()) continue;
+
+            boolean hasClient = false;
+            for (Element el : candidate.getElements().values()) {
+                for (MeshModel m : el.getMeshModels().values()) {
+                    if (m.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
+                        hasClient = true; break;
+                    }
+                }
+                if (hasClient) break;
+            }
+            if (!hasClient) continue;
+
+            final String devKey = normalizeId(candidate.getNodeName());
+            final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
+            if (addr == -1) continue;
+
+            // ✅ AREA CHECK — client ka areaId server ke areaId se match karo
+            // Client ka areaId uske devKey se nikalo
+            // devKey = "relay node" — client ke SVG id se area dhundho
+            String clientAreaId = getClientAreaId(candidate, devKey);
+            Log.d(TAG_BIND, "  candidate='" + devKey + "' clientAreaId='" + clientAreaId + "'");
+
+            if (serverAreaId != null && !serverAreaId.isEmpty()) {
+                if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
+                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip: server="
+                            + serverAreaId + " client=" + clientAreaId);
+                    continue;
+                }
+            }
+
+            // ✅ Same area — match found
+            clientElementAddr = addr;
+            clientUnicast     = candidate.getUnicastAddress();
+            matchedClientKey  = devKey;
+            Log.d(TAG_BIND, "✅ Client match (same area): devKey='" + devKey + "' area=" + clientAreaId);
+            break;
+        }
     }
 
-    private void saveClientElementAddresses(@NonNull final ProvisionedMeshNode node) {
-        final String rawClientName = normalizeId(node.getNodeName());
-        final String resolvedClientName = resolveKeyByNodeName(rawClientName);
-        final String deviceId = (resolvedClientName != null) ? resolvedClientName : rawClientName;
+    // ✅ Client ka areaId dhundho — SVG ke store mein client ke saath
+// SW-CN01-AA har area mein hoga, uska store key "pdri:sw-cn01-aa" ya "vcri:sw-cn01-aa" hoga
+    private String getClientAreaId(ProvisionedMeshNode clientNode, String clientKey) {
+        // Method 1: ClientServerElementStore mein client ke SVG key dhundho
+        // Client ke saath jo svgDeviceId save tha provisioning ke waqt
+        // wo prefs mein "element_id_PDRI:SW-CN01-AA" jaisi key hogi
+        SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
+        if (prefs == null) return null;
 
-        if (deviceId == null || deviceId.isEmpty()) {
-            Log.w(TAG_BIND, "saveClientElementAddresses: no node name — skip");
+        String prefix = "element_id_";
+        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            String k = entry.getKey();
+            if (!k.startsWith(prefix)) continue;
+            String svgId = k.substring(prefix.length()); // "PDRI:SW-CN01-AA"
+
+            // Pure name match karo
+            String pureName = extractPureNameFromKey(svgId); // "sw-cn01-aa"
+            if (!pureName.equalsIgnoreCase(clientKey.trim())) continue;
+
+            // Area extract karo
+            int colon = svgId.indexOf(":");
+            if (colon != -1) {
+                return svgId.substring(0, colon).trim();
+            }
+        }
+        return null;
+    }
+
+    // =========================================================================
+    // saveClientElementAddresses
+    // ─────────────────────────────────────────────────────────────────────────
+    // ✅ KEY FIX: Client addresses MUST be saved under plain normalizeId(nodeName)
+    // e.g. "relay node" — NOT under "pdri:relay node1" (that's server's key).
+    //
+    // triggerAutoPublication() looks up:
+    //   ClientServerElementStore.getClientAddress(normalizeId(candidate.getNodeName()), svgId)
+    // So the key here must match exactly what is used there.
+    // =========================================================================
+    private void saveClientElementAddresses(@NonNull final ProvisionedMeshNode node,
+                                            @NonNull final String clientKey) {
+        if (clientKey.isEmpty()) {
+            Log.w(TAG_BIND, "saveClientElementAddresses: clientKey empty — skip");
             return;
         }
 
@@ -1392,7 +1520,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         int clientIndex = 0;
 
         Log.d(TAG_BIND, "╔══════════════════════════════════════════════════");
-        Log.d(TAG_BIND, "║ SAVING CLIENT ADDRESSES for: " + deviceId);
+        Log.d(TAG_BIND, "║ SAVING CLIENT ADDRESSES for key='" + clientKey + "'");
 
         for (Element element : node.getElements().values()) {
             final int elementAddress = element.getElementAddress();
@@ -1411,10 +1539,10 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         Log.d(TAG_BIND, "╚══════════════════════════════════════════════════");
 
         if (!addressMap.isEmpty()) {
-            ClientServerElementStore.saveAll(deviceId, addressMap);
-            Log.d(TAG_BIND, "✅ CLIENT addresses saved for: " + deviceId);
+            ClientServerElementStore.saveAll(clientKey, addressMap);
+            Log.d(TAG_BIND, "✅ CLIENT addresses saved under key='" + clientKey + "'");
         } else {
-            Log.w(TAG_BIND, "⚠️ No client elements found for: " + deviceId);
+            Log.w(TAG_BIND, "⚠️ No client elements found for: " + node.getNodeName());
         }
     }
 

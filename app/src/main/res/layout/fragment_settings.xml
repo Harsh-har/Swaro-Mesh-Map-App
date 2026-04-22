@@ -1,7 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-  ~ Copyright (c) 2018, Nordic Semiconductor
-  -->
-
+<?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -16,7 +13,7 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- ── Network Settings card ───────────────────────────────────────── -->
+        <!-- Network Settings card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/network_settings_card"
             android:layout_width="match_parent"
@@ -80,6 +77,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content" />
 
+                <!-- AREA CLIENT LIST - ADD THIS HERE -->
+                <include
+                    android:id="@+id/container_area_client"
+                    layout="@layout/layout_container"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content" />
+
                 <include
                     android:id="@+id/container_last_modified"
                     layout="@layout/layout_container"
@@ -90,7 +94,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ── MQTT Settings card ──────────────────────────────────────────── -->
+        <!-- MQTT Settings card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/mqtt_settings_card"
             android:layout_width="match_parent"
@@ -113,7 +117,6 @@
                     app:titleMarginStart="@dimen/toolbar_title_margin"
                     app:titleTextAppearance="@style/Toolbar.TitleText" />
 
-                <!-- MQTT row — reuses same layout_container pattern -->
                 <include
                     android:id="@+id/container_mqtt"
                     layout="@layout/layout_container"
@@ -123,7 +126,7 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- ── About card ──────────────────────────────────────────────────── -->
+        <!-- About card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/about_card"
             android:layout_width="match_parent"
@@ -147,7 +150,6 @@
                     app:title="@string/title_about"
                     app:titleMarginStart="@dimen/toolbar_title_margin"
                     app:titleTextAppearance="@style/Toolbar.TitleText" />
-
 
                 <include
                     android:id="@+id/container_version"

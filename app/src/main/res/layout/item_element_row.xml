@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingLeft="4dp"
+    android:paddingRight="4dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:background="#111111">
+
+    <!-- Element label: "Element 0" -->
+    <TextView
+        android:id="@+id/tvElem"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="13sp"
+        android:textStyle="bold"
+        android:textColor="#D9D9D9" />
+
+    <!-- Client address  -->
+    <TextView
+        android:id="@+id/tvClient"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="13sp"
+        android:fontFamily="monospace"
+        android:textColor="#7CBB00"
+        android:textStyle="bold"
+        android:gravity="center" />
+
+    <!-- Server address -->
+    <TextView
+        android:id="@+id/tvServer"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:textSize="13sp"
+        android:fontFamily="monospace"
+        android:textColor="#FF6200"
+        android:textStyle="bold"
+        android:gravity="end" />
+
+</LinearLayout>

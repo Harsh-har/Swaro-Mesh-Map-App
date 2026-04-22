@@ -6,15 +6,12 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
-
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-
 import java.util.HashSet;
 import java.util.Set;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityDeviceDetailBinding;
@@ -26,11 +23,9 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
     private static final String TAG = "DeviceDetailActivity";
     public static final String EXTRA_PURE_DEVICE_NAME = "pure_device_name";
-
     private static final String PREFS_NAME = "mesh_prefs";
     private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
     private static final String KEY_SERVER_SVG_DEVICE_ID = "server_svg_device_id";
-
     public static final String EXTRA_DEVICE_ID = "device_id";
     public static final String EXTRA_ELEMENT_ID = "element_id";
     public static final String EXTRA_DEVICE_NAME = "device_name";
@@ -38,10 +33,8 @@ public class DeviceDetailActivity extends AppCompatActivity {
     public static final String EXTRA_DEVICE_TYPE = "device_type";
     public static final String DEVICE_TYPE_SERVER = "server";
     public static final String DEVICE_TYPE_CLIENT = "client";
-
     private ActivityDeviceDetailBinding binding;
     private SharedViewModel sharedViewModel;
-
     private String deviceId;
     private String elementId;
     private String deviceName;
@@ -82,10 +75,10 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
         // ✅ Save element ID with ORIGINAL deviceId (not display name)
         if (elementId != null && !elementId.isEmpty()) {
-            sharedViewModel.saveElementId(deviceId, elementId);  // Original ID
+            sharedViewModel.saveElementId(deviceId, elementId);
 
             SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            prefs.edit().putString("element_id_" + deviceId, elementId).apply();  // Original ID
+            prefs.edit().putString("element_id_" + deviceId, elementId).apply();
 
             Log.d(TAG, "✅ Saved element ID: " + elementId + " for device: " + deviceId);
         }
@@ -151,8 +144,8 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private void setupButtons() {
         binding.btnConnect.setOnClickListener(v -> {
             Intent intent = new Intent(this, ScannerActivity.class);
-            intent.putExtra(EXTRA_DEVICE_ID, deviceId);           // Original ID
-            intent.putExtra(EXTRA_DEVICE_NAME, deviceName);       // Display name
+            intent.putExtra(EXTRA_DEVICE_ID, deviceId);
+            intent.putExtra(EXTRA_DEVICE_NAME, deviceName);
             intent.putExtra(EXTRA_ELEMENT_ID, elementId);
             startActivity(intent);
         });
@@ -162,9 +155,9 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
             Intent intent = new Intent(this, ScannerActivity.class);
             intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
-            intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, deviceId);     // Original ID
-            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE, deviceName);     // ✅ CHANGE: Display name for auto-click
-            intent.putExtra(EXTRA_DEVICE_NAME, deviceName);            // Display name
+            intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, deviceId);
+            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE, deviceName);
+            intent.putExtra(EXTRA_DEVICE_NAME, deviceName);
             intent.putExtra(EXTRA_DEVICE_TYPE, deviceType);
             intent.putExtra(EXTRA_ELEMENT_ID, elementId);
 
@@ -205,12 +198,11 @@ public class DeviceDetailActivity extends AppCompatActivity {
         // ✅ Save provisioned device with ORIGINAL full SVG id
         Set<String> current = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
-        current.add(svgDeviceId);  // "PDRI:Relay Node1" — exact match with SVG group id
+        current.add(svgDeviceId);
         prefs.edit()
                 .putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current))
                 .apply();
 
-        // ✅ Notify ViewModel so NetworkFragment observer fires
         sharedViewModel.markDeviceProvisioned(svgDeviceId);
         Log.d(TAG, "✅ markDeviceProvisioned: " + svgDeviceId);
 

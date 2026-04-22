@@ -2,6 +2,7 @@ package no.nordicsemi.android.swaromapmesh.swajaui;
 
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.graphics.drawable.PictureDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
@@ -15,6 +16,7 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import com.caverock.androidsvg.SVG;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -35,11 +37,9 @@ import no.nordicsemi.android.swaromapmesh.R;
 @AndroidEntryPoint
 public class AreaListActivity extends AppCompatActivity {
 
-    private static final String TAG = "AreaListActivity";
-
-    private static final int TYPE_HEADER = 0;
-    private static final int TYPE_AREA   = 1;
-
+    private static final String TAG         = "AreaListActivity";
+    private static final int    TYPE_HEADER = 0;
+    private static final int    TYPE_AREA   = 1;
     private RecyclerView      rvAreas;
     private LinearLayout      emptyView;
     private TextView          tvSiteTitle;
@@ -58,9 +58,6 @@ public class AreaListActivity extends AppCompatActivity {
         rvAreas     = findViewById(R.id.rvAreas);
         emptyView   = findViewById(R.id.emptyView);
         tvSiteTitle = findViewById(R.id.tvSiteTitle);
-
-        findViewById(R.id.layoutBack).setOnClickListener(v -> finish());
-
         svgUriString = getIntent().getStringExtra("svg_uri");
         areaList     = getIntent().getStringArrayListExtra("area_list");
 
@@ -79,15 +76,13 @@ public class AreaListActivity extends AppCompatActivity {
                 tvSiteTitle.setText(name);
             }
 
-            SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-            String savedCountsJson = prefs.getString("saved_counts", null);
+            SharedPreferences prefs          = getSharedPreferences("app_prefs", MODE_PRIVATE);
+            String            savedCountsJson = prefs.getString("saved_counts", null);
 
             if (savedCountsJson != null) {
-                // ✅ Counts already hain — instant show
                 int[] counts = new com.google.gson.Gson().fromJson(savedCountsJson, int[].class);
                 showAreas(areaList, counts);
             } else {
-                // ✅ Local file se count karo — no HTTP
                 countDevicesPerArea(uri, areaList);
             }
         } else {
@@ -101,6 +96,45 @@ public class AreaListActivity extends AppCompatActivity {
         executor.shutdownNow();
     }
 
+    // ==================== SVG ICON LOADER ====================
+
+    private void loadAreaIcon(ImageView imageView, String areaName) {
+        String fileName = getSvgFileName(areaName);
+        try {
+            InputStream    is  = getAssets().open("area_icons/" + fileName);
+            SVG            svg = SVG.getFromInputStream(is);
+            imageView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            imageView.setImageDrawable(new PictureDrawable(svg.renderToPicture()));
+            is.close();
+        } catch (Exception e) {
+            Log.e(TAG, "SVG load failed: area_icons/" + fileName, e);
+            imageView.setImageResource(R.drawable.ic_settings); // fallback
+        }
+    }
+
+    // ==================== ICON MAPPER ====================
+    private String getSvgFileName(String areaId) {
+        if (areaId == null) return "Corridor.svg";
+
+        switch (areaId) {
+            case "PDRI":        return "Corridor.svg";
+            case "VCRI":        return "Wet Kitchen.svg";
+            case "BCI":         return "Powder room.svg";
+            case "ENGRI":       return "Restaurant Close.svg";
+            case "VCRED":       return "Corridor.svg";
+            case "VCRACD":      return "Corridor.svg";
+            case "VCRPSD_1":    return "Corridor.svg";
+            case "VCRPSD_2":    return "Corridor.svg";
+            case "VCRPSD_3":    return "Corridor.svg";
+            case "VCRSFD_1":    return "Corridor.svg";
+            case "VCRSFD_2":    return "Corridor.svg";
+            case "VCRRN6AM_3":  return "Corridor.svg";
+            case "VCRRN6AM_4":  return "Corridor.svg";
+            case "VCRRN6AM_9":  return "Corridor.svg";
+            default:            return "Corridor.svg";
+        }
+    }
+
     // ==================== DEVICE COUNT ====================
 
     private void countDevicesPerArea(Uri uri, ArrayList<String> areas) {
@@ -109,21 +143,16 @@ public class AreaListActivity extends AppCompatActivity {
             try {
                 InputStream is;
                 String uriString = uri.toString();
-
                 if (uriString.startsWith("file://")) {
-                    // ✅ Local cached file — no network
                     is = new FileInputStream(new File(uri.getPath()));
                 } else {
-                    // content:// — gallery case
                     is = getContentResolver().openInputStream(uri);
                 }
-
                 if (is != null) {
                     Document doc = parseDocument(is);
                     is.close();
                     if (doc != null) {
-                        Element iconsGroup = findElementById(
-                                doc.getDocumentElement(), "Icons");
+                        Element iconsGroup = findElementById(doc.getDocumentElement(), "Icons");
                         if (iconsGroup != null) {
                             for (int i = 0; i < areas.size(); i++) {
                                 Element areaEl = findElementById(iconsGroup, areas.get(i));
@@ -189,25 +218,26 @@ public class AreaListActivity extends AppCompatActivity {
         List<ListItem> items = new ArrayList<>();
         items.add(new ListItem("AREAS"));
         for (int i = 0; i < areas.size(); i++) {
-            boolean isLast = (i == areas.size() - 1);
-            items.add(new ListItem(areas.get(i), counts[i], isLast));
+            items.add(new ListItem(areas.get(i), counts[i], i == areas.size() - 1));
         }
 
         if (rvAreas != null) {
             rvAreas.setVisibility(View.VISIBLE);
             rvAreas.setLayoutManager(new LinearLayoutManager(this));
-            rvAreas.setAdapter(new AreaAdapter(items, areaId -> {
-                Log.d(TAG, "Area clicked: " + areaId);
-
-                Intent intent = new Intent(this, MainActivity.class);
-                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-                intent.putExtra("navigate_to_network", true);
-                intent.putExtra("focus_area_id", areaId);
-                intent.putExtra("from_area_list", true);
-                intent.putExtra("svg_uri", svgUriString);
-                startActivity(intent);
-                finish();
-            }));
+            rvAreas.setAdapter(new AreaAdapter(items,
+                    (imageView, areaId) -> loadAreaIcon(imageView, areaId),
+                    areaId -> {
+                        Log.d(TAG, "Area clicked: " + areaId);
+                        Intent intent = new Intent(this, MainActivity.class);
+                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                        intent.putExtra("navigate_to_network", true);
+                        intent.putExtra("focus_area_id", areaId);
+                        intent.putExtra("from_area_list", true);
+                        intent.putExtra("svg_uri", svgUriString);
+                        startActivity(intent);
+                        finish();
+                    }
+            ));
         }
         if (emptyView != null) emptyView.setVisibility(View.GONE);
     }
@@ -240,20 +270,22 @@ public class AreaListActivity extends AppCompatActivity {
 
     // ==================== ADAPTER ====================
 
+    interface IconLoader  { void load(ImageView iv, String areaId); }
     interface OnAreaClick { void onClick(String areaId); }
 
     static class AreaAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
         private final List<ListItem> items;
+        private final IconLoader     iconLoader;
         private final OnAreaClick    listener;
 
-        AreaAdapter(List<ListItem> items, OnAreaClick listener) {
-            this.items    = items;
-            this.listener = listener;
+        AreaAdapter(List<ListItem> items, IconLoader iconLoader, OnAreaClick listener) {
+            this.items      = items;
+            this.iconLoader = iconLoader;
+            this.listener   = listener;
         }
 
-        @Override
-        public int getItemViewType(int position) {
+        @Override public int getItemViewType(int position) {
             return items.get(position).isHeader ? TYPE_HEADER : TYPE_AREA;
         }
 
@@ -261,13 +293,10 @@ public class AreaListActivity extends AppCompatActivity {
         @Override
         public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             LayoutInflater inf = LayoutInflater.from(parent.getContext());
-            if (viewType == TYPE_HEADER) {
-                View v = inf.inflate(R.layout.item_area_header, parent, false);
-                return new HeaderVH(v);
-            } else {
-                View v = inf.inflate(R.layout.item_area, parent, false);
-                return new AreaVH(v);
-            }
+            if (viewType == TYPE_HEADER)
+                return new HeaderVH(inf.inflate(R.layout.item_area_header, parent, false));
+            else
+                return new AreaVH(inf.inflate(R.layout.item_maparea, parent, false));
         }
 
         @Override
@@ -275,16 +304,29 @@ public class AreaListActivity extends AppCompatActivity {
             ListItem item = items.get(position);
             if (holder instanceof HeaderVH) {
                 ((HeaderVH) holder).tvHeader.setText(item.label);
+
             } else if (holder instanceof AreaVH) {
                 AreaVH vh = (AreaVH) holder;
-                vh.tvAreaName.setText(item.label);
+
+                vh.tvAreaName.setText(item.label.replace("_", " "));
+                iconLoader.load(vh.ivAreaIcon, item.label);
+
+                if (item.count > 0) {
+                    vh.tvDeviceCount.setVisibility(View.VISIBLE);
+                    vh.tvDeviceCount.setText(String.valueOf(item.count));
+                } else {
+                    vh.tvDeviceCount.setVisibility(View.GONE);
+                }
+
+                // Divider
                 vh.divider.setVisibility(item.isLast ? View.GONE : View.VISIBLE);
+
+                // Click
                 vh.itemView.setOnClickListener(v -> listener.onClick(item.label));
             }
         }
 
-        @Override
-        public int getItemCount() { return items.size(); }
+        @Override public int getItemCount() { return items.size(); }
 
         static class HeaderVH extends RecyclerView.ViewHolder {
             TextView tvHeader;
@@ -293,13 +335,15 @@ public class AreaListActivity extends AppCompatActivity {
 
         static class AreaVH extends RecyclerView.ViewHolder {
             TextView  tvAreaName;
+            TextView  tvDeviceCount;
             ImageView ivAreaIcon;
             View      divider;
             AreaVH(View v) {
                 super(v);
-                tvAreaName = v.findViewById(R.id.tvAreaName);
-                ivAreaIcon = v.findViewById(R.id.ivAreaIcon);
-                divider    = v.findViewById(R.id.divider);
+                tvAreaName    = v.findViewById(R.id.tvAreaName);
+                tvDeviceCount = v.findViewById(R.id.tvDeviceCount);
+                ivAreaIcon    = v.findViewById(R.id.ivAreaIcon);
+                divider       = v.findViewById(R.id.divider);
             }
         }
     }
