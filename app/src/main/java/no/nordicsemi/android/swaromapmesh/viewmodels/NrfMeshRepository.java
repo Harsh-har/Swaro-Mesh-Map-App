@@ -17,31 +17,27 @@ import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CO
 import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_NODE_RESET_STATUS;
 import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_RELAY_STATUS;
 import static no.nordicsemi.android.swaromapmesh.ble.BleMeshManager.MESH_PROXY_UUID;
-
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.os.Build;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
 import javax.inject.Inject;
 import javax.inject.Singleton;
-
 import no.nordicsemi.android.log.LogSession;
 import no.nordicsemi.android.log.Logger;
 import no.nordicsemi.android.swaromapmesh.ApplicationKey;
@@ -1001,8 +997,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         // Client nodes use plain normalizeId() — they have their own simple key
         final String rawName       = normalizeId(node.getNodeName());
         final String resolvedKey   = resolveServerKeyByNodeName(rawName);
-        // resolvedKey = "pdri:relay node1" for server, or null for client
-        // For storage we use resolvedKey if found, else rawName
         final String storeKey = (resolvedKey != null) ? resolvedKey : rawName;
 
         Log.d(TAG_BIND, "START AUTO BIND: nodeName='" + node.getNodeName()
@@ -1100,11 +1094,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // resolveServerKeyByNodeName
     // ─────────────────────────────────────────────────────────────────────────
-    // ONLY for SERVER nodes — finds the full store key like "pdri:relay node1"
-    // by suffix-matching against ClientServerElementStore keys that have a svgId set.
-    //
-    // Client nodes do NOT use this — they are stored under plain normalizeId() key.
-    // =========================================================================
     private String resolveServerKeyByNodeName(String normalizedNodeName) {
         if (normalizedNodeName == null || normalizedNodeName.isEmpty()) return null;
 
@@ -1168,11 +1157,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     // =========================================================================
     // extractPureNameFromKey
-    // ─────────────────────────────────────────────────────────────────────────
-    // "pdri:relay node1"  → "relay node"
-    // "relay node1"       → "relay node"
-    // "pdri:relay node 2" → "relay node"
-    // =========================================================================
     private String extractPureNameFromKey(String key) {
         if (key == null) return "";
         String name = key.trim().toLowerCase();
@@ -1260,15 +1244,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // triggerAutoPublication
     // ─────────────────────────────────────────────────────────────────────────
-    // Called after server node binds all models.
-    //
-    // KEY FIX:
-    //   Server key  = resolveServerKeyByNodeName("relay node") → "pdri:relay node1"
-    //   Client key  = normalizeId(candidate.getNodeName())     → "relay node"
-    //                 (client addresses are saved under plain node name)
-    //
-    // This separation is what makes getClientAddress() return the correct value.
-    // =========================================================================
+
     private void triggerAutoPublication(@NonNull final ProvisionedMeshNode serverNode) {
         if (mMeshNetwork == null) {
             Log.e(TAG_BIND, "triggerAutoPublication: mMeshNetwork null — abort");
@@ -1313,14 +1289,17 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return;
         }
 
+        // ── Get server area ID for area matching ──────────────────────────────
+        String serverAreaId = ClientServerElementStore.getServerAreaId(serverStoreKey);
+        Log.d(TAG_BIND, "triggerAutoPublication: serverAreaId='" + serverAreaId + "'");
+
         Log.d(TAG_BIND, "triggerAutoPublication ▶"
                 + " serverKey='" + serverStoreKey + "'"
                 + " svgId=" + serverSvgId
-                + " serverElem=0x" + String.format("%04X", serverElementAddr));
+                + " serverElem=0x" + String.format("%04X", serverElementAddr)
+                + " serverArea='" + serverAreaId + "'");
 
-        // ── Find matching client ──────────────────────────────────────────────
-        // Client addresses are stored under plain normalizeId(nodeName) key
-        // e.g. "relay node" → index=serverSvgId → clientElementAddr
+
         int clientElementAddr = -1;
         int clientUnicast     = -1;
         String matchedClientKey = null;
@@ -1345,40 +1324,85 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
             if (!hasClient) continue;
 
-            // ✅ KEY FIX: Client addresses are saved under plain normalizeId(nodeName)
-            // e.g. candidate.getNodeName() = "Relay Node" → devKey = "relay node"
-            // ClientServerElementStore.saveAll("relay node", {0: 0x0003, 1: 0x0004, ...})
-            // So lookup: getClientAddress("relay node", serverSvgId)
             final String devKey = normalizeId(candidate.getNodeName());
 
+            // serverSvgId IS the element index saved in element_addr_<devKey>_<svgId>
             final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
-            if (addr != -1) {
-                clientElementAddr = addr;
-                clientUnicast     = candidate.getUnicastAddress();
-                matchedClientKey  = devKey;
-                Log.d(TAG_BIND, "✅ Client match: devKey='" + devKey
-                        + "' svgId=" + serverSvgId
-                        + " clientElem=0x" + String.format("%04X", clientElementAddr)
-                        + " clientUnicast=0x" + String.format("%04X", clientUnicast));
-                break;
-            } else {
+            if (addr == -1) {
                 Log.d(TAG_BIND, "  no client addr for devKey='" + devKey
                         + "' svgId=" + serverSvgId);
+                continue;
             }
-        }
 
+            // ✅ FIX: getClientAreaId now uses node UUID for reliable area lookup
+            //        No more same-pureName confusion between VCRI and PDRI nodes
+            String clientAreaId = getClientAreaId(candidate, devKey);
+            Log.d(TAG_BIND, "  candidate='" + devKey
+                    + "' clientAreaId='" + clientAreaId + "'"
+                    + " serverAreaId='" + serverAreaId + "'");
+
+            if (serverAreaId != null && !serverAreaId.isEmpty()) {
+                if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
+                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip: server="
+                            + serverAreaId + " client=" + clientAreaId);
+                    continue;
+                }
+            }
+
+            // ✅ Same area — match found
+            clientElementAddr = addr;
+            clientUnicast     = candidate.getUnicastAddress();
+            matchedClientKey  = devKey;
+            Log.d(TAG_BIND, "✅ Client match (same area): devKey='" + devKey
+                    + "' svgId=" + serverSvgId
+                    + " clientElem=0x" + String.format("%04X", clientElementAddr)
+                    + " clientUnicast=0x" + String.format("%04X", clientUnicast)
+                    + " area=" + clientAreaId);
+            break;
+        }
         if (clientElementAddr == -1 || clientUnicast == -1) {
             Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId=" + serverSvgId
-                    + " — publication skipped."
-                    + " Make sure client was provisioned first and saveClientElementAddresses() ran.");
+                    + " — publication skipped.");
             mIsAutoSetupInProgress.postValue(false);
             return;
+        }
+
+        // ✅ NEW: Save the client element to SVG mapping
+        // This allows AreaClientListActivity to correctly look up the server
+        if (matchedClientKey != null && serverSvgId != -1) {
+            SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
+            if (prefs != null) {
+
+                int elementIndex = -1;
+                for (int i = 1; i <= 40; i++) {  // Check up to 40 elements
+                    int addr = ClientServerElementStore.getClientAddress(matchedClientKey, i);
+                    if (addr == clientElementAddr) {
+                        elementIndex = i;
+                        break;
+                    }
+                }
+
+                if (elementIndex != -1) {
+                    String mappingKey = "client_element_svg_" + matchedClientKey.toLowerCase() + "_" + elementIndex;
+                    prefs.edit().putString(mappingKey, String.valueOf(serverSvgId)).apply();
+                    Log.d(TAG_BIND, "✅ Saved client element mapping: " + matchedClientKey
+                            + "[" + elementIndex + "] → SVG ID " + serverSvgId);
+                } else {
+                    // Fallback: save with index 1
+                    String mappingKey = "client_element_svg_" + matchedClientKey.toLowerCase() + "_1";
+                    prefs.edit().putString(mappingKey, String.valueOf(serverSvgId)).apply();
+                    Log.d(TAG_BIND, "⚠️ Saved client element mapping (fallback index 1): "
+                            + matchedClientKey + " → SVG ID " + serverSvgId);
+                }
+            }
         }
 
         final int finalClientElem    = clientElementAddr;
         final int finalClientUnicast = clientUnicast;
         final int finalServerElem    = serverElementAddr;
         final int finalServerUnicast = serverNode.getUnicastAddress();
+        final String finalMatchedClientKey = matchedClientKey;
+        final String finalServerStoreKey = serverStoreKey;
 
         // ── STEP 1: Client → Server publication ──────────────────────────────
         Log.d(TAG_BIND, "📤 PUB STEP1 (client→server):"
@@ -1404,7 +1428,19 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
 
         // ── STEP 2: Server → Client publication (reverse) ────────────────────
+        // Also save the client-to-server mapping for UI lookup
         mHandler.postDelayed(() -> {
+            // Save client-to-server mapping for AreaClientListActivity
+            if (finalMatchedClientKey != null && finalServerStoreKey != null && serverSvgId != -1) {
+                SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
+                if (prefs != null) {
+                    String ctosKey = "client_to_server_" + finalMatchedClientKey + "_" + serverSvgId;
+                    prefs.edit().putString(ctosKey, finalServerStoreKey).apply();
+                    Log.d(TAG_BIND, "✅ Saved client_to_server mapping: " + ctosKey
+                            + " = " + finalServerStoreKey);
+                }
+            }
+
             Log.d(TAG_BIND, "📤 PUB STEP2 (server→client):"
                     + " serverUnicast=0x" + String.format("%04X", finalServerUnicast)
                     + " serverElem=0x" + String.format("%04X", finalServerElem)
@@ -1425,90 +1461,73 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
             mIsAutoSetupInProgress.postValue(false);
         }, 1500);
-        // ── Find matching client — SAME AREA ONLY ──
-        String serverAreaId = ClientServerElementStore.getServerAreaId(serverStoreKey);
-        Log.d(TAG_BIND, "triggerAutoPublication: serverAreaId='" + serverAreaId + "'");
-
-        for (ProvisionedMeshNode candidate : mMeshNetwork.getNodes()) {
-            if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
-            if (candidate.getUnicastAddress() == serverNode.getUnicastAddress()) continue;
-
-            boolean hasClient = false;
-            for (Element el : candidate.getElements().values()) {
-                for (MeshModel m : el.getMeshModels().values()) {
-                    if (m.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
-                        hasClient = true; break;
-                    }
-                }
-                if (hasClient) break;
-            }
-            if (!hasClient) continue;
-
-            final String devKey = normalizeId(candidate.getNodeName());
-            final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
-            if (addr == -1) continue;
-
-            // ✅ AREA CHECK — client ka areaId server ke areaId se match karo
-            // Client ka areaId uske devKey se nikalo
-            // devKey = "relay node" — client ke SVG id se area dhundho
-            String clientAreaId = getClientAreaId(candidate, devKey);
-            Log.d(TAG_BIND, "  candidate='" + devKey + "' clientAreaId='" + clientAreaId + "'");
-
-            if (serverAreaId != null && !serverAreaId.isEmpty()) {
-                if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
-                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip: server="
-                            + serverAreaId + " client=" + clientAreaId);
-                    continue;
-                }
-            }
-
-            // ✅ Same area — match found
-            clientElementAddr = addr;
-            clientUnicast     = candidate.getUnicastAddress();
-            matchedClientKey  = devKey;
-            Log.d(TAG_BIND, "✅ Client match (same area): devKey='" + devKey + "' area=" + clientAreaId);
-            break;
-        }
     }
+// =========================================================================
+// CHANGE 1: getClientAreaId() — FIXED
+// Old logic: element_id_ prefix se pureName match karta tha clientKey se
+// Problem: VCRI:SW-CN01-AA aur PDRI:SW-CN01-AA dono ka pureName "sw-cn01-aa"
+//          same hota tha, isliye wrong area return hota tha
+// Fix: directly "element_id_" + full svgDeviceId prefix check karo
+//      jisme clientKey (pure name) match ho, aur area return karo
+// =========================================================================
 
-    // ✅ Client ka areaId dhundho — SVG ke store mein client ke saath
-// SW-CN01-AA har area mein hoga, uska store key "pdri:sw-cn01-aa" ya "vcri:sw-cn01-aa" hoga
     private String getClientAreaId(ProvisionedMeshNode clientNode, String clientKey) {
-        // Method 1: ClientServerElementStore mein client ke SVG key dhundho
-        // Client ke saath jo svgDeviceId save tha provisioning ke waqt
-        // wo prefs mein "element_id_PDRI:SW-CN01-AA" jaisi key hogi
         SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
         if (prefs == null) return null;
 
+        // clientKey = "sw-cn01-aa" (normalized node name)
+        // We need to find which provisioned SVG device ID belongs to this node
+        // by matching the pure name part after ":" in the SVG device ID
+
+        // First try: match via node UUID → node_svg_ mapping (most reliable)
+        if (clientNode != null) {
+            String svgId = prefs.getString("node_svg_" + clientNode.getUuid(), null);
+            if (svgId != null && svgId.contains(":")) {
+                String area = svgId.substring(0, svgId.indexOf(":")).trim();
+                Log.d(TAG_BIND, "getClientAreaId: uuid→svgId='" + svgId
+                        + "' area='" + area + "'");
+                return area;
+            }
+        }
+
+        // Fallback: scan element_id_ keys for a match
+        // element_id_VCRI:SW-CN01-AA  → pure name "sw-cn01-aa" → area "VCRI"
+        // element_id_PDRI:SW-CN01-AA  → pure name "sw-cn01-aa" → area "PDRI"
+        // We must match ONLY the one whose unicast matches this clientNode
         String prefix = "element_id_";
         for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
             String k = entry.getKey();
             if (!k.startsWith(prefix)) continue;
-            String svgId = k.substring(prefix.length()); // "PDRI:SW-CN01-AA"
 
-            // Pure name match karo
-            String pureName = extractPureNameFromKey(svgId); // "sw-cn01-aa"
+            String svgDeviceId = k.substring(prefix.length()); // "VCRI:SW-CN01-AA"
+            String pureName    = extractPureNameFromKey(svgDeviceId); // "sw-cn01-aa"
+
             if (!pureName.equalsIgnoreCase(clientKey.trim())) continue;
 
-            // Area extract karo
-            int colon = svgId.indexOf(":");
+            // Pure name matches — now verify this svgDeviceId belongs to THIS node
+            // by checking node_svg_ prefs for clientNode uuid
+            if (clientNode != null) {
+                String mappedSvg = prefs.getString(
+                        "node_svg_" + clientNode.getUuid(), null);
+                if (mappedSvg != null) {
+                    // Only return area if this svgDeviceId matches the mapped svg
+                    if (!svgDeviceId.equalsIgnoreCase(mappedSvg)) continue;
+                }
+            }
+
+            int colon = svgDeviceId.indexOf(":");
             if (colon != -1) {
-                return svgId.substring(0, colon).trim();
+                String area = svgDeviceId.substring(0, colon).trim();
+                Log.d(TAG_BIND, "getClientAreaId: fallback svgDeviceId='"
+                        + svgDeviceId + "' area='" + area + "'");
+                return area;
             }
         }
+
+        Log.w(TAG_BIND, "getClientAreaId: no area found for clientKey='" + clientKey + "'");
         return null;
     }
 
-    // =========================================================================
-    // saveClientElementAddresses
-    // ─────────────────────────────────────────────────────────────────────────
-    // ✅ KEY FIX: Client addresses MUST be saved under plain normalizeId(nodeName)
-    // e.g. "relay node" — NOT under "pdri:relay node1" (that's server's key).
-    //
-    // triggerAutoPublication() looks up:
-    //   ClientServerElementStore.getClientAddress(normalizeId(candidate.getNodeName()), svgId)
-    // So the key here must match exactly what is used there.
-    // =========================================================================
     private void saveClientElementAddresses(@NonNull final ProvisionedMeshNode node,
                                             @NonNull final String clientKey) {
         if (clientKey.isEmpty()) {
@@ -1516,22 +1535,36 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return;
         }
 
+        // ── Sort elements by element address (ascending) ─────────────────────
+        List<Element> sortedElements = new ArrayList<>(node.getElements().values());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            sortedElements.sort((a, b) ->
+                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
+        }
+
         final Map<Integer, Integer> addressMap = new HashMap<>();
-        int clientIndex = 0;
+        int clientIndex = 0;  // 0-based sequential counter for CLIENT elements only
 
         Log.d(TAG_BIND, "╔══════════════════════════════════════════════════");
         Log.d(TAG_BIND, "║ SAVING CLIENT ADDRESSES for key='" + clientKey + "'");
 
-        for (Element element : node.getElements().values()) {
-            final int elementAddress = element.getElementAddress();
+        for (Element element : sortedElements) {
+            int elementAddr = element.getElementAddress();
+
+            boolean hasClientModel = false;
             for (MeshModel model : element.getMeshModels().values()) {
                 if (model.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
-                    addressMap.put(clientIndex, elementAddress);
-                    Log.d(TAG_BIND, "║  CLIENT[" + clientIndex + "] → 0x"
-                            + String.format("%04X", elementAddress));
-                    clientIndex++;
+                    hasClientModel = true;
                     break;
                 }
+            }
+
+            if (hasClientModel) {
+                // ✅ 0-based: first CLIENT = 0, second = 1, ...
+                addressMap.put(clientIndex, elementAddr);
+                Log.d(TAG_BIND, "║  CLIENT[" + clientIndex + "] → 0x"
+                        + String.format("%04X", elementAddr));
+                clientIndex++;
             }
         }
 
@@ -1545,6 +1578,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             Log.w(TAG_BIND, "⚠️ No client elements found for: " + node.getNodeName());
         }
     }
+
+
 
     private String normalizeId(String id) {
         return id == null ? null : id.trim().toLowerCase();

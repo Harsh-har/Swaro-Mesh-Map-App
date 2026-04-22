@@ -11,7 +11,6 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.appcompat.widget.Toolbar;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -27,6 +26,7 @@ import java.util.TreeMap;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.R;
+import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -48,38 +48,43 @@ public class AreaClientListActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        // ✅ IMPORTANT: use activity_client_list (new layout, no attr colors)
         setContentView(R.layout.activity_area_client_list);
 
         vm    = new ViewModelProvider(this).get(SharedViewModel.class);
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setTitle("Client Devices");
-        }
+        vm.getProvisionedDeviceIds().observe(this, ids -> buildList());
 
         buildList();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        buildList();
+    }
+
     // =========================================================================
-    // Build list
+    // List builder
     // =========================================================================
 
     private void buildList() {
-        Set<String> provisionedIds = vm.getProvisionedDeviceIds().getValue();
+        Set<String> ids = vm.getProvisionedDeviceIds().getValue();
 
         RecyclerView rv        = findViewById(R.id.recyclerView);
         LinearLayout emptyView = findViewById(R.id.emptyView);
 
-        if (provisionedIds == null || provisionedIds.isEmpty()) {
+        if (rv == null || emptyView == null) return;
+
+        if (ids == null || ids.isEmpty()) {
             emptyView.setVisibility(View.VISIBLE);
             rv.setVisibility(View.GONE);
             return;
         }
 
         areaItems.clear();
-        for (String id : provisionedIds) {
+
+        for (String id : ids) {
             List<ElementRow> rows = getElementRows(id);
             if (!rows.isEmpty()) {
                 areaItems.add(new AreaItem(id, rows));
@@ -92,95 +97,134 @@ public class AreaClientListActivity extends AppCompatActivity {
         } else {
             emptyView.setVisibility(View.GONE);
             rv.setVisibility(View.VISIBLE);
-            rv.setLayoutManager(new LinearLayoutManager(this));
-            rv.setAdapter(new AreaAdapter());
+
+            if (rv.getAdapter() == null) {
+                rv.setLayoutManager(new LinearLayoutManager(this));
+                rv.setAdapter(new AreaAdapter());
+            } else {
+                rv.getAdapter().notifyDataSetChanged();
+            }
         }
     }
 
     // =========================================================================
-    // Get element rows for one area
+    // getElementRows
+    // index saved in element_addr_ = svgId = 0-based (0 to 39)
+    // server svgId=4 → getClientAddress(key,4) → element at position 4 ✅
     // =========================================================================
 
     private List<ElementRow> getElementRows(String areaId) {
         List<ElementRow> rows = new ArrayList<>();
         if (areaId == null) return rows;
 
-        // "PDRI:Relay Node1" → "relay node1"
-        String deviceName = areaId;
-        int colon = deviceName.lastIndexOf(":");
-        if (colon != -1) deviceName = deviceName.substring(colon + 1).trim();
-        String lowerName = deviceName.toLowerCase();
+        // "VCRI:SW-CN01-AA" → key="sw-cn01-aa", clientArea="VCRI"
+        String name       = areaId.contains(":") ? areaId.split(":")[1].trim() : areaId;
+        String key        = name.toLowerCase();
+        String clientArea = areaId.contains(":")
+                ? areaId.split(":")[0].trim().toUpperCase()
+                : "";
 
-        // Client addresses: prefs key = "element_addr_{name}_{index}"
-        Map<Integer, Integer> clientMap = new TreeMap<>();
+        // ── Step 1: collect element_addr_<key>_<index> entries ───────────────
+        Map<Integer, Integer> map = new TreeMap<>();
+
         for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
-            String key = e.getKey();
-            if (!key.startsWith("element_addr_")) continue;
+            String k = e.getKey();
+            if (!k.startsWith("element_addr_")) continue;
 
-            String rest = key.substring("element_addr_".length());
-            int    uIdx = rest.lastIndexOf("_");
-            if (uIdx == -1) continue;
+            String rest = k.substring("element_addr_".length());
+            int    sep  = rest.lastIndexOf("_");
+            if (sep == -1) continue;
 
-            String keyName  = rest.substring(0, uIdx).toLowerCase();
-            String keyIndex = rest.substring(uIdx + 1);
+            String kName  = rest.substring(0, sep).toLowerCase();
+            String kIndex = rest.substring(sep + 1);
 
-            if (keyName.contains(lowerName) || lowerName.contains(keyName)) {
+            if (kName.equals(key)) {
                 try {
-                    Object val = e.getValue();
-                    if (val instanceof Integer) {
-                        clientMap.put(Integer.parseInt(keyIndex), (Integer) val);
-                    }
-                } catch (NumberFormatException ignored) {}
+                    map.put(Integer.parseInt(kIndex), (Integer) e.getValue());
+                } catch (Exception ignored) {}
             }
         }
 
-        // For each client element find matching server unicast
-        for (Map.Entry<Integer, Integer> e : clientMap.entrySet()) {
-            int idx    = e.getKey();
-            int client = e.getValue();
-            int server = -1;
+        Log.d(TAG, "getElementRows: areaId='" + areaId
+                + "' clientArea='" + clientArea
+                + "' key='" + key
+                + "' found " + map.size() + " entries");
 
-            for (String sk : ClientServerElementStore.getAllServerSvgKeys()) {
-                if (ClientServerElementStore.getServerSvgElementId(sk) == idx) {
-                    server = ClientServerElementStore.getServerUnicastAddress(sk);
-                    break;
+        // ── Step 2: index = svgId (0-based) → reverse lookup server ─────────
+        for (Map.Entry<Integer, Integer> e : map.entrySet()) {
+            int svgId      = e.getKey();   // 0-based svgId
+            int clientAddr = e.getValue();
+            int serverAddr = -1;
+
+            String serverStoreKey = ClientServerElementStore.getKeyBySvgElementId(svgId);
+
+            Log.d(TAG, "  svgId=" + svgId
+                    + " clientAddr=0x" + String.format("%04X", clientAddr)
+                    + " serverStoreKey=" + serverStoreKey);
+
+            if (serverStoreKey != null) {
+                String serverArea = serverStoreKey.contains(":")
+                        ? serverStoreKey.split(":")[0].trim().toUpperCase()
+                        : "";
+
+                boolean areaMatch = clientArea.isEmpty()
+                        || serverArea.isEmpty()
+                        || clientArea.equals(serverArea);
+
+                if (areaMatch) {
+                    int addr = ClientServerElementStore.getServerUnicastAddress(serverStoreKey);
+                    if (addr != -1 && isNodeStillProvisioned(addr)) {
+                        serverAddr = addr;
+                    }
                 }
             }
-            rows.add(new ElementRow(idx, client, server));
+
+            rows.add(new ElementRow(svgId, clientAddr, serverAddr));
         }
 
         return rows;
     }
 
     // =========================================================================
-    // Show detail bottom sheet
+    // Helpers
+    // =========================================================================
+
+    private boolean isNodeStillProvisioned(int addr) {
+        if (addr == -1) return false;
+        List<ProvisionedMeshNode> nodes = vm.getAllProvisionedNodes();
+        if (nodes == null) return false;
+        for (ProvisionedMeshNode n : nodes) {
+            if (n.getUnicastAddress() == addr) return true;
+        }
+        return false;
+    }
+
+    // =========================================================================
+    // Bottom-sheet detail
     // =========================================================================
 
     private void showDetail(AreaItem area) {
         BottomSheetDialog sheet = new BottomSheetDialog(this);
-        View view = getLayoutInflater().inflate(R.layout.sheet_area_detail, null);
+        View v = getLayoutInflater().inflate(R.layout.sheet_area_detail, null);
 
-        TextView tvTitle    = view.findViewById(R.id.tvTitle);
-        TextView tvSubtitle = view.findViewById(R.id.tvSubtitle);
-        RecyclerView rv     = view.findViewById(R.id.rvRows);
-        View btnClose       = view.findViewById(R.id.btnClose);
+        TextView     tvTitle    = v.findViewById(R.id.tvTitle);
+        TextView     tvSubtitle = v.findViewById(R.id.tvSubtitle);
+        RecyclerView rv         = v.findViewById(R.id.rvRows);
 
-        if (tvTitle    != null) tvTitle.setText(area.displayName());
-        if (tvSubtitle != null) tvSubtitle.setText(area.areaId);
+        tvSubtitle.setText(area.getTopName());
+        tvTitle.setText(area.getBottomName());
 
-        if (rv != null) {
-            rv.setLayoutManager(new LinearLayoutManager(this));
-            rv.setAdapter(new RowAdapter(area.rows));
-        }
+        rv.setLayoutManager(new LinearLayoutManager(this));
+        rv.setAdapter(new RowAdapter(area.rows));
 
-        if (btnClose != null) btnClose.setOnClickListener(v -> sheet.dismiss());
+        v.findViewById(R.id.btnClose).setOnClickListener(x -> sheet.dismiss());
 
-        sheet.setContentView(view);
+        sheet.setContentView(v);
         sheet.show();
     }
 
     // =========================================================================
-    // AreaAdapter — main RecyclerView
+    // Adapters
     // =========================================================================
 
     private class AreaAdapter extends RecyclerView.Adapter<AreaAdapter.VH> {
@@ -188,36 +232,17 @@ public class AreaClientListActivity extends AppCompatActivity {
         @NonNull
         @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_area, parent, false);
-            return new VH(v);
+            return new VH(LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_area, parent, false));
         }
 
         @Override
         public void onBindViewHolder(@NonNull VH h, int position) {
-            AreaItem area = areaItems.get(position);
-
-            if (h.tvName    != null) h.tvName.setText(area.displayName());
-            if (h.tvId      != null) h.tvId.setText(area.areaId);
-            if (h.tvCount   != null) h.tvCount.setText(area.rows.size() + " element(s)");
-
-            if (h.tvPreview != null) {
-                if (!area.rows.isEmpty()) {
-                    ElementRow r = area.rows.get(0);
-                    h.tvPreview.setText(
-                            "Elem " + r.index
-                                    + "  C:" + String.format("0x%04X", r.clientAddr)
-                                    + "  S:" + (r.serverAddr != -1
-                                    ? String.format("0x%04X", r.serverAddr) : "N/A"));
-                    h.tvPreview.setVisibility(View.VISIBLE);
-                } else {
-                    h.tvPreview.setVisibility(View.GONE);
-                }
-            }
-
-            if (h.card != null) {
-                h.card.setOnClickListener(v -> showDetail(area));
-            }
+            AreaItem a = areaItems.get(position);
+            h.tvName.setText(a.getTopName());
+            h.tvId.setText(a.getBottomName());
+            h.tvCount.setText(a.rows.size() + " element(s)");
+            h.card.setOnClickListener(v -> showDetail(a));
         }
 
         @Override
@@ -225,21 +250,17 @@ public class AreaClientListActivity extends AppCompatActivity {
 
         class VH extends RecyclerView.ViewHolder {
             MaterialCardView card;
-            TextView         tvName, tvId, tvCount, tvPreview;
+            TextView         tvName, tvId, tvCount;
 
             VH(View v) {
                 super(v);
-                card      = v.findViewById(R.id.card);
-                tvName    = v.findViewById(R.id.tvName);
-                tvId      = v.findViewById(R.id.tvId);
-                tvCount   = v.findViewById(R.id.tvCount);
+                card    = v.findViewById(R.id.card);
+                tvName  = v.findViewById(R.id.tvName);
+                tvId    = v.findViewById(R.id.tvId);
+                tvCount = v.findViewById(R.id.tvCount);
             }
         }
     }
-
-    // =========================================================================
-    // RowAdapter — inside BottomSheet
-    // =========================================================================
 
     private static class RowAdapter extends RecyclerView.Adapter<RowAdapter.VH> {
 
@@ -250,20 +271,19 @@ public class AreaClientListActivity extends AppCompatActivity {
         @NonNull
         @Override
         public VH onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
-            View v = LayoutInflater.from(parent.getContext())
-                    .inflate(R.layout.item_element_row, parent, false);
-            return new VH(v);
+            return new VH(LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_element_row, parent, false));
         }
 
         @Override
         public void onBindViewHolder(@NonNull VH h, int position) {
             ElementRow r = rows.get(position);
-            if (h.tvElem   != null) h.tvElem.setText("Element " + r.index);
-            if (h.tvClient != null) h.tvClient.setText(String.format("0x%04X", r.clientAddr));
-            if (h.tvServer != null) h.tvServer.setText(
-                    r.serverAddr != -1
-                            ? String.format("0x%04X", r.serverAddr)
-                            : "Not assigned");
+            // index is 0-based svgId → display as-is: Element 0 to Element 39
+            h.tvElem.setText("Element " + r.index);
+            h.tvClient.setText(String.format("0x%04X", r.clientAddr));
+            h.tvServer.setText(r.serverAddr != -1
+                    ? String.format("0x%04X", r.serverAddr)
+                    : "Not assigned");
         }
 
         @Override
@@ -271,6 +291,7 @@ public class AreaClientListActivity extends AppCompatActivity {
 
         static class VH extends RecyclerView.ViewHolder {
             TextView tvElem, tvClient, tvServer;
+
             VH(View v) {
                 super(v);
                 tvElem   = v.findViewById(R.id.tvElem);
@@ -281,34 +302,39 @@ public class AreaClientListActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // Data classes
+    // Data models
     // =========================================================================
 
     static class AreaItem {
-        final String          areaId;
+        final String           areaId;
         final List<ElementRow> rows;
 
-        AreaItem(String areaId, List<ElementRow> rows) {
-            this.areaId = areaId;
+        AreaItem(String id, List<ElementRow> rows) {
+            this.areaId = id;
             this.rows   = rows;
         }
 
-        /** "PDRI:Relay Node1" → "Relay Node1" */
-        String displayName() {
-            int c = areaId.lastIndexOf(":");
-            return c != -1 ? areaId.substring(c + 1).trim() : areaId;
+        String getTopName() {
+            if (areaId == null) return "";
+            String prefix = areaId.contains(":")
+                    ? areaId.split(":")[0].trim()
+                    : areaId;
+            return prefix + " Control Node";
+        }
+
+        String getBottomName() {
+            if (areaId == null || !areaId.contains(":")) return "";
+            return areaId.split(":")[1].trim();
         }
     }
 
     static class ElementRow {
-        final int index;
-        final int clientAddr;
-        final int serverAddr; // -1 = not yet provisioned
+        final int index, clientAddr, serverAddr;
 
-        ElementRow(int index, int clientAddr, int serverAddr) {
-            this.index      = index;
-            this.clientAddr = clientAddr;
-            this.serverAddr = serverAddr;
+        ElementRow(int i, int c, int s) {
+            index      = i;
+            clientAddr = c;
+            serverAddr = s;
         }
     }
 }

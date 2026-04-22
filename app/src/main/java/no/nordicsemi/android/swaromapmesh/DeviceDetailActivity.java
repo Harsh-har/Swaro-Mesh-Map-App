@@ -33,12 +33,14 @@ public class DeviceDetailActivity extends AppCompatActivity {
     public static final String EXTRA_DEVICE_TYPE = "device_type";
     public static final String DEVICE_TYPE_SERVER = "server";
     public static final String DEVICE_TYPE_CLIENT = "client";
+
     private ActivityDeviceDetailBinding binding;
     private SharedViewModel sharedViewModel;
     private String deviceId;
     private String elementId;
     private String deviceName;
     private String deviceType;
+    private int svgElementIdInt = -1;  // ✅ NEW: Store parsed element ID
 
     private final ActivityResultLauncher<Intent> provisioner =
             registerForActivityResult(
@@ -61,6 +63,15 @@ public class DeviceDetailActivity extends AppCompatActivity {
         deviceName = getIntent().getStringExtra(EXTRA_DEVICE_NAME);
         elementId = getIntent().getStringExtra(EXTRA_ELEMENT_ID);
         deviceType = getIntent().getStringExtra(EXTRA_DEVICE_TYPE);
+
+        // ✅ Parse element ID to int for client mapping
+        if (elementId != null && !elementId.isEmpty()) {
+            try {
+                svgElementIdInt = Integer.parseInt(elementId.trim());
+            } catch (NumberFormatException e) {
+                Log.e(TAG, "Invalid element ID format: " + elementId);
+            }
+        }
 
         if (deviceId == null) {
             Log.e(TAG, "No device id — finishing");
@@ -139,8 +150,10 @@ public class DeviceDetailActivity extends AppCompatActivity {
         Log.d(TAG, "Showing device: deviceName=" + deviceName
                 + " pureName=" + pureDeviceName
                 + " originalId=" + deviceId
-                + " elementId=" + elementId);
+                + " elementId=" + elementId
+                + " svgElementIdInt=" + svgElementIdInt);
     }
+
     private void setupButtons() {
         binding.btnConnect.setOnClickListener(v -> {
             Intent intent = new Intent(this, ScannerActivity.class);
@@ -168,6 +181,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
             provisioner.launch(intent);
         });
     }
+
     private void handleProvisioningResult(final ActivityResult result) {
         Log.d(TAG, "handleProvisioningResult: code=" + result.getResultCode());
 
@@ -220,6 +234,14 @@ public class DeviceDetailActivity extends AppCompatActivity {
         // Handle device type
         if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
             Log.d(TAG, "📱 CLIENT provisioned: " + svgDeviceId);
+
+            // ✅ NEW: For clients, we need to save the element mapping
+            // But we don't have the ProvisionedMeshNode object here yet.
+            // The actual client node object will be available in NrfMeshRepository
+            // after provisioning completes. The mapping will be saved there.
+            // We just store the element ID for now.
+            prefs.edit().putString("client_svg_element_" + svgDeviceId, elementId).apply();
+
             Toast.makeText(this,
                     "Client " + deviceName + " provisioned!\nElement ID: " + elementId,
                     Toast.LENGTH_LONG).show();
@@ -240,6 +262,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         Log.d(TAG, "✅ Provisioning completed for: " + svgDeviceId);
         finish();
     }
+
     @Override
     public boolean onSupportNavigateUp() {
         finish();

@@ -236,8 +236,10 @@ public class NetworkFragment extends Fragment {
 
     /** Call from Activity onBackPressed(). Returns true if consumed. */
     public boolean handleBackPress() {
-        if (areaLockedId != null) { exitAreaZoom(); return true; }
-        return false;
+        return true;
+    }
+    public boolean isAreaZoomed() {
+        return areaLockedId != null;
     }
 
     // ==================== AREA ZOOM ====================

@@ -283,4 +283,84 @@ public class MainActivity extends AppCompatActivity implements
     public void onNavigationItemReselected(@NonNull MenuItem item) {
         // No-op
     }
+    @Override
+    public void onBackPressed() {
+        // Get the currently visible fragment
+        Fragment currentFragment = null;
+
+        if (mNetworkFragment != null && mNetworkFragment.isVisible()) {
+            currentFragment = mNetworkFragment;
+        } else if (mDevicesFilterFragment != null && mDevicesFilterFragment.isVisible()) {
+            currentFragment = mDevicesFilterFragment;
+        } else if (mGroupsFragment != null && mGroupsFragment.isVisible()) {
+            currentFragment = mGroupsFragment;
+        } else if (mProxyFilterFragment != null && mProxyFilterFragment.isVisible()) {
+            currentFragment = mProxyFilterFragment;
+        } else if (mSettingsFragment != null && mSettingsFragment.isVisible()) {
+            currentFragment = mSettingsFragment;
+        }
+
+        if (currentFragment instanceof NetworkFragment) {
+            // Network fragment - navigate to AreaListActivity
+            ((NetworkFragment) currentFragment).handleBackPress();
+            navigateToAreaList();
+        } else {
+            // Other fragments - just go back
+            super.onBackPressed();
+        }
+    }
+
+    private void navigateToAreaList() {
+        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        String savedUri = prefs.getString("saved_svg_uri", null);
+
+        if (savedUri == null) {
+            // No SVG loaded, go to HomeActivity
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        }
+
+        // Get saved area list
+        java.util.Set<String> savedAreaSet = prefs.getStringSet("saved_area_list", null);
+        ArrayList<String> areaList = savedAreaSet != null ? new ArrayList<>(savedAreaSet) : null;
+
+        if (areaList == null || areaList.isEmpty()) {
+            // Parse areas from SVG if not saved
+            try {
+                Uri uri = Uri.parse(savedUri);
+                areaList = no.nordicsemi.android.swaromapmesh.swajaui.SvgParser
+                        .parseAreaIds(getContentResolver(), uri);
+
+                // Save for future
+                if (areaList != null && !areaList.isEmpty()) {
+                    prefs.edit().putStringSet("saved_area_list", new java.util.HashSet<>(areaList)).apply();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing areas", e);
+                areaList = new ArrayList<>();
+            }
+        }
+
+        if (areaList != null && !areaList.isEmpty()) {
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+            intent.putExtra("svg_uri", savedUri);
+            intent.putStringArrayListExtra("area_list", areaList);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        } else {
+            // No areas found, go to HomeActivity
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        }
+    }
+
 }
