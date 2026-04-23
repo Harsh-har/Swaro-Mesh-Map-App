@@ -1332,7 +1332,7 @@ public class NetworkFragment extends Fragment {
         });
         zoomAnimator.start();
     }
-
+    //
     private void startFling(float velocityX, float velocityY) {
         if (binding==null||binding.svgView.getDrawable()==null) return;
         matrix.getValues(matrixValues);
