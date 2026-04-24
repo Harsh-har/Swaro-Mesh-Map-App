@@ -1688,7 +1688,9 @@ public class NetworkFragment extends Fragment {
         reRenderSvg();
 
         String displayName = extractPureDeviceName(deviceId);
-
+        Set<String> relatedDevices = getRelatedDeviceIds(deviceId);
+        String relationDeviceName = relatedDevices.isEmpty() ? null
+                : relatedDevices.iterator().next();
         if (provisioned.contains(deviceId)) {
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
@@ -1696,6 +1698,7 @@ public class NetworkFragment extends Fragment {
             intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                     device != null ? device.elementId : null);
+            intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDeviceName);
             startActivity(intent);
             return;
         }

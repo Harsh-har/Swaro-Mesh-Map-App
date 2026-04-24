@@ -12,15 +12,6 @@
         tools:ignore="AlwaysShowAction"/>
 
     <item
-        android:id="@+id/action_device_filter"
-        android:enabled="true"
-        android:icon="@drawable/ic_proxy"
-        android:title="@string/device_filter"
-        android:visible="false"
-        app:showAsAction="always"
-        tools:ignore="AlwaysShowAction"/>
-
-    <item
         android:id="@+id/action_groups"
         android:enabled="true"
         android:icon="@drawable/ic_outline_group"

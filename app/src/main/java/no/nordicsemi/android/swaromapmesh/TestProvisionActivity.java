@@ -61,6 +61,7 @@ public class TestProvisionActivity extends AppCompatActivity {
 
     private MqttClient            mqttClient;
     private final ExecutorService mqttExecutor = Executors.newSingleThreadExecutor();
+    private MaterialTextView tvRelationDeviceId;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,9 +82,12 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvUnicastAddress = findViewById(R.id.tv_unicast_address);
         btnTestBle       = findViewById(R.id.btn_testble);
         btnTestMqtt      = findViewById(R.id.btn_testmqqt);
+        tvRelationDeviceId = findViewById(R.id.tv_relation_device_id);
 
         tvDeviceId.setText(deviceId   != null ? deviceId  : "N/A");
         tvElementId.setText(elementId != null ? elementId : "N/A");
+        String relationDeviceName = getIntent().getStringExtra("EXTRA_RELATION_DEVICE_NAME");
+        tvRelationDeviceId.setText(relationDeviceName != null ? relationDeviceName : "N/A");
 
         updateStatus();
 

@@ -35,15 +35,6 @@
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/app_bar_layout" />
 
-    <fragment
-        android:id="@+id/fragment_device_filter"
-        android:name="no.nordicsemi.android.swaromapmesh.DevicesFilterActivity"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"
-        app:layout_constraintLeft_toLeftOf="parent"
-        app:layout_constraintRight_toRightOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/app_bar_layout" />
 
 
 

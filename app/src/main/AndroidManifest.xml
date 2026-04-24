@@ -42,6 +42,9 @@
         android:usesCleartextTraffic="true"
         tools:ignore="GoogleAppIndexingWarning">
         <activity
+            android:name=".RssiFilterActivity"
+            android:exported="false" />
+        <activity
             android:name=".swajaui.AreaClientListActivity"
             android:exported="false" />
         <activity

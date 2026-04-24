@@ -117,33 +117,7 @@ public class SettingsFragment extends Fragment implements
         binding.containerAppKeys.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), AppKeysActivity.class)));
 
-        // Scenes
-        binding.containerScenes.image
-                .setBackground(ContextCompat.getDrawable(requireContext(),
-                        R.drawable.ic_baseline_palette_24dp));
-        binding.containerScenes.title.setText(R.string.title_scenes);
-        binding.containerScenes.text.setVisibility(View.VISIBLE);
-        binding.containerScenes.getRoot().setOnClickListener(v ->
-                startActivity(new Intent(requireContext(), ScenesActivity.class)));
 
-        // IV Test Mode
-        binding.containerIvTestMode.image
-                .setBackground(ContextCompat.getDrawable(requireContext(),
-                        R.drawable.ic_folder_key_24dp));
-        binding.containerIvTestMode.title.setText(R.string.title_iv_test_mode);
-        binding.containerIvTestMode.text.setText(R.string.iv_test_mode_summary);
-        binding.containerIvTestMode.text.setVisibility(View.VISIBLE);
-        binding.containerIvTestMode.actionChangeTestMode.setVisibility(View.VISIBLE);
-        binding.containerIvTestMode.actionChangeTestMode
-                .setChecked(mViewModel.getMeshManagerApi().isIvUpdateTestModeActive());
-        binding.containerIvTestMode.actionChangeTestMode.setOnClickListener(v ->
-                mViewModel.getMeshManagerApi().setIvUpdateTestModeActive(
-                        binding.containerIvTestMode.actionChangeTestMode.isChecked()));
-        binding.containerIvTestMode.getRoot().setOnClickListener(v ->
-                DialogFragmentError
-                        .newInstance(getString(R.string.info),
-                                getString(R.string.iv_test_mode_info))
-                        .show(getChildFragmentManager(), null));
 
         // MQTT Settings
         binding.containerMqtt.image
@@ -170,20 +144,21 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
-        // App Version
-        final LayoutContainerBinding containerVersion = binding.containerVersion;
-        containerVersion.getRoot().setClickable(false);
-        containerVersion.image
-                .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_puzzle));
-        containerVersion.title.setText(R.string.summary_version);
-        final TextView version = containerVersion.text;
-        version.setVisibility(View.VISIBLE);
-        try {
-            version.setText(requireContext().getPackageManager()
-                    .getPackageInfo(requireContext().getPackageName(), 0).versionName);
-        } catch (PackageManager.NameNotFoundException e) {
-            Log.e(TAG, "Version not found", e);
-        }
+        // RSSI FILTER - ADD THIS SECTION
+// ================================================================
+        binding.containerRssiFilter.image
+                .setBackground(ContextCompat.getDrawable(requireContext(),
+                        R.drawable.ic_folder_key_24dp)); // swap icon as needed
+        binding.containerRssiFilter.title.setText("RSSI Filter");
+        binding.containerRssiFilter.text.setVisibility(View.VISIBLE);
+        binding.containerRssiFilter.text.setText("Set minimum signal strength threshold");
+        binding.containerRssiFilter.getRoot().setOnClickListener(v -> {
+            Log.d(TAG, "RSSI Filter clicked");
+            Intent intent = new Intent(requireContext(), RssiFilterActivity.class);
+            startActivity(intent);
+        });
+
+
 
         // LiveData observers
         mViewModel.getNetworkLiveData().observe(getViewLifecycleOwner(), meshNetworkLiveData -> {
@@ -290,6 +265,8 @@ public class SettingsFragment extends Fragment implements
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
     }
+
+
 
     @Override
     public void onNetworkImportConfirmed() {
