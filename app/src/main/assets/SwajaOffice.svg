@@ -1265,6 +1265,21 @@
       </g>
     </g>
   </g>
+  <g id="Relation">
+    <!-- Production Room Production -->
+    (Production Room:SW-CN01-AA smt_ex_10)
+
+    (Production Room:Relay Node1 smt_f_1)
+    (Production Room:Relay Node2 smt_f_2)
+
+    (Production Room:Relay Node3 smt_f_3)
+    (Production Room:Relay Node4 smt_f_4)
+
+    (Vaccum Casting Room:SW-CN01-AA manual_f_5)
+
+
+  </g>
+
 
   <g id="selection_layer">
     <rect id="WRI" x="232.23" y="4.42" width="120.28" height="56.46" style="fill: none; stroke: white; stroke-miterlimit: 10; stroke-width: 2.94px;"/>
@@ -1752,19 +1767,5 @@
 
   </g>
 
-  <g id="Relation">
-    <!-- Production Room Production -->
-    (Production Room:SW-CN01-AA smt_ex_10)
-
-    (Production Room:Relay Node1 smt_f_1)
-    (Production Room:Relay Node2 smt_f_2)
-
-    (Production Room:Relay Node3 smt_f_3)
-    (Production Room:Relay Node4 smt_f_4)
-
-    (Vaccum Casting Room:SW-CN01-AA manual_f_5)
-
-
-  </g>
 
 </svg>

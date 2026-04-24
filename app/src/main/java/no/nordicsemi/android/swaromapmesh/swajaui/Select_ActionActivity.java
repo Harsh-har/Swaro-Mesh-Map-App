@@ -27,7 +27,8 @@ public class Select_ActionActivity extends AppCompatActivity {
         // Get name passed from IdentifyActivity
         String technicianName = getIntent().getStringExtra("technician_name");
         if (technicianName != null && !technicianName.isEmpty()) {
-            binding.tvSubtitle.setText("Hi " + technicianName + "! What would you like to do?");
+
+
         }
 
         // Continue button click → Next screen
@@ -36,7 +37,7 @@ public class Select_ActionActivity extends AppCompatActivity {
             startActivity(intent);
         });
         binding.cardFetchSiteData.setOnClickListener(v -> {
-            Intent intent = new Intent(this, QRScannerActivity.class);
+            Intent intent = new Intent(this,QRScannerActivity.class);
             startActivity(intent);
         });
 

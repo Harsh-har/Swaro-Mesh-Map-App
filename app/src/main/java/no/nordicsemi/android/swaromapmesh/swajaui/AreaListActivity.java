@@ -12,27 +12,15 @@ import android.view.ViewGroup;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.caverock.androidsvg.SVG;
-import com.google.gson.Gson;
-
-import org.w3c.dom.*;
-
-import java.io.File;
-import java.io.FileInputStream;
 import java.io.InputStream;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
-import javax.xml.parsers.*;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.MainActivity;
 import no.nordicsemi.android.swaromapmesh.R;
@@ -47,63 +35,38 @@ public class AreaListActivity extends AppCompatActivity {
     private TextView tvSiteTitle;
 
     private String svgUriString;
-    private ArrayList<String> areaList;
-
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
-
-    // ==================== LIFECYCLE ====================
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_area_list);
 
-        rvAreas = findViewById(R.id.rvAreas);
-        emptyView = findViewById(R.id.emptyView);
-        tvSiteTitle = findViewById(R.id.tvSiteTitle);
+        rvAreas      = findViewById(R.id.rvAreas);
+        emptyView    = findViewById(R.id.emptyView);
+        tvSiteTitle  = findViewById(R.id.tvSiteTitle);
 
         svgUriString = getIntent().getStringExtra("svg_uri");
-        areaList = getIntent().getStringArrayListExtra("area_list");
 
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-
-        // ==================== ✅ SITE TITLE FIX ====================
-
-        String uri = svgUriString != null ? svgUriString : prefs.getString("saved_svg_uri", null);
-
-        String siteTitle = null;
-        if (uri != null) {
-            siteTitle = prefs.getString("svg_name_" + uri, null);
-        }
-
-        if (siteTitle == null) siteTitle = "Imported Map";
-
+        String siteTitle = prefs.getString(
+                "svg_name_" + svgUriString, "Imported Map");
         tvSiteTitle.setText(siteTitle);
-        Log.d(TAG, "Site title: " + siteTitle);
 
-        // ==========================================================
+        if (svgUriString == null) { showEmpty(); return; }
 
-        Log.d(TAG, "Areas received: " + areaList);
+        Uri uri = Uri.parse(svgUriString);
 
-        if (areaList == null || areaList.isEmpty()) {
-            showEmpty();
-            return;
-        }
+        // Parse areas on background thread
+        executor.execute(() -> {
+            LinkedHashMap<String, List<String>> areaMap =
+                    SvgParser.parseFloorAreas(getContentResolver(), uri);
 
-        if (svgUriString != null) {
-            Uri uriObj = Uri.parse(svgUriString);
-
-            String savedCountsJson = prefs.getString("saved_counts_" + uri, null);
-
-            if (savedCountsJson != null) {
-                int[] counts = new Gson().fromJson(savedCountsJson, int[].class);
-                showAreas(areaList, counts);
-            } else {
-                countDevicesPerArea(uriObj, areaList, uri);
-            }
-        } else {
-            showAreas(areaList, new int[areaList.size()]);
-        }
+            runOnUiThread(() -> {
+                if (areaMap.isEmpty()) { showEmpty(); return; }
+                buildList(areaMap);
+            });
+        });
     }
 
     @Override
@@ -112,120 +75,69 @@ public class AreaListActivity extends AppCompatActivity {
         executor.shutdownNow();
     }
 
-    // ==================== SVG ICON ====================
+    // ── Build RecyclerView items (Top-level areas only) ───────────────────────
 
-    private void loadAreaIcon(ImageView imageView, String areaName) {
-        try {
-            InputStream is = getAssets().open("area_icons/" + getSvgFileName(areaName));
-            SVG svg = SVG.getFromInputStream(is);
-            imageView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-            imageView.setImageDrawable(new PictureDrawable(svg.renderToPicture()));
-            is.close();
-        } catch (Exception e) {
-            imageView.setImageResource(R.drawable.ic_settings);
-        }
-    }
-
-    private String getSvgFileName(String areaId) {
-        if (areaId == null) return "Corridor.svg";
-        switch (areaId) {
-            case "PDRI": return "Corridor.svg";
-            case "Kitchen": return "Wet Kitchen.svg";
-            case "Vaccum Casting Room": return "Powder room.svg";
-            case "Engineering Room": return "Restaurant Close.svg";
-            default: return "Corridor.svg";
-        }
-    }
-
-    // ==================== DEVICE COUNT ====================
-
-    private void countDevicesPerArea(Uri uri, ArrayList<String> areas, String key) {
-        executor.execute(() -> {
-            int[] counts = new int[areas.size()];
-
-            try {
-                InputStream is = uri.toString().startsWith("file://")
-                        ? new FileInputStream(new File(uri.getPath()))
-                        : getContentResolver().openInputStream(uri);
-
-                if (is != null) {
-                    Document doc = parseDocument(is);
-                    is.close();
-
-                    if (doc != null) {
-                        Element icons = findElementById(doc.getDocumentElement(), "Icons");
-
-                        if (icons != null) {
-                            for (int i = 0; i < areas.size(); i++) {
-                                Element el = findElementById(icons, areas.get(i));
-                                if (el != null) counts[i] = countLeafIcons(el);
-                            }
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "Count error", e);
-            }
-
-            // ✅ SAVE COUNTS PER SVG
-            SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-            prefs.edit().putString("saved_counts_" + key, new Gson().toJson(counts)).apply();
-
-            runOnUiThread(() -> showAreas(areas, counts));
-        });
-    }
-
-    private int countLeafIcons(Element el) {
-        if (el.getAttribute("id") != null && hasRect(el) && !hasGroup(el)) return 1;
-
-        int count = 0;
-        NodeList children = el.getChildNodes();
-
-        for (int i = 0; i < children.getLength(); i++) {
-            if (children.item(i) instanceof Element) {
-                count += countLeafIcons((Element) children.item(i));
-            }
-        }
-        return count;
-    }
-
-    private boolean hasRect(Element el) {
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            if (children.item(i) instanceof Element) {
-                if (((Element) children.item(i)).getTagName().toLowerCase().contains("rect"))
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    private boolean hasGroup(Element el) {
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            if (children.item(i) instanceof Element) {
-                if (((Element) children.item(i)).getTagName().toLowerCase().contains("g"))
-                    return true;
-            }
-        }
-        return false;
-    }
-
-    // ==================== UI ====================
-
-    private void showAreas(ArrayList<String> areas, int[] counts) {
+    private void buildList(LinkedHashMap<String, List<String>> areaMap) {
         List<ListItem> items = new ArrayList<>();
-        items.add(new ListItem("AREAS"));
 
-        for (int i = 0; i < areas.size(); i++) {
-            items.add(new ListItem(areas.get(i), counts[i], i == areas.size() - 1));
+        // Check if this is a multi-floor structure (has floor-like names)
+        boolean hasMultiFloor = false;
+        for (String key : areaMap.keySet()) {
+            if (key.contains("Floor") || key.equals("Ground_Floor") ||
+                    key.equals("First_Floor") || key.equals("Terrace_Floor") ||
+                    key.endsWith("_Floor")) {
+                hasMultiFloor = true;
+                break;
+            }
+        }
+
+        if (hasMultiFloor) {
+            // Multi-floor structure - show floors as headers
+            for (Map.Entry<String, List<String>> entry : areaMap.entrySet()) {
+                String floorId = entry.getKey();
+                List<String> areas = entry.getValue();
+
+                // Floor header
+                items.add(new ListItem(formatName(floorId), true, null));
+
+                // Areas under this floor
+                for (String areaId : areas) {
+                    items.add(new ListItem(formatName(areaId), false, areaId));
+                }
+            }
+        } else {
+            // Single floor structure - show areas directly (no headers)
+            for (Map.Entry<String, List<String>> entry : areaMap.entrySet()) {
+                String areaId = entry.getKey();
+                List<String> devices = entry.getValue();
+
+                // Only add the area itself, not its child devices
+                // Skip known non-area entries
+                if (areaId.equals("Relation") || areaId.equals("Devices") ||
+                        areaId.equals("Icons") || areaId.equals("selection_layer")) {
+                    continue;
+                }
+
+                items.add(new ListItem(formatName(areaId), false, areaId));
+                Log.d(TAG, "Added area: " + areaId + " with " + devices.size() + " devices");
+            }
+        }
+
+        if (items.isEmpty()) {
+            showEmpty();
+            return;
         }
 
         rvAreas.setLayoutManager(new LinearLayoutManager(this));
         rvAreas.setAdapter(new AreaAdapter(items));
-
         rvAreas.setVisibility(View.VISIBLE);
         emptyView.setVisibility(View.GONE);
+    }
+
+    /** Format name: "Ground_Floor" → "Ground Floor", "Production_Room" → "Production Room" */
+    private String formatName(String id) {
+        if (id == null) return "";
+        return id.replace("_", " ").replace("-", " ");
     }
 
     private void showEmpty() {
@@ -233,86 +145,133 @@ public class AreaListActivity extends AppCompatActivity {
         emptyView.setVisibility(View.VISIBLE);
     }
 
-    // ==================== MODEL ====================
+    // ── Icon loader ───────────────────────────────────────────────────────────
 
-    static class ListItem {
-        boolean isHeader;
-        String label;
-        int count;
-        boolean isLast;
-
-        ListItem(String header) {
-            isHeader = true;
-            label = header;
-        }
-
-        ListItem(String label, int count, boolean isLast) {
-            this.label = label;
-            this.count = count;
-            this.isLast = isLast;
+    private void loadAreaIcon(ImageView iv, String areaId) {
+        try {
+            String file = getIconFileName(areaId);
+            InputStream is = getAssets().open("area_icons/" + file);
+            SVG svg = SVG.getFromInputStream(is);
+            iv.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            iv.setImageDrawable(new PictureDrawable(svg.renderToPicture()));
+            is.close();
+        } catch (Exception e) {
+            // Try default icon
+            try {
+                InputStream is = getAssets().open("area_icons/Corridor.svg");
+                SVG svg = SVG.getFromInputStream(is);
+                iv.setImageDrawable(new PictureDrawable(svg.renderToPicture()));
+                is.close();
+            } catch (Exception ex) {
+                iv.setImageResource(R.drawable.ic_settings);
+            }
         }
     }
 
-    // ==================== ADAPTER ====================
+    private String getIconFileName(String areaId) {
+        if (areaId == null) return "Corridor.svg";
+
+        // Map area names to icons
+        String lowerArea = areaId.toLowerCase();
+
+        if (lowerArea.contains("production")) return "Production.svg";
+        if (lowerArea.contains("vacuum") || lowerArea.contains("casting")) return "Casting.svg";
+        if (lowerArea.contains("engineering")) return "Engineering.svg";
+        if (lowerArea.contains("recreational")) return "Recreation.svg";
+        if (lowerArea.contains("account") || lowerArea.contains("department")) return "Accounts.svg";
+        if (lowerArea.contains("3d") || lowerArea.contains("printing")) return "3DPrinting.svg";
+        if (lowerArea.contains("washroom") || lowerArea.contains("bathroom")) return "Washroom.svg";
+        if (lowerArea.contains("entrance")) return "Entrance.svg";
+        if (lowerArea.contains("kitchen")) return "Kitchen.svg";
+        if (lowerArea.contains("balcony")) return "Balcony.svg";
+        if (lowerArea.contains("stairs")) return "Stairs.svg";
+
+        return "Corridor.svg";
+    }
+
+    // ── Model ─────────────────────────────────────────────────────────────────
+
+    static class ListItem {
+        final String label;
+        final boolean isHeader;      // true = floor header (for multi-floor), false = area
+        final String areaId;         // actual area ID for navigation
+
+        ListItem(String label, boolean isHeader, String areaId) {
+            this.label = label;
+            this.isHeader = isHeader;
+            this.areaId = areaId;
+        }
+    }
+
+    // ── Adapter ───────────────────────────────────────────────────────────────
 
     class AreaAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
-        List<ListItem> items;
+        final List<ListItem> items;
 
-        AreaAdapter(List<ListItem> items) {
-            this.items = items;
-        }
+        AreaAdapter(List<ListItem> items) { this.items = items; }
 
-        @Override public int getItemViewType(int pos) {
+        @Override
+        public int getItemViewType(int pos) {
             return items.get(pos).isHeader ? 0 : 1;
         }
 
         @NonNull
         @Override
-        public RecyclerView.ViewHolder onCreateViewHolder(@NonNull ViewGroup p, int type) {
-            LayoutInflater inf = LayoutInflater.from(p.getContext());
-            return type == 0
-                    ? new HeaderVH(inf.inflate(R.layout.item_area_header, p, false))
-                    : new AreaVH(inf.inflate(R.layout.item_maparea, p, false));
+        public RecyclerView.ViewHolder onCreateViewHolder(
+                @NonNull ViewGroup parent, int type) {
+            LayoutInflater inf = LayoutInflater.from(parent.getContext());
+            if (type == 0) {
+                return new HeaderVH(inf.inflate(R.layout.item_area_header, parent, false));
+            } else {
+                return new AreaVH(inf.inflate(R.layout.item_maparea, parent, false));
+            }
         }
 
         @Override
-        public void onBindViewHolder(@NonNull RecyclerView.ViewHolder h, int pos) {
+        public void onBindViewHolder(
+                @NonNull RecyclerView.ViewHolder holder, int pos) {
+
             ListItem item = items.get(pos);
 
-            if (h instanceof HeaderVH) {
-                ((HeaderVH) h).tv.setText(item.label);
+            if (holder instanceof HeaderVH) {
+                // Floor header row (only for multi-floor)
+                ((HeaderVH) holder).tv.setText(item.label);
+
             } else {
-                AreaVH vh = (AreaVH) h;
-
-                vh.name.setText(item.label.replace("_", " "));
-                vh.count.setText(item.count > 0 ? String.valueOf(item.count) : "");
-
+                // Area row
+                AreaVH vh = (AreaVH) holder;
+                vh.name.setText(item.label);
+                vh.count.setText("");  // Count hidden
                 loadAreaIcon(vh.icon, item.label);
 
                 vh.itemView.setOnClickListener(v -> {
-                    Log.d(TAG, "Area clicked: " + item.label);
+                    String navigateAreaId = item.areaId != null ? item.areaId : item.label;
+                    Log.d(TAG, "Area clicked: " + navigateAreaId);
 
                     Intent i = new Intent(AreaListActivity.this, MainActivity.class);
-
-                    // ✅ IMPORTANT FIX
                     i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-
                     i.putExtra("navigate_to_network", true);
-                    i.putExtra("focus_area_id", item.label);
+                    i.putExtra("focus_area_id", navigateAreaId);
                     i.putExtra("from_area_list", true);
                     i.putExtra("svg_uri", svgUriString);
-
                     startActivity(i);
                 });
             }
         }
 
-        @Override public int getItemCount() { return items.size(); }
+        @Override
+        public int getItemCount() {
+            return items.size();
+        }
 
+        // ViewHolders
         class HeaderVH extends RecyclerView.ViewHolder {
             TextView tv;
-            HeaderVH(View v) { super(v); tv = v.findViewById(R.id.tvHeader); }
+            HeaderVH(View v) {
+                super(v);
+                tv = v.findViewById(R.id.tvHeader);
+            }
         }
 
         class AreaVH extends RecyclerView.ViewHolder {
@@ -326,30 +285,4 @@ public class AreaListActivity extends AppCompatActivity {
             }
         }
     }
-
-    // ==================== XML ====================
-
-    private Document parseDocument(InputStream is) {
-        try {
-            DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
-            DocumentBuilder b = f.newDocumentBuilder();
-            return b.parse(is);
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    private Element findElementById(Element root, String id) {
-        if (id.equals(root.getAttribute("id"))) return root;
-
-        NodeList children = root.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            if (children.item(i) instanceof Element) {
-                Element found = findElementById((Element) children.item(i), id);
-                if (found != null) return found;
-            }
-        }
-        return null;
-    }
-
 }

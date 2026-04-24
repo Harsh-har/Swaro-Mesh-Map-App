@@ -3,6 +3,7 @@ apply plugin: 'dagger.hilt.android.plugin'
 apply plugin: 'org.jetbrains.kotlin.android'
 
 
+
 android {
 
     namespace 'no.nordicsemi.android.swaromapmesh'
