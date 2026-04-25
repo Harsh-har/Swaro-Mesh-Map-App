@@ -11,6 +11,7 @@ import androidx.lifecycle.LifecycleOwner;
 import androidx.recyclerview.widget.RecyclerView;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 import no.nordicsemi.android.swaromapmesh.R;
@@ -20,89 +21,114 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerLiveData;
 
 public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHolder> {
 
-    // Signal strength threshold constants (percentage)
-    public static final int SIGNAL_DEFAULT = 0;
-    public static final int SIGNAL_100     = 52;
+    // RSSI thresholds
+    public static final int SIGNAL_DEFAULT = Integer.MIN_VALUE;
+    public static final int SIGNAL_20      = -85;
+    public static final int SIGNAL_50      = -70;
+    public static final int SIGNAL_100     = -55;
 
-    // All devices from scanner (unfiltered source of truth)
     private final List<ExtendedBluetoothDevice> mAllDevices;
-
-    // Currently displayed devices (filtered)
     private final List<ExtendedBluetoothDevice> mDisplayedDevices;
 
-    // Current active filters
-    private String mCurrentNameFilter     = "";
-    private int    mCurrentSignalThreshold = SIGNAL_DEFAULT;
+    private String mCurrentNameFilter = "";
+    private int mCurrentSignalThreshold = SIGNAL_DEFAULT;
 
     private OnItemClickListener mOnItemClickListener;
 
     public DevicesAdapter(@NonNull final LifecycleOwner owner,
                           @NonNull final ScannerLiveData scannerLiveData) {
 
-        mAllDevices      = scannerLiveData.getDevices();
-        mDisplayedDevices = new ArrayList<>(mAllDevices);
+        mAllDevices = new ArrayList<>();
+        mDisplayedDevices = new ArrayList<>();
 
-        scannerLiveData.observe(owner, devices -> {
-            // New scan results arrived — re-apply current filters so display stays consistent
+        // 🔥 FIXED: correct ScannerLiveData usage
+        scannerLiveData.observe(owner, scannerData -> {
+
+            if (scannerData == null || scannerData.getDevices() == null) return;
+
+            List<ExtendedBluetoothDevice> devices = scannerData.getDevices();
+
+            mAllDevices.clear();
+            mAllDevices.addAll(devices);
+
             applyFilters(mCurrentNameFilter, mCurrentSignalThreshold);
         });
     }
 
+    // -------------------------------------------------------------------------
+    // FILTER API
+    // -------------------------------------------------------------------------
 
     public void applyFilters(@NonNull String nameFilter, int signalThreshold) {
-        mCurrentNameFilter      = nameFilter;
+        mCurrentNameFilter = nameFilter;
         mCurrentSignalThreshold = signalThreshold;
+
         mDisplayedDevices.clear();
 
         for (ExtendedBluetoothDevice device : mAllDevices) {
+
             if (matchesNameFilter(device, nameFilter)
                     && matchesSignalFilter(device, signalThreshold)) {
+
                 mDisplayedDevices.add(device);
             }
         }
 
+        // Sort strongest first
+        Collections.sort(mDisplayedDevices,
+                (a, b) -> Integer.compare(b.getRssi(), a.getRssi()));
+
         notifyDataSetChanged();
     }
 
-    /**
-     * Apply name filter only — keeps the current signal threshold.
-     */
     public void applyFilter(@NonNull String nameFilter) {
         applyFilters(nameFilter, mCurrentSignalThreshold);
     }
 
-    /**
-     * Apply signal threshold only — keeps the current name filter.
-     */
     public void applySignalFilter(int signalThreshold) {
         applyFilters(mCurrentNameFilter, signalThreshold);
     }
 
     // -------------------------------------------------------------------------
-    // Private helpers
+    // FILTER LOGIC
     // -------------------------------------------------------------------------
 
-    /**
-     * Returns true if the device name contains the filter string (case-insensitive).
-     * Empty filter matches everything.
-     */
     private boolean matchesNameFilter(@NonNull ExtendedBluetoothDevice device,
                                       @NonNull String nameFilter) {
+
         if (nameFilter.isEmpty()) return true;
-        return device.getName() != null
-                && device.getName().toLowerCase().contains(nameFilter.toLowerCase());
+
+        return device.getName() != null &&
+                device.getName().toLowerCase().contains(nameFilter.toLowerCase());
     }
 
-  
     private boolean matchesSignalFilter(@NonNull ExtendedBluetoothDevice device,
                                         int signalThreshold) {
+
         if (signalThreshold == SIGNAL_DEFAULT) return true;
-        int rssiPercent = (int) (100.0f * (127.0f + device.getRssi()) / (127.0f + 20.0f));
-        return rssiPercent >= signalThreshold;
+
+        return device.getRssi() >= signalThreshold;
     }
 
     // -------------------------------------------------------------------------
-    // RecyclerView boilerplate
+    // UI helpers
+    // -------------------------------------------------------------------------
+
+    private int getRssiPercentage(int rssi) {
+        if (rssi <= -100) return 0;
+        if (rssi >= -50) return 100;
+        return 2 * (rssi + 100);
+    }
+
+    private int getSignalLevel(int rssi) {
+        if (rssi >= -55) return 4;
+        else if (rssi >= -65) return 3;
+        else if (rssi >= -75) return 2;
+        else return 1;
+    }
+
+    // -------------------------------------------------------------------------
+    // RecyclerView
     // -------------------------------------------------------------------------
 
     public void setOnItemClickListener(@NonNull final OnItemClickListener listener) {
@@ -111,29 +137,26 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     @NonNull
     @Override
-    public ViewHolder onCreateViewHolder(@NonNull final ViewGroup parent, final int viewType) {
+    public ViewHolder onCreateViewHolder(@NonNull final ViewGroup parent, int viewType) {
         return new ViewHolder(DeviceItemBinding.inflate(
                 LayoutInflater.from(parent.getContext()), parent, false));
     }
 
     @Override
-    public void onBindViewHolder(@NonNull final ViewHolder holder, final int position) {
-        final ExtendedBluetoothDevice device     = mDisplayedDevices.get(position);
-        final String                  deviceName = device.getName();
+    public void onBindViewHolder(@NonNull final ViewHolder holder, int position) {
 
-        holder.deviceName.setText(TextUtils.isEmpty(deviceName)
+        final ExtendedBluetoothDevice device = mDisplayedDevices.get(position);
+
+        final String name = device.getName();
+        final int rssi = device.getRssi();
+
+        holder.deviceName.setText(TextUtils.isEmpty(name)
                 ? holder.deviceName.getContext().getString(R.string.unknown_device)
-                : deviceName);
+                : name);
 
-        holder.deviceAddress.setText(device.getAddress());
+        holder.deviceAddress.setText(device.getAddress() + " (" + rssi + " dBm)");
 
-        final int rssiPercent = (int) (100.0f * (127.0f + device.getRssi()) / (127.0f + 20.0f));
-        holder.rssi.setImageLevel(rssiPercent);
-    }
-
-    @Override
-    public long getItemId(final int position) {
-        return position;
+        holder.rssi.setImageLevel(getSignalLevel(rssi));
     }
 
     @Override
@@ -142,8 +165,12 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     }
 
     public boolean isEmpty() {
-        return getItemCount() == 0;
+        return mDisplayedDevices.isEmpty();
     }
+
+    // -------------------------------------------------------------------------
+    // CLICK
+    // -------------------------------------------------------------------------
 
     @FunctionalInterface
     public interface OnItemClickListener {
@@ -151,20 +178,24 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     }
 
     final class ViewHolder extends RecyclerView.ViewHolder {
-        TextView  deviceAddress;
-        TextView  deviceName;
+
+        TextView deviceAddress;
+        TextView deviceName;
         ImageView rssi;
 
-        private ViewHolder(final @NonNull DeviceItemBinding binding) {
+        private ViewHolder(@NonNull DeviceItemBinding binding) {
             super(binding.getRoot());
+
             deviceAddress = binding.deviceAddress;
-            deviceName    = binding.deviceName;
-            rssi          = binding.rssi;
+            deviceName = binding.deviceName;
+            rssi = binding.rssi;
 
             binding.deviceContainer.setOnClickListener(v -> {
                 if (mOnItemClickListener != null) {
-                    int pos = getAdapterPosition();
-                    if (pos > -1 && !mDisplayedDevices.isEmpty()) {
+                    int pos = getBindingAdapterPosition();
+
+                    if (pos != RecyclerView.NO_POSITION
+                            && pos < mDisplayedDevices.size()) {
                         mOnItemClickListener.onItemClick(mDisplayedDevices.get(pos));
                     }
                 }

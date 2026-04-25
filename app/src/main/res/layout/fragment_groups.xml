@@ -64,7 +64,6 @@ tools:context="no.nordicsemi.android.swaromapmesh.GroupsFragment">
     android:layout_gravity="bottom|end"
     android:layout_margin="@dimen/activity_horizontal_margin"
     android:text="@string/action_add_node"
-    android:visibility="gone"
     app:icon="@drawable/ic_add_white" />
 
     <androidx.constraintlayout.widget.ConstraintLayout
@@ -83,6 +82,7 @@ tools:context="no.nordicsemi.android.swaromapmesh.GroupsFragment">
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent" />
 
+
         <include
             android:id="@android:id/empty"
             layout="@layout/info_no_groups_configured"
@@ -96,6 +96,33 @@ tools:context="no.nordicsemi.android.swaromapmesh.GroupsFragment">
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 
+
+
+    <!-- Naya lagao yeh: -->
+    <LinearLayout
+        android:id="@+id/connecting_progress_bar"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:background="#88000000"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:indeterminate="true"
+            android:indeterminateTint="@color/white" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Connecting..."
+            android:textColor="@color/white"
+            android:textSize="16sp" />
+
+    </LinearLayout>
     <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
         android:id="@+id/fab_add_group"
         android:layout_width="wrap_content"
@@ -105,6 +132,7 @@ tools:context="no.nordicsemi.android.swaromapmesh.GroupsFragment">
         android:layout_margin="@dimen/activity_vertical_margin"
         android:text="@string/action_create_group"
         app:icon="@drawable/ic_add_white" />
+
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
 

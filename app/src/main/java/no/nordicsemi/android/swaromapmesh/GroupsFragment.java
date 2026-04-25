@@ -283,13 +283,17 @@ public class GroupsFragment extends Fragment implements
             return;
         }
 
+        // ✅ Progress bar dikhao
+        if (binding != null) {
+            binding.connectingProgressBar.setVisibility(View.VISIBLE);
+        }
+
         final Intent intent = new Intent(requireContext(), ReconnectActivity.class);
         intent.putExtra(Utils.EXTRA_DEVICE, device);
         intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
         intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
         proxyConnector.launch(intent);
     }
-
     @Nullable
     private ExtendedBluetoothDevice getDeviceFromMac(String macAddress) {
         try {
@@ -384,6 +388,12 @@ public class GroupsFragment extends Fragment implements
 
     private void handleProxyConnectResult(final ActivityResult result) {
         mAutoConnectInProgress = false;
+
+        // ✅ Progress bar hide karo
+        if (binding != null) {
+            binding.connectingProgressBar.setVisibility(View.GONE);
+        }
+
         if (result.getResultCode() == RESULT_OK) {
             startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
         }

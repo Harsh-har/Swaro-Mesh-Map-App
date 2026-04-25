@@ -181,8 +181,31 @@
                             android:textColor="@android:color/white"
                             android:textSize="14sp" />
                     </LinearLayout>
+                    <!-- Mqtt Topic row -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:orientation="horizontal">
 
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Mqtt Topic"
+                            android:textColor="#888"
+                            android:textSize="14sp" />
 
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tv_mqtttopic"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:gravity="end"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp" />
+
+                    </LinearLayout>
 
                     <!-- Status row -->
                     <LinearLayout

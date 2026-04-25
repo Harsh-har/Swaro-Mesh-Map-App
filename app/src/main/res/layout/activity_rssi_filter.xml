@@ -2,70 +2,115 @@
 <androidx.constraintlayout.widget.ConstraintLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="16dp"
-    tools:context=".RssiFilterActivity">
+    android:background="#000000">
 
-    <!-- Title -->
+    <!-- App Bar -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/app_bar"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:background="#000000"
+        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:title="Filters"
+            android:titleTextColor="@android:color/white"/>
+    </com.google.android.material.appbar.AppBarLayout>
+
     <TextView
         android:id="@+id/tvFilterTitle"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:gravity="center"
-        android:text="Unprovision Device Filters"
+        android:layout_marginTop="16dp"
+        android:text="RSSI Device Filters"
         android:textAlignment="center"
-        android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
+        android:gravity="center"
+        android:textColor="@android:color/white"
         android:textSize="20sp"
         android:textStyle="bold"
-        app:layout_constraintEnd_toEndOf="parent"
+        app:layout_constraintTop_toBottomOf="@id/app_bar"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-
+        app:layout_constraintEnd_toEndOf="parent"/>
 
     <!-- Signal Strength Label -->
+    <TextView
+        android:id="@+id/tvRssi"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="Signal Strength"
+        android:textColor="@android:color/white"
+        android:textStyle="bold"
+        app:layout_constraintTop_toBottomOf="@id/tvFilterTitle"
+        app:layout_constraintStart_toStartOf="parent"
+        android:layout_marginStart="16dp"/>
 
-    <!-- Signal Strength: Default + 100% only -->
+    <!-- Signal Strength Options -->
     <RadioGroup
         android:id="@+id/rgSignalStrength"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:orientation="horizontal"
-        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="12dp"
+        android:orientation="vertical"
+        app:layout_constraintTop_toBottomOf="@id/tvRssi"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@id/tvRssi">
+        app:layout_constraintEnd_toEndOf="parent"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
+        <!-- 100% (Default Selected) -->
+        <RadioButton
+            android:id="@+id/rbSignal100"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="100%"
+            android:textColor="@android:color/white"
+            android:checked="true"/>
+
+        <!-- 50% -->
+        <RadioButton
+            android:id="@+id/rbSignal50"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="50%"
+            android:textColor="@android:color/white"/>
+
+        <!-- 20% -->
+        <RadioButton
+            android:id="@+id/rbSignal20"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="20%"
+            android:textColor="@android:color/white"/>
+
+        <!-- Default (Last) -->
         <RadioButton
             android:id="@+id/rbSignalDefault"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="16dp"
-            android:checked="true"
-            android:text="Default" />
-
-        <RadioButton
-            android:id="@+id/rbSignal5Bars"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="100%" />
+            android:text="Default"
+            android:textColor="@android:color/white"/>
 
     </RadioGroup>
-
-    <!-- Reset + Apply Buttons -->
+    <!-- Buttons -->
     <LinearLayout
         android:id="@+id/layoutButtons"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
+        android:layout_marginTop="32dp"
         android:gravity="end"
         android:orientation="horizontal"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintHorizontal_bias="0.0"
+        app:layout_constraintTop_toBottomOf="@id/rgSignalStrength"
         app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/rgSignalStrength">
+        app:layout_constraintEnd_toEndOf="parent"
+        android:paddingEnd="16dp">
 
         <Button
             android:id="@+id/btnReset"
@@ -77,18 +122,8 @@
             android:id="@+id/btnApply"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginStart="16dp"
+            android:layout_marginStart="12dp"
             android:text="Apply" />
-
     </LinearLayout>
-
-    <TextView
-        android:id="@+id/tvRssi"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Signal Strength"
-        android:textStyle="bold"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toBottomOf="@+id/tvFilterTitle" />
 
 </androidx.constraintlayout.widget.ConstraintLayout>

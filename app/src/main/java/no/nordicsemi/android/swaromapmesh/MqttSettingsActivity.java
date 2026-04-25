@@ -67,19 +67,6 @@ public class MqttSettingsActivity extends AppCompatActivity {
         etUsername      = findViewById(R.id.et_username);
         etPassword      = findViewById(R.id.et_password);
 
-        tilRl01OnValue  = findViewById(R.id.til_rl01_on_value);
-        tilRl02OnValue  = findViewById(R.id.til_rl02_on_value);
-        tilRl03OnValue  = findViewById(R.id.til_rl03_on_value);
-        tilClf01OnValue = findViewById(R.id.til_clf01_on_value);
-        tilCle02OnValue = findViewById(R.id.til_cle02_on_value);
-        tilClc03OnValue = findViewById(R.id.til_clc03_on_value);
-
-        etRl01OnValue  = findViewById(R.id.et_rl01_on_value);
-        etRl02OnValue  = findViewById(R.id.et_rl02_on_value);
-        etRl03OnValue  = findViewById(R.id.et_rl03_on_value);
-        etClf01OnValue = findViewById(R.id.et_clf01_on_value);
-        etCle02OnValue = findViewById(R.id.et_cle02_on_value);
-        etClc03OnValue = findViewById(R.id.et_clc03_on_value);
 
         btnSave = findViewById(R.id.btn_save_mqtt);
 
