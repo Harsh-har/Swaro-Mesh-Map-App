@@ -247,7 +247,9 @@ public class AreaListActivity extends AppCompatActivity {
 
                 vh.itemView.setOnClickListener(v -> {
                     String navigateAreaId = item.areaId != null ? item.areaId : item.label;
-                    Log.d(TAG, "Area clicked: " + navigateAreaId);
+
+                    SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+                    String svgName = prefs.getString("svg_name_" + svgUriString, "");
 
                     Intent i = new Intent(AreaListActivity.this, MainActivity.class);
                     i.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
@@ -255,6 +257,7 @@ public class AreaListActivity extends AppCompatActivity {
                     i.putExtra("focus_area_id", navigateAreaId);
                     i.putExtra("from_area_list", true);
                     i.putExtra("svg_uri", svgUriString);
+                    i.putExtra("svg_name", svgName);
                     startActivity(i);
                 });
             }

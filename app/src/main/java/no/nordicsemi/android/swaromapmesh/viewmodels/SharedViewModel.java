@@ -5,12 +5,10 @@ import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -18,9 +16,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import javax.inject.Inject;
-
 import dagger.hilt.android.lifecycle.HiltViewModel;
 import dagger.hilt.android.qualifiers.ApplicationContext;
 import no.nordicsemi.android.swaromapmesh.ApplicationKey;
@@ -29,7 +25,6 @@ import no.nordicsemi.android.swaromapmesh.NodeKey;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.transport.Element;
-import no.nordicsemi.android.swaromapmesh.transport.MeshModel;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
@@ -121,6 +116,10 @@ public class SharedViewModel extends BaseViewModel
         }
         mScannerRepository.unregisterBroadcastReceivers();
     }
+
+    // =========================================================================
+    // ✅ FIX Bug 3: syncProvisionedWithMeshNetwork — area prefix bhi match karo
+    // =========================================================================
     private void syncProvisionedWithMeshNetwork() {
         Set<String> saved = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
@@ -139,7 +138,7 @@ public class SharedViewModel extends BaseViewModel
         for (ProvisionedMeshNode node : meshNodes) {
             String nodeName = node.getNodeName();
             if (nodeName != null) {
-                validMeshIds.add(nodeName); // "Relay Node"
+                validMeshIds.add(nodeName);
             }
             String svgId = getSvgIdFromNode(node);
             if (svgId != null) validMeshIds.add(svgId);
@@ -153,16 +152,30 @@ public class SharedViewModel extends BaseViewModel
                 continue;
             }
 
-            // ✅ Suffix match: "PDRI:Relay Node5" → pure name "relay node"
-            // Compare against each mesh node name
+            // ✅ FIX Bug 3: Suffix match mein area prefix bhi compare karo
+            // "VCRI:SW-CN01-AA" aur "PDRI:SW-CN01-AA" dono alag hain — same pure name
+            // se match hone par area prefix bhi verify karo
             boolean matched = false;
-            String savedPure = extractPureName(savedId); // "relay node"
+            String savedPure  = extractPureName(savedId);
+            // Saved entry ka area prefix extract karo (e.g. "VCRI" from "VCRI:SW-CN01-AA")
+            String savedArea  = extractAreaPrefix(savedId);
+
             for (ProvisionedMeshNode node : meshNodes) {
                 String nodeName = node.getNodeName();
                 if (nodeName == null) continue;
                 String nodePure = nodeName.trim().toLowerCase();
-                if (nodePure.equals(savedPure)) {
-                    cleaned.add(savedId); // ✅ Keep it — it belongs to this node
+                // Node ka area prefix (agar node name mein colon hai e.g. "VCRI:SW-CN01-AA")
+                String nodeArea = extractAreaPrefix(nodeName);
+
+                if (!nodePure.equals(savedPure)) continue;
+
+                // ✅ Area match: dono empty hain, ya dono same hain
+                boolean areaOk = savedArea.isEmpty()
+                        || nodeArea.isEmpty()
+                        || savedArea.equals(nodeArea);
+
+                if (areaOk) {
+                    cleaned.add(savedId);
                     matched = true;
                     Log.d(TAG, "✅ syncProvisioned: suffix match kept → " + savedId
                             + " (node: " + nodeName + ")");
@@ -182,7 +195,7 @@ public class SharedViewModel extends BaseViewModel
         }
     }
 
-    // ✅ Helper: "PDRI:Relay Node5" → "relay node"
+    // ✅ Helper: "PDRI:Relay Node5" → "relay node"  (digits + trailing spaces strip)
     private String extractPureName(String fullId) {
         if (fullId == null) return "";
         String name = fullId.trim().toLowerCase();
@@ -191,6 +204,13 @@ public class SharedViewModel extends BaseViewModel
         name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
         return name;
     }
+
+    // ✅ NEW Helper: "VCRI:SW-CN01-AA" → "VCRI"  |  "SW-CN01-AA" → ""
+    private String extractAreaPrefix(String fullId) {
+        if (fullId == null || !fullId.contains(":")) return "";
+        return fullId.split(":")[0].trim().toUpperCase();
+    }
+
     // =========================================================================
     // ✅ FIX: Import ke baad SVG rebuild
     // =========================================================================
@@ -207,17 +227,15 @@ public class SharedViewModel extends BaseViewModel
         for (ProvisionedMeshNode node : nodes) {
             final String uuid = node.getUuid();
 
-            // Step 1: node_svg_ prefs se svgId lo (agar export se pehle map kiya tha)
+            // Step 1: node_svg_ prefs se svgId lo
             String svgId = prefs.getString("node_svg_" + uuid, null);
             if (svgId != null && !svgId.isEmpty()) {
                 rebuilt.add(svgId);
-                // in-memory map bhi restore karo taaki getSvgIdFromNode() kaam kare
                 nodeToSvgMap.put(uuid, svgId);
                 Log.d(TAG, "rebuildProvisionedFromMesh: uuid→svgId  " + uuid + " → " + svgId);
             }
 
-            // Step 2: Node name bhi add karo (fallback — provisioning ke waqt
-            //         node name == svgDeviceId hota tha)
+            // Step 2: Node name bhi add karo (fallback)
             String nodeName = node.getNodeName();
             if (nodeName != null && !nodeName.isEmpty()) {
                 rebuilt.add(nodeName);
@@ -229,8 +247,7 @@ public class SharedViewModel extends BaseViewModel
             prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, rebuilt).apply();
             provisionedDeviceIds.setValue(new HashSet<>(rebuilt));
             Log.d(TAG, "✅ rebuildProvisionedFromMesh complete — provisioned: " + rebuilt);
-        }
-        else {
+        } else {
             Log.w(TAG, "rebuildProvisionedFromMesh: nothing to rebuild");
         }
 
@@ -245,28 +262,50 @@ public class SharedViewModel extends BaseViewModel
     // =========================================================================
 
     /**
-     * DeviceDetailActivity yeh call karta hai — svgDeviceId ke liye elementId save karo.
+     * ✅ FIX Bug 2: saveElementId — svgElementId ke saath server unicast address bhi store karo.
+     * Pehle sirf svgElementId save hota tha — unicast kabhi persist nahi hota tha,
+     * isliye getServerUnicastAddress() hamesha -1 return karta tha.
+     *
+     * Ab saveElementId() ke caller ko node pass karna hoga taaki unicast bhi save ho sake.
+     * Agar node available nahi hai tab saveElementId(svgDeviceId, elementId) use karo —
+     * unicast baad mein onClientProvisioned() ya saveCompleteServerInfo() se save hoga.
      */
-// REPLACE the existing saveElementId() with this:
     public void saveElementId(@NonNull String svgDeviceId, @NonNull String elementId) {
-        // Save in prefs with original key
+        // Pehle wala key prefs mein save karo
         String key = KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId;
         prefs.edit().putString(key, elementId).apply();
 
         try {
             int svgElementIdInt = Integer.parseInt(elementId.trim());
-
-            // ✅ Save ONLY with full lowercased key: "pdri:relay node1"
-            // Do NOT save under pure name — it breaks resolveKeyByNodeName suffix matching
             String fullKey = svgDeviceId.trim().toLowerCase();
             ClientServerElementStore.saveServerSvgElementId(fullKey, svgElementIdInt);
 
             Log.d(TAG, "✅ saveElementId: " + svgDeviceId + " = " + elementId
-                    + " (also saved in Store as " + fullKey + " = " + svgElementIdInt + ")");
+                    + " (Store key=" + fullKey + " svgId=" + svgElementIdInt + ")");
         } catch (NumberFormatException e) {
             Log.w(TAG, "saveElementId: elementId not a number — Store not updated: " + elementId);
         }
     }
+
+    /**
+     * ✅ FIX Bug 2 — overload: unicast address bhi ek saath save karo
+     * DeviceDetailActivity/provisioning flow mein yeh call karo jab node available ho.
+     */
+    public void saveElementId(@NonNull String svgDeviceId,
+                              @NonNull String elementId,
+                              @NonNull ProvisionedMeshNode serverNode) {
+        // Base save (svgElementId)
+        saveElementId(svgDeviceId, elementId);
+
+        // ✅ Server unicast address bhi persist karo
+        String fullKey = svgDeviceId.trim().toLowerCase();
+        int unicastAddress = serverNode.getUnicastAddress();
+        ClientServerElementStore.saveServerUnicastAddress(fullKey, unicastAddress);
+
+        Log.d(TAG, "✅ saveElementId (with unicast): " + svgDeviceId
+                + " unicast=0x" + String.format("%04X", unicastAddress));
+    }
+
     @Nullable
     public String getElementId(@NonNull String svgDeviceId) {
         return prefs.getString(KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId, null);
@@ -473,6 +512,15 @@ public class SharedViewModel extends BaseViewModel
     // PROVISIONING HELPERS
     // =========================================================================
 
+    /**
+     * ✅ FIX Bug 1: onClientProvisioned — index 0-based hona chahiye (i, not i+1).
+     *
+     * Pehle: elementAddresses.put(i + 1, ...) → keys 1..40 save hoti thin
+     * getElementRows() 0..39 expect karta hai → Element 0 kabhi nahi milta tha,
+     * Element 40 save hoti thi jo kisi kaam ki nahi thi.
+     *
+     * Ab: elementAddresses.put(i, ...) → keys 0..39 save hongi ✅
+     */
     public void onClientProvisioned(@NonNull ProvisionedMeshNode clientNode,
                                     @NonNull String svgDeviceId) {
         List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
@@ -481,11 +529,44 @@ public class SharedViewModel extends BaseViewModel
         }
         Map<Integer, Integer> elementAddresses = new HashMap<>();
         for (int i = 0; i < sorted.size() && i < 40; i++) {
-            elementAddresses.put(i + 1, sorted.get(i).getElementAddress());
+            // ✅ FIX: i (0-based), pehle i+1 tha jo off-by-one bug tha
+            elementAddresses.put(i, sorted.get(i).getElementAddress());
         }
         saveAllClientElementAddresses(svgDeviceId, elementAddresses);
         Log.d(TAG, "✅ onClientProvisioned: saved "
-                + elementAddresses.size() + " for " + svgDeviceId);
+                + elementAddresses.size() + " elements (index 0-based) for " + svgDeviceId);
+    }
+
+    /**
+     * ✅ FIX Bug 2 — Server provisioning complete hone par yeh call karo.
+     * Unicast address + svgElementId dono ek saath persist karta hai.
+     *
+     * @param svgDeviceId      e.g. "VCRI:SW-CN01-AA"
+     * @param svgElementId     0-based SVG element index (e.g. 4)
+     * @param serverNode       Newly provisioned server node
+     */
+    public void onServerProvisioned(@NonNull String svgDeviceId,
+                                    int svgElementId,
+                                    @NonNull ProvisionedMeshNode serverNode) {
+        String fullKey = svgDeviceId.trim().toLowerCase();
+
+        // 1. SVG element ID save karo
+        ClientServerElementStore.saveServerSvgElementId(fullKey, svgElementId);
+
+        // 2. ✅ Unicast address persist karo (yahi Bug 2 fix hai)
+        int unicastAddress = serverNode.getUnicastAddress();
+        ClientServerElementStore.saveServerUnicastAddress(fullKey, unicastAddress);
+
+        // 3. Primary address bhi save karo
+        ClientServerElementStore.saveServerPrimaryElementAddress(fullKey, unicastAddress);
+
+        // 4. element_id_ prefs entry bhi sync karo (getElementId() ke liye)
+        String elemKey = KEY_ELEMENT_ID_MAPPING_PREFIX + svgDeviceId;
+        prefs.edit().putString(elemKey, String.valueOf(svgElementId)).apply();
+
+        Log.d(TAG, "✅ onServerProvisioned: " + svgDeviceId
+                + " svgElementId=" + svgElementId
+                + " unicast=0x" + String.format("%04X", unicastAddress));
     }
 
     // =========================================================================
@@ -817,6 +898,7 @@ public class SharedViewModel extends BaseViewModel
         public String getClientDeviceId()     { return clientDeviceId; }
         public int    getClientElementIndex() { return clientElementIndex; }
     }
+
     public LiveData<Boolean> isAutoSetupInProgress() {
         return mNrfMeshRepository.isAutoSetupInProgress();
     }

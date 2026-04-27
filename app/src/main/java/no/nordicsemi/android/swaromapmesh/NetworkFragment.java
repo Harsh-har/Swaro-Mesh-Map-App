@@ -1687,10 +1687,17 @@ public class NetworkFragment extends Fragment {
                     provisioned.contains(deviceId) ? COLOR_TRANSPARENT : COLOR_SELECTED);
         reRenderSvg();
 
+        // ✅ svg_name fetch karo
+        SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        Uri svgUri = mViewModel.getSvgUri().getValue();
+        String svgUriString = svgUri != null ? svgUri.toString() : "";
+        String svgName = prefs.getString("svg_name_" + svgUriString, "");
+
         String displayName = extractPureDeviceName(deviceId);
         Set<String> relatedDevices = getRelatedDeviceIds(deviceId);
         String relationDeviceName = relatedDevices.isEmpty() ? null
                 : relatedDevices.iterator().next();
+
         if (provisioned.contains(deviceId)) {
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
@@ -1699,6 +1706,7 @@ public class NetworkFragment extends Fragment {
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                     device != null ? device.elementId : null);
             intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDeviceName);
+            intent.putExtra("svg_name", svgName); // ✅
             startActivity(intent);
             return;
         }
@@ -1710,7 +1718,6 @@ public class NetworkFragment extends Fragment {
                 device != null ? device.elementId : null);
         startActivity(intent);
     }
-
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
         String name = fullDeviceId;
