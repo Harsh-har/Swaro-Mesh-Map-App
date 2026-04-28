@@ -14,7 +14,7 @@ import java.util.Map;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
-public class SvgParser {
+public class SvgParserList {
 
     private static final String TAG = "SvgParser";
 

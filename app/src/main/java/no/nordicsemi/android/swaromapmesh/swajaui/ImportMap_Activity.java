@@ -66,7 +66,7 @@ public class ImportMap_Activity extends AppCompatActivity {
             Uri uri = Uri.parse(savedUri);
 
             ArrayList<String> areaList =
-                    SvgParser.parseAreaIds(getContentResolver(), uri);
+                    SvgParserList.parseAreaIds(getContentResolver(), uri);
 
             if (!areaList.isEmpty()) {
 
@@ -112,7 +112,7 @@ public class ImportMap_Activity extends AppCompatActivity {
                 new Thread(() -> {
 
                     ArrayList<String> areaList =
-                            SvgParser.parseAreaIds(getContentResolver(), selectedSvgUri);
+                            SvgParserList.parseAreaIds(getContentResolver(), selectedSvgUri);
 
                     runOnUiThread(() -> {
 

@@ -1060,6 +1060,11 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                             + " ready for key='" + storeKey + "'");
                 }
             }
+            String mac = node.getMacAddress();
+            if (mac != null && !mac.isEmpty()) {
+                ClientServerElementStore.saveServerMacAddress(storeKey, mac);
+                Log.d(TAG_BIND, "✅ MAC saved: key='" + storeKey + "' mac=" + mac);
+            }
         }
 
         // ── STEP 3: For client nodes, save unicast under plain rawName key ──

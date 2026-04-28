@@ -58,7 +58,7 @@ public class HomeActivity extends AppCompatActivity {
 
         if (savedUri != null) {
             Uri uri = Uri.parse(savedUri);
-            ArrayList<String> areaList = SvgParser.parseAreaIds(getContentResolver(), uri);
+            ArrayList<String> areaList = SvgParserList.parseAreaIds(getContentResolver(), uri);
             Log.d("HomeActivity", "Area list size: " + areaList.size());
 
             if (!areaList.isEmpty()) {

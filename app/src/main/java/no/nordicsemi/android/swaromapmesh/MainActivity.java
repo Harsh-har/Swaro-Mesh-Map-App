@@ -26,6 +26,7 @@ import java.util.ArrayList;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMainBinding;
+import no.nordicsemi.android.swaromapmesh.swajaui.SvgParserList;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
@@ -86,7 +87,7 @@ public class MainActivity extends AppCompatActivity implements
 
             if (!savedUri.startsWith("http://") && !savedUri.startsWith("https://")) {
                 Uri uri = Uri.parse(savedUri);
-                ArrayList<String> areaList = no.nordicsemi.android.swaromapmesh.swajaui.SvgParser
+                ArrayList<String> areaList = SvgParserList
                         .parseAreaIds(getContentResolver(), uri);
                 if (!areaList.isEmpty()) {
                     Intent intent = new Intent(this,
@@ -319,7 +320,7 @@ public class MainActivity extends AppCompatActivity implements
             // Parse areas from SVG if not saved
             try {
                 Uri uri = Uri.parse(savedUri);
-                areaList = no.nordicsemi.android.swaromapmesh.swajaui.SvgParser
+                areaList = SvgParserList
                         .parseAreaIds(getContentResolver(), uri);
 
                 // Save for future

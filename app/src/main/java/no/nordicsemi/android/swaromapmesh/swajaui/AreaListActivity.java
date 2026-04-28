@@ -60,7 +60,7 @@ public class AreaListActivity extends AppCompatActivity {
         // Parse areas on background thread
         executor.execute(() -> {
             LinkedHashMap<String, List<String>> areaMap =
-                    SvgParser.parseFloorAreas(getContentResolver(), uri);
+                    SvgParserList.parseFloorAreas(getContentResolver(), uri);
 
             runOnUiThread(() -> {
                 if (areaMap.isEmpty()) { showEmpty(); return; }

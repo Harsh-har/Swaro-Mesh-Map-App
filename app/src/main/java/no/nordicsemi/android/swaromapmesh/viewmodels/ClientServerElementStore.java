@@ -180,7 +180,15 @@ public final class ClientServerElementStore {
         }
         return result;
     }
+    public static void saveServerMacAddress(String key, String mac) {
+        if (sPrefs == null || key == null || mac == null) return;
+        sPrefs.edit().putString("mac_" + key.toLowerCase(), mac).apply();
+    }
 
+    public static String getServerMacAddress(String key) {
+        if (sPrefs == null || key == null) return null;
+        return sPrefs.getString("mac_" + key.toLowerCase(), null);
+    }
     // =========================================================================
     // SERVER — batch save
     // =========================================================================
