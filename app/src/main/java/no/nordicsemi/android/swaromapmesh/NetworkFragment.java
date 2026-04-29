@@ -140,6 +140,11 @@ public class NetworkFragment extends Fragment {
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
         setupZoomAndPan();
         observeViewModel();
+
+        // ✅ Direct load — don't wait for URI observer
+        showLoading(true);
+        loadSvgFromAssets("SwajaOffice.svg");
+
         return binding.getRoot();
     }
 
@@ -180,11 +185,6 @@ public class NetworkFragment extends Fragment {
             reRenderSvg();
         });
 
-        mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
-            if (binding == null) return;
-            if (uri != null) { showLoading(true); loadSvgFromUri(uri); }
-            else             { showPlaceholder(true); loadSvgFromAssets("output.svg"); }
-        });
     }
 
     @Override

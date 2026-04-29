@@ -116,6 +116,27 @@ public class SharedViewModel extends BaseViewModel
         }
         mScannerRepository.unregisterBroadcastReceivers();
     }
+    private String normalizeId(String id) {
+        if (id == null) return "";
+
+        String name = id.trim().toLowerCase();
+
+        // Remove area prefix (VCRI:)
+        int colon = name.lastIndexOf(":");
+        if (colon != -1) {
+            name = name.substring(colon + 1);
+        }
+
+        // Remove trailing numbers (Relay Node1 → relay node)
+        name = name.replaceAll("\\s*\\d+$", "");
+
+        return name.trim();
+    }
+
+    private String extractAreaPrefix(String id) {
+        if (id == null || !id.contains(":")) return "";
+        return id.split(":")[0].trim().toUpperCase();
+    }
 
     // =========================================================================
     // ✅ FIX Bug 3: syncProvisionedWithMeshNetwork — area prefix bhi match karo
@@ -123,78 +144,61 @@ public class SharedViewModel extends BaseViewModel
     private void syncProvisionedWithMeshNetwork() {
         Set<String> saved = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
+
         if (saved.isEmpty()) return;
 
-        List<ProvisionedMeshNode> meshNodes = getAllProvisionedNodes();
-        if (meshNodes == null || meshNodes.isEmpty()) {
+        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+
+        if (nodes == null || nodes.isEmpty()) {
             prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()).apply();
             provisionedDeviceIds.setValue(new HashSet<>());
-            Log.d(TAG, "🧹 syncProvisioned: mesh empty — cleared all");
+            Log.d(TAG, "🧹 Cleared provisioned (no mesh nodes)");
             return;
         }
 
-        // ✅ Build valid ids set including SVG-style ids
-        Set<String> validMeshIds = new HashSet<>();
-        for (ProvisionedMeshNode node : meshNodes) {
-            String nodeName = node.getNodeName();
-            if (nodeName != null) {
-                validMeshIds.add(nodeName);
-            }
-            String svgId = getSvgIdFromNode(node);
-            if (svgId != null) validMeshIds.add(svgId);
-        }
-
         Set<String> cleaned = new HashSet<>();
+
         for (String savedId : saved) {
-            // ✅ Direct match check
-            if (validMeshIds.contains(savedId)) {
-                cleaned.add(savedId);
-                continue;
-            }
 
-            // ✅ FIX Bug 3: Suffix match mein area prefix bhi compare karo
-            // "VCRI:SW-CN01-AA" aur "PDRI:SW-CN01-AA" dono alag hain — same pure name
-            // se match hone par area prefix bhi verify karo
+            String savedNorm = normalizeId(savedId);
+            String savedArea = extractAreaPrefix(savedId);
+
             boolean matched = false;
-            String savedPure  = extractPureName(savedId);
-            // Saved entry ka area prefix extract karo (e.g. "VCRI" from "VCRI:SW-CN01-AA")
-            String savedArea  = extractAreaPrefix(savedId);
 
-            for (ProvisionedMeshNode node : meshNodes) {
+            for (ProvisionedMeshNode node : nodes) {
+
                 String nodeName = node.getNodeName();
                 if (nodeName == null) continue;
-                String nodePure = nodeName.trim().toLowerCase();
-                // Node ka area prefix (agar node name mein colon hai e.g. "VCRI:SW-CN01-AA")
+
+                String nodeNorm = normalizeId(nodeName);
                 String nodeArea = extractAreaPrefix(nodeName);
 
-                if (!nodePure.equals(savedPure)) continue;
+                if (!savedNorm.equals(nodeNorm)) continue;
 
-                // ✅ Area match: dono empty hain, ya dono same hain
-                boolean areaOk = savedArea.isEmpty()
-                        || nodeArea.isEmpty()
-                        || savedArea.equals(nodeArea);
+                boolean areaMatch;
+                if (!savedArea.isEmpty() && !nodeArea.isEmpty()) {
+                    areaMatch = savedArea.equals(nodeArea);
+                } else {
+                    areaMatch = true;
+                }
 
-                if (areaOk) {
+                if (areaMatch) {
                     cleaned.add(savedId);
                     matched = true;
-                    Log.d(TAG, "✅ syncProvisioned: suffix match kept → " + savedId
-                            + " (node: " + nodeName + ")");
                     break;
                 }
             }
 
             if (!matched) {
-                Log.d(TAG, "🧹 syncProvisioned: removing stale → " + savedId);
+                Log.d(TAG, "🧹 Removing stale: " + savedId);
             }
         }
 
-        if (cleaned.size() != saved.size()) {
-            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, cleaned).apply();
-            provisionedDeviceIds.setValue(cleaned);
-            Log.d(TAG, "✅ syncProvisioned done — remaining: " + cleaned);
-        }
-    }
+        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, cleaned).apply();
+        provisionedDeviceIds.setValue(cleaned);
 
+        Log.d(TAG, "✅ sync complete: " + cleaned);
+    }
     // ✅ Helper: "PDRI:Relay Node5" → "relay node"  (digits + trailing spaces strip)
     private String extractPureName(String fullId) {
         if (fullId == null) return "";
@@ -205,11 +209,6 @@ public class SharedViewModel extends BaseViewModel
         return name;
     }
 
-    // ✅ NEW Helper: "VCRI:SW-CN01-AA" → "VCRI"  |  "SW-CN01-AA" → ""
-    private String extractAreaPrefix(String fullId) {
-        if (fullId == null || !fullId.contains(":")) return "";
-        return fullId.split(":")[0].trim().toUpperCase();
-    }
 
     // =========================================================================
     // ✅ FIX: Import ke baad SVG rebuild
@@ -217,46 +216,36 @@ public class SharedViewModel extends BaseViewModel
 
     public void rebuildProvisionedFromMesh() {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+
         if (nodes == null || nodes.isEmpty()) {
-            Log.w(TAG, "rebuildProvisionedFromMesh: no nodes found — nothing to rebuild");
+            Log.w(TAG, "No nodes to rebuild");
             return;
         }
 
         Set<String> rebuilt = new HashSet<>();
 
         for (ProvisionedMeshNode node : nodes) {
-            final String uuid = node.getUuid();
+            String uuid = node.getUuid();
 
-            // Step 1: node_svg_ prefs se svgId lo
             String svgId = prefs.getString("node_svg_" + uuid, null);
+
             if (svgId != null && !svgId.isEmpty()) {
-                rebuilt.add(svgId);
+                rebuilt.add(svgId); // ✅ ONLY SVG ID
                 nodeToSvgMap.put(uuid, svgId);
-                Log.d(TAG, "rebuildProvisionedFromMesh: uuid→svgId  " + uuid + " → " + svgId);
-            }
-
-            // Step 2: Node name bhi add karo (fallback)
-            String nodeName = node.getNodeName();
-            if (nodeName != null && !nodeName.isEmpty()) {
-                rebuilt.add(nodeName);
-                Log.d(TAG, "rebuildProvisionedFromMesh: nodeName → " + nodeName);
+            } else if (node.getNodeName() != null) {
+                rebuilt.add(node.getNodeName()); // fallback only
             }
         }
 
-        if (!rebuilt.isEmpty()) {
-            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, rebuilt).apply();
-            provisionedDeviceIds.setValue(new HashSet<>(rebuilt));
-            Log.d(TAG, "✅ rebuildProvisionedFromMesh complete — provisioned: " + rebuilt);
-        } else {
-            Log.w(TAG, "rebuildProvisionedFromMesh: nothing to rebuild");
-        }
+        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, rebuilt).apply();
+        provisionedDeviceIds.setValue(new HashSet<>(rebuilt));
+
+        Log.d(TAG, "✅ rebuild complete: " + rebuilt);
 
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
             forceSvgRefresh();
-            Log.d(TAG, "🔄 forceSvgRefresh after import delay");
-        }, 1500);
+        }, 1000);
     }
-
     // =========================================================================
     // ELEMENT ID (SVG shape ID — user assigned)
     // =========================================================================
@@ -393,18 +382,40 @@ public class SharedViewModel extends BaseViewModel
 
     public boolean isDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return false;
+
         Set<String> set = provisionedDeviceIds.getValue();
-        return set != null && set.contains(svgDeviceId);
+        if (set == null || set.isEmpty()) return false;
+
+        String targetNorm = normalizeId(svgDeviceId);
+        String targetArea = extractAreaPrefix(svgDeviceId);
+
+        for (String id : set) {
+            String norm = normalizeId(id);
+            String area = extractAreaPrefix(id);
+
+            if (norm.equals(targetNorm)) {
+                if (!targetArea.isEmpty() && !area.isEmpty()) {
+                    if (targetArea.equals(area)) return true;
+                } else {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     public void markDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null) return;
-        Set<String> current = new HashSet<>();
-        if (provisionedDeviceIds.getValue() != null) current.addAll(provisionedDeviceIds.getValue());
-        current.add(svgDeviceId);
+
+        Set<String> current = new HashSet<>(
+                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
+
+        current.add(svgDeviceId); // store original, match normalized
+
+        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, current).apply();
         provisionedDeviceIds.setValue(current);
-        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current)).apply();
-        Log.d(TAG, "✅ markDeviceProvisioned: " + svgDeviceId);
+
+        Log.d(TAG, "✅ marked: " + svgDeviceId);
     }
 
     public void unmarkDeviceProvisioned(String svgDeviceId) {
@@ -420,32 +431,36 @@ public class SharedViewModel extends BaseViewModel
         }
     }
 
-    private void removeAllMatchingProvisioned(@Nullable String nodeName, @Nullable String svgId) {
+    private void removeAllMatchingProvisioned(String nodeName, String svgId) {
+
         Set<String> current = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
-        Set<String> toRemove = new HashSet<>();
-        for (String id : current) {
-            boolean matchesNode = nodeName != null && (id.equals(nodeName) || id.contains(nodeName));
-            boolean matchesSvg  = svgId    != null && (id.equals(svgId)    || id.contains(svgId));
-            if (matchesNode || matchesSvg) {
-                toRemove.add(id);
-                Log.d(TAG, "🧹 removeAllMatchingProvisioned: removing → " + id);
-            }
-        }
-        if (!toRemove.isEmpty()) {
-            current.removeAll(toRemove);
-            prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, current).apply();
-            provisionedDeviceIds.setValue(new HashSet<>(current));
-        }
-    }
 
+        Set<String> updated = new HashSet<>();
+
+        String nodeNorm = normalizeId(nodeName);
+        String svgNorm  = normalizeId(svgId);
+
+        for (String id : current) {
+            String norm = normalizeId(id);
+
+            if (norm.equals(nodeNorm) || norm.equals(svgNorm)) {
+                Log.d(TAG, "🧹 Removing: " + id);
+                continue;
+            }
+
+            updated.add(id);
+        }
+
+        prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, updated).apply();
+        provisionedDeviceIds.setValue(updated);
+    }
     public void forceSvgRefresh() {
         Set<String> fresh = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
         provisionedDeviceIds.setValue(fresh);
         Log.d(TAG, "🔄 forceSvgRefresh — provisioned: " + fresh);
     }
-
     public void clearProvisionedDevices() {
         provisionedDeviceIds.setValue(new HashSet<>());
         prefs.edit().remove(KEY_PROVISIONED_DEVICES).apply();
@@ -837,18 +852,27 @@ public class SharedViewModel extends BaseViewModel
     // =========================================================================
 
     @Nullable
-    public ProvisionedMeshNode findNodeBySvgDeviceId(@Nullable String svgDeviceId) {
+    public ProvisionedMeshNode findNodeBySvgDeviceId(String svgDeviceId) {
         if (svgDeviceId == null) return null;
+
+        String targetNorm = normalizeId(svgDeviceId);
+
         try {
             MeshNetwork network = getNetworkLiveData().getMeshNetwork();
             if (network == null) return null;
-            List<ProvisionedMeshNode> nodes = network.getNodes();
-            if (nodes == null || nodes.isEmpty()) return null;
-            for (ProvisionedMeshNode node : nodes) {
-                if (svgDeviceId.equalsIgnoreCase(node.getNodeName())) return node;
+
+            for (ProvisionedMeshNode node : network.getNodes()) {
+                String nodeName = node.getNodeName();
+                if (nodeName == null) continue;
+
+                if (normalizeId(nodeName).equals(targetNorm)) {
+                    return node;
+                }
             }
-            if (nodes.size() == 1) return nodes.get(0);
-        } catch (Exception e) { Log.e(TAG, "findNodeBySvgDeviceId error", e); }
+        } catch (Exception e) {
+            Log.e(TAG, "findNode error", e);
+        }
+
         return null;
     }
 

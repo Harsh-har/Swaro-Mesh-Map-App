@@ -156,8 +156,8 @@ public class AreaClientListActivity extends AppCompatActivity {
             int clientAddr = e.getValue();
             int serverAddr = -1;
 
-            String serverStoreKey = ClientServerElementStore.getKeyBySvgElementId(svgId);
-
+            String serverStoreKey = ClientServerElementStore
+                    .getKeyBySvgElementIdAndArea(svgId, clientArea.toLowerCase());
             Log.d(TAG, "  svgId=" + svgId
                     + " clientAddr=0x" + String.format("%04X", clientAddr)
                     + " serverStoreKey=" + serverStoreKey);

@@ -58,10 +58,10 @@ public class TestProvisionActivity extends AppCompatActivity {
     private MaterialTextView tvRelationDeviceId;
 
     private SharedViewModel       mViewModel;
-    private final AtomicInteger   tidCounter      = new AtomicInteger(0);
+    private final AtomicInteger   tidCounter   = new AtomicInteger(0);
     private int                   mUnicastAddress = -1;
     private MqttClient            mqttClient;
-    private final ExecutorService mqttExecutor    = Executors.newSingleThreadExecutor();
+    private final ExecutorService mqttExecutor = Executors.newSingleThreadExecutor();
 
     // =========================================================================
     // Lifecycle
@@ -119,7 +119,13 @@ public class TestProvisionActivity extends AppCompatActivity {
                         "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
                 return;
             }
-            MeshCommandManager.sendOnThenOff(this, mViewModel, tidCounter, mUnicastAddress);
+            MeshCommandManager.sendOnThenOff(
+                    this,
+                    mViewModel,
+                    tidCounter,
+                    mUnicastAddress,
+                    relationDeviceName
+            );
             Toast.makeText(this, "Sending ON → OFF...", Toast.LENGTH_SHORT).show();
             btnTestBle.setEnabled(false);
             btnTestBle.postDelayed(() -> btnTestBle.setEnabled(true), 2100);
@@ -193,229 +199,69 @@ public class TestProvisionActivity extends AppCompatActivity {
     }
 
     // =========================================================================
-    // loadAddressesFromNodes
-    //
-    // ROOT CAUSE (from logs):
-    //   Both BLE nodes are named "Relay Node" (no number suffix).
-    //   storedUnicast=0x0002 for smt:relay node1 exists in Store, but that
-    //   node was NOT in the nodes list at query time → Step1a failed.
-    //   No MAC was stored → Step1b couldn't run.
-    //   Step4 → 2 candidates → AMBIGUOUS → N/A.
-    //
-    // FIX — 5-step matching with MAC as reliable fallback:
-    //   Step 1a: elementId → Store unicast → match node by unicast       ✅ best
-    //   Step 1b: elementId → Store MAC    → match node by MAC            ✅ new
-    //   Step 1c: elementId → Store unicast → closest-unicast among       ✅ new
-    //            same-base-name nodes (handles re-provision shifts)
-    //   Step 2:  exact deviceId == nodeName
-    //   Step 3:  area + baseName WITH number (no strip)
-    //   Step 4:  number-stripped, only if exactly 1 candidate
+    // Address loading — node matching
     // =========================================================================
+
     private void loadAddressesFromNodes(List<ProvisionedMeshNode> nodes) {
         if (deviceId == null) { setAddressFields("N/A", "N/A"); return; }
 
-        ProvisionedMeshNode matched       = null;
-        String              storedKeyUsed = null;
+        String storeKey = deviceId.trim().toLowerCase();
+        // e.g. "casting:relay node1"
 
-        // ── Step 1: elementId → ClientServerElementStore ──────────────────────
-        if (elementId != null && !elementId.isEmpty()) {
-            try {
-                int    targetSvgId = Integer.parseInt(elementId.trim());
-                String storedKey   = ClientServerElementStore.getKeyBySvgElementId(targetSvgId);
-                Log.d(TAG, "elementId=" + targetSvgId + " → storedKey=" + storedKey);
+        // ── Direct read from store ────────────────────────────────────────
+        int    storedUnicast = ClientServerElementStore.getServerUnicastAddress(storeKey);
+        String storedMac     = ClientServerElementStore.getServerMacAddress(storeKey);
 
-                if (storedKey != null) {
-                    int    storedUnicast = ClientServerElementStore.getServerUnicastAddress(storedKey);
-                    String storedMac     = ClientServerElementStore.getServerMacAddress(storedKey);
-
-                    Log.d(TAG, "storedKey=" + storedKey
-                            + " unicast=0x" + String.format("%04X", storedUnicast & 0xFFFF)
-                            + " mac=" + storedMac);
-
-                    // 1a: unicast direct
-                    if (matched == null && storedUnicast != -1) {
-                        for (ProvisionedMeshNode node : nodes) {
-                            if (node.getUnicastAddress() == storedUnicast) {
-                                matched       = node;
-                                storedKeyUsed = storedKey;
-                                Log.d(TAG, "✅ Step1a unicast match: 0x"
-                                        + String.format("%04X", storedUnicast)
-                                        + " node=" + node.getNodeName());
-                                break;
-                            }
-                        }
-                    }
-
-                    // 1b: MAC match — works even if unicast changed after re-provision
-                    if (matched == null && storedMac != null && !storedMac.isEmpty()) {
-                        for (ProvisionedMeshNode node : nodes) {
-                            String mac = node.getMacAddress();
-                            if (storedMac.equalsIgnoreCase(mac)) {
-                                matched       = node;
-                                storedKeyUsed = storedKey;
-                                // Refresh stored unicast if it shifted
-                                if (storedUnicast != node.getUnicastAddress()) {
-                                    ClientServerElementStore.saveServerUnicastAddress(
-                                            storedKey, node.getUnicastAddress());
-                                }
-                                Log.d(TAG, "✅ Step1b MAC match: mac=" + mac
-                                        + " node=" + node.getNodeName()
-                                        + " unicast=0x"
-                                        + String.format("%04X", node.getUnicastAddress()));
-                                break;
-                            }
-                        }
-                    }
-
-                    // 1c: storedUnicast known but node not found → closest-unicast among
-                    //     same-base-name nodes (covers "Relay Node" ambiguity safely)
-                    if (matched == null && storedUnicast != -1) {
-                        String storeNoNum = extractPureNameNoNumber(storedKey);
-
-                        List<ProvisionedMeshNode> sameName = new ArrayList<>();
-                        for (ProvisionedMeshNode node : nodes) {
-                            if (extractPureNameNoNumber(node.getNodeName()).equals(storeNoNum))
-                                sameName.add(node);
-                        }
-
-                        if (sameName.size() == 1) {
-                            matched       = sameName.get(0);
-                            storedKeyUsed = storedKey;
-                            ClientServerElementStore.saveServerUnicastAddress(
-                                    storedKey, matched.getUnicastAddress());
-                            Log.d(TAG, "✅ Step1c single same-name: '"
-                                    + storeNoNum + "' → " + matched.getNodeName()
-                                    + " unicast=0x"
-                                    + String.format("%04X", matched.getUnicastAddress()));
-
-                        } else if (sameName.size() > 1) {
-                            // Pick closest unicast — most likely same physical device
-                            ProvisionedMeshNode closest = null;
-                            int minDiff = Integer.MAX_VALUE;
-                            for (ProvisionedMeshNode node : sameName) {
-                                int diff = Math.abs(node.getUnicastAddress() - storedUnicast);
-                                if (diff < minDiff) { minDiff = diff; closest = node; }
-                            }
-                            // Accept only within ±4 unicast addresses
-                            if (closest != null && minDiff <= 4) {
-                                matched       = closest;
-                                storedKeyUsed = storedKey;
-                                ClientServerElementStore.saveServerUnicastAddress(
-                                        storedKey, matched.getUnicastAddress());
-                                Log.d(TAG, "✅ Step1c closest-unicast: node="
-                                        + matched.getNodeName()
-                                        + " stored=0x" + String.format("%04X", storedUnicast)
-                                        + " actual=0x"
-                                        + String.format("%04X", matched.getUnicastAddress())
-                                        + " diff=" + minDiff);
-                            } else {
-                                Log.w(TAG, "⚠️ Step1c: " + sameName.size()
-                                        + " candidates, minDiff="
-                                        + (closest != null ? minDiff : "N/A")
-                                        + " > 4 — too risky, skipping");
-                            }
-                        }
-                    }
-                }
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "elementId not a number: " + elementId);
-            }
-        }
-
-        // ── Step 2: Exact deviceId == nodeName ───────────────────────────────
-        if (matched == null) {
+        if (storedUnicast != -1) {
+            // Verify node still exists in mesh
             for (ProvisionedMeshNode node : nodes) {
-                if (deviceId.equalsIgnoreCase(node.getNodeName())) {
-                    matched = node;
-                    Log.d(TAG, "✅ Step2 exact name: " + node.getNodeName());
-                    break;
+                if (node.getUnicastAddress() == storedUnicast) {
+                    mUnicastAddress = storedUnicast;
+                    String mac = storedMac != null ? storedMac : "N/A";
+                    setAddressFields(mac, String.format("0x%04X", mUnicastAddress));
+                    Log.d(TAG, "✅ Direct store hit: " + storeKey
+                            + " unicast=0x" + String.format("%04X", mUnicastAddress));
+                    return;
                 }
             }
         }
 
-        // ── Step 3: Area + baseName WITH number (no stripping) ────────────────
-        if (matched == null) {
-            String deviceArea = extractAreaPrefix(deviceId);
-            String deviceBase = extractBaseName(deviceId);
-            for (ProvisionedMeshNode node : nodes) {
-                String nodeName = node.getNodeName();
-                if (nodeName == null) continue;
-                boolean areaOk = deviceArea.isEmpty()
-                        || extractAreaPrefix(nodeName).isEmpty()
-                        || deviceArea.equalsIgnoreCase(extractAreaPrefix(nodeName));
-                if (areaOk && extractBaseName(nodeName).equals(deviceBase)) {
-                    matched = node;
-                    Log.d(TAG, "✅ Step3 area+base(with number): " + node.getNodeName());
-                    break;
-                }
+        // ── Fallback: UUID se dhundho ─────────────────────────────────────
+        // (agar re-provision hua ho aur unicast shift ho gayi ho)
+        for (ProvisionedMeshNode node : nodes) {
+            String mappedSvg = mViewModel.getSvgIdFromNode(node);
+            if (deviceId.equalsIgnoreCase(mappedSvg)) {
+                mUnicastAddress = node.getUnicastAddress();
+                String mac = node.getMacAddress() != null ? node.getMacAddress() : "N/A";
+
+                // Refresh store
+                ClientServerElementStore.saveServerUnicastAddress(storeKey, mUnicastAddress);
+                if (!mac.equals("N/A"))
+                    ClientServerElementStore.saveServerMacAddress(storeKey, mac);
+
+                setAddressFields(mac, String.format("0x%04X", mUnicastAddress));
+                Log.d(TAG, "✅ UUID fallback: " + storeKey
+                        + " unicast=0x" + String.format("%04X", mUnicastAddress));
+                return;
             }
         }
 
-        // ── Step 4: Number-stripped fallback — only if exactly 1 candidate ────
-        if (matched == null) {
-            String deviceArea      = extractAreaPrefix(deviceId);
-            String devicePureNoNum = extractPureNameNoNumber(deviceId);
-            List<ProvisionedMeshNode> candidates = new ArrayList<>();
-            for (ProvisionedMeshNode node : nodes) {
-                String nodeName = node.getNodeName();
-                if (nodeName == null) continue;
-                boolean areaOk = deviceArea.isEmpty()
-                        || extractAreaPrefix(nodeName).isEmpty()
-                        || deviceArea.equalsIgnoreCase(extractAreaPrefix(nodeName));
-                if (areaOk && extractPureNameNoNumber(nodeName).equals(devicePureNoNum))
-                    candidates.add(node);
-            }
-            if (candidates.size() == 1) {
-                matched = candidates.get(0);
-                Log.d(TAG, "✅ Step4 single candidate: " + matched.getNodeName());
-            } else if (candidates.size() > 1) {
-                Log.e(TAG, "❌ Step4 AMBIGUOUS — " + candidates.size()
-                        + " candidates for '" + devicePureNoNum
-                        + "' deviceId=" + deviceId + " elementId=" + elementId
-                        + " — MAC not yet stored. Will auto-save after first manual match.");
-            }
-        }
-
-        // ── Result ────────────────────────────────────────────────────────────
-        if (matched != null) {
-            String mac    = matched.getMacAddress();
-            if (mac == null || mac.isEmpty()) mac = "N/A";
-            mUnicastAddress = matched.getUnicastAddress();
-
-            // Auto-save MAC so Step1b works on all future opens
-            if (storedKeyUsed != null && !"N/A".equals(mac)) {
-                String existing = ClientServerElementStore.getServerMacAddress(storedKeyUsed);
-                if (existing == null || !existing.equalsIgnoreCase(mac)) {
-                    ClientServerElementStore.saveServerMacAddress(storedKeyUsed, mac);
-                    Log.d(TAG, "✅ MAC auto-saved: key=" + storedKeyUsed + " mac=" + mac);
-                }
-            }
-
-            Log.d(TAG, "Final → deviceId=" + deviceId
-                    + " elementId=" + elementId
-                    + " MAC=" + mac
-                    + " Unicast=0x" + String.format("%04X", mUnicastAddress)
-                    + " matchedNode=" + matched.getNodeName());
-            setAddressFields(mac, String.format("0x%04X", mUnicastAddress));
-        } else {
-            Log.w(TAG, "❌ No node matched → deviceId=" + deviceId
-                    + " elementId=" + elementId);
-            mUnicastAddress = -1;
-            setAddressFields("N/A", "N/A");
-        }
+        // ── Not found ─────────────────────────────────────────────────────
+        Log.w(TAG, "❌ No match for deviceId=" + deviceId);
+        mUnicastAddress = -1;
+        setAddressFields("N/A", "N/A");
     }
-
     // =========================================================================
     // String helpers
     // =========================================================================
 
-    /** "smt:Relay Node1" → "SMT" */
+    /** "Casting:Relay Node1" → "CASTING" */
     private String extractAreaPrefix(String fullId) {
         if (fullId == null || !fullId.contains(":")) return "";
         return fullId.split(":")[0].trim().toUpperCase();
     }
 
-    /** "smt:Relay Node1" → "relay node1"  (number kept intentionally) */
+    /** "Casting:Relay Node1" → "relay node1"  (number kept intentionally) */
     private String extractBaseName(String fullId) {
         if (fullId == null) return "";
         String name = fullId.trim().toLowerCase();

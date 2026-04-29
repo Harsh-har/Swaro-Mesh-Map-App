@@ -7,6 +7,7 @@ import android.util.Log;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
+import no.nordicsemi.android.swaromapmesh.MqttSettingsActivity;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 public class MeshCommandManager {
@@ -14,28 +15,37 @@ public class MeshCommandManager {
     private static final String TAG = "MeshCommandManager";
 
     private static final int HARDCODED_COMMAND = 2;
-    private static final int VALUE_ON  = 1;
     private static final int VALUE_OFF = 0;
 
-    // ✅ Updated delay: 2 seconds
     private static final int DELAY_MS = 2000;
 
     // ─────────────────────────────────────────────────────────────
-    // Single Flow: ON → 2 sec → OFF (Only once)
+    // Single Flow: ON → 2 sec → OFF (device-type-aware)
     // ─────────────────────────────────────────────────────────────
     public static void sendOnThenOff(
             Context context,
             SharedViewModel mViewModel,
             AtomicInteger tidCounter,
-            int unicastAddress
+            int unicastAddress,
+            String relationDeviceName
     ) {
         Log.d(TAG, "=== SINGLE ON → OFF START ===");
 
-        // Send ON
-        sendMeshCommand(mViewModel, tidCounter, VALUE_ON, unicastAddress);
+        // Resolve ON value from device type (same logic as MQTT)
+        String typeKey = MqttSettingsActivity.extractDeviceTypeKey(relationDeviceName);
+        int onValue;
+        try {
+            onValue = Integer.parseInt(MqttSettingsActivity.getOnValueForType(typeKey));
+        } catch (NumberFormatException e) {
+            onValue = 1; // fallback
+        }
+
+        final int finalOnValue = onValue;
+        Log.d(TAG, "BLE ON value for type='" + typeKey + "' → " + finalOnValue);
+
+        sendMeshCommand(mViewModel, tidCounter, finalOnValue, unicastAddress);
         Log.d(TAG, "Sent ON");
 
-        // Delay → Send OFF
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
             sendMeshCommand(mViewModel, tidCounter, VALUE_OFF, unicastAddress);
             Log.d(TAG, "Sent OFF");
