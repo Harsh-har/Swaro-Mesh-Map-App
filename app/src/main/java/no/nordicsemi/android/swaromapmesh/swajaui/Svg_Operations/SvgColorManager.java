@@ -19,7 +19,7 @@ public class SvgColorManager {
 
     // ── Icon color constants ──────────────────────────────────────────────
     public static final String COLOR_SELECTED      = "#ff0000";
-    public static final String COLOR_DEVICE_ACTIVE = "#ff00bb";
+    public static final String COLOR_DEVICE_ACTIVE = "#ffbb00";
     public static final String COLOR_TRANSPARENT   = "transparent";
 
     // ── Area dim overlay styles ───────────────────────────────────────────

@@ -608,6 +608,16 @@ public class SharedViewModel extends BaseViewModel
     @Override public void onNetworkExportFailed(@NonNull final String error) {
         networkExportState.postValue(error);
     }
+    // SharedViewModel.java mein add karo
+    private ProvisionedMeshNode lastProvisionedNode;
+
+    public void setLastProvisionedNode(ProvisionedMeshNode node) {
+        this.lastProvisionedNode = node;
+    }
+
+    public ProvisionedMeshNode getLastProvisionedNode() {
+        return lastProvisionedNode;
+    }
 
     // =========================================================================
     // SVG URI

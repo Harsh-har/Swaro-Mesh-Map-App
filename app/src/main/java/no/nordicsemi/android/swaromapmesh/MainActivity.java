@@ -1,6 +1,8 @@
 package no.nordicsemi.android.swaromapmesh;
 
 import android.content.Intent;
+import android.content.SharedPreferences;
+import android.net.Uri;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -20,8 +22,11 @@ import androidx.lifecycle.ViewModelProvider;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 import com.google.android.material.navigation.NavigationBarView;
 
+import java.util.ArrayList;
+
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMainBinding;
+import no.nordicsemi.android.swaromapmesh.swajaui.SvgParserList;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
@@ -29,17 +34,17 @@ public class MainActivity extends AppCompatActivity implements
         NavigationBarView.OnItemSelectedListener,
         NavigationBarView.OnItemReselectedListener {
 
-    private static final String TAG             = "MainActivity";
+    private static final String TAG              = "MainActivity";
     private static final String CURRENT_FRAGMENT = "CURRENT_FRAGMENT";
 
     private SharedViewModel mViewModel;
 
-    private NetworkFragment        mNetworkFragment;
-    private GroupsFragment         mGroupsFragment;
-    private ProxyFilterFragment    mProxyFilterFragment;
-    private Fragment               mSettingsFragment;
-    private ActivityMainBinding    binding;
-    private BottomNavigationView   bottomNavigationView;
+    private NetworkFragment       mNetworkFragment;
+    private GroupsFragment        mGroupsFragment;
+    private ProxyFilterFragment   mProxyFilterFragment;
+    private Fragment              mSettingsFragment;
+    private ActivityMainBinding   binding;
+    private BottomNavigationView  bottomNavigationView;
 
     // ==================== LIFECYCLE ====================
 
@@ -49,6 +54,62 @@ public class MainActivity extends AppCompatActivity implements
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
 
+        boolean fromAreaList = getIntent().getBooleanExtra("from_area_list", false);
+
+        if (!fromAreaList) {
+            SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+            String savedUri = prefs.getString("saved_svg_uri", null);
+
+            if (savedUri == null) {
+                Intent intent = new Intent(this,
+                        no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+                return;
+            }
+
+            // ✅ Saved areas directly lo — no HTTP call
+            java.util.Set<String> savedAreaSet = prefs.getStringSet("saved_area_list", null);
+
+            if (savedAreaSet != null && !savedAreaSet.isEmpty()) {
+                // ✅ Instant — no network needed
+                ArrayList<String> areaList = new ArrayList<>(savedAreaSet);
+                Intent intent = new Intent(this,
+                        no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+                intent.putExtra("svg_uri", savedUri);
+                intent.putStringArrayListExtra("area_list", areaList);
+                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                startActivity(intent);
+                finish();
+                return;
+            }
+
+            if (!savedUri.startsWith("http://") && !savedUri.startsWith("https://")) {
+                Uri uri = Uri.parse(savedUri);
+                ArrayList<String> areaList = SvgParserList
+                        .parseAreaIds(getContentResolver(), uri);
+                if (!areaList.isEmpty()) {
+                    Intent intent = new Intent(this,
+                            no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+                    intent.putExtra("svg_uri", savedUri);
+                    intent.putStringArrayListExtra("area_list", areaList);
+                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                    startActivity(intent);
+                    finish();
+                    return;
+                }
+            }
+
+            getSharedPreferences("app_prefs", MODE_PRIVATE)
+                    .edit().remove("saved_svg_uri").remove("saved_area_list").apply();
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        }
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
@@ -59,7 +120,6 @@ public class MainActivity extends AppCompatActivity implements
             getSupportActionBar().setTitle(R.string.app_name);
         }
 
-        // Find fragments from XML
         mNetworkFragment       = (NetworkFragment)       getSupportFragmentManager().findFragmentById(R.id.fragment_network);
         mGroupsFragment        = (GroupsFragment)        getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
         mProxyFilterFragment   = (ProxyFilterFragment)   getSupportFragmentManager().findFragmentById(R.id.fragment_proxy);
@@ -82,52 +142,48 @@ public class MainActivity extends AppCompatActivity implements
 
         mViewModel.isConnectedToProxy().observe(this, connected -> invalidateOptionsMenu());
 
-        // ✅ Handle intent from onCreate (first launch case)
         handleNavigationIntent(getIntent());
     }
-
     // ==================== NEW INTENT (SINGLE_TOP) ====================
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        setIntent(intent); // ← update stored intent
+        setIntent(intent);
         handleNavigationIntent(intent);
     }
 
-    /**
-     * ✅ Handles both:
-     *   - "navigate_to_network" → switch to Network tab
-     *   - "focus_area_id"       → set focusAreaId in ViewModel (same scope as NetworkFragment)
-     */
     private void handleNavigationIntent(Intent intent) {
         if (intent == null) return;
 
         boolean navigateToNetwork = intent.getBooleanExtra("navigate_to_network", false);
         String  focusAreaId       = intent.getStringExtra("focus_area_id");
+        String  svgUriString      = intent.getStringExtra("svg_uri");
 
-        Log.d(TAG, "handleNavigationIntent: navigateToNetwork=" + navigateToNetwork
+        // ✅ YE LOG ADD KARO
+        Log.d(TAG, "handleNavigationIntent: svgUri=" + svgUriString
                 + " focusAreaId=" + focusAreaId);
 
-        if (navigateToNetwork) {
-            // Switch to Network tab
-            if (bottomNavigationView != null) {
-                bottomNavigationView.setSelectedItemId(R.id.action_network);
-                onNavigationItemSelected(
-                        bottomNavigationView.getMenu().findItem(R.id.action_network));
-            }
+        if (svgUriString != null && !svgUriString.isEmpty()) {
+            Uri svgUri = Uri.parse(svgUriString);
+            mViewModel.setSvgUri(svgUri);
+            Log.d(TAG, "✅ setSvgUri called: " + svgUri);
+        } else {
+            Log.w(TAG, "⚠️ svg_uri is NULL in intent");
+        }
+
+        if (navigateToNetwork && bottomNavigationView != null) {
+            bottomNavigationView.setSelectedItemId(R.id.action_network);
+            onNavigationItemSelected(
+                    bottomNavigationView.getMenu().findItem(R.id.action_network));
         }
 
         if (focusAreaId != null && !focusAreaId.isEmpty()) {
-            // ✅ Same ViewModel instance as NetworkFragment (requireActivity() scope)
             mViewModel.setFocusAreaId(focusAreaId);
-            Log.d(TAG, "🎯 setFocusAreaId: " + focusAreaId);
-
-            // Clear from intent so rotation/resume doesn't re-trigger
+            Log.d(TAG, "setFocusAreaId: " + focusAreaId);
             intent.removeExtra("focus_area_id");
         }
     }
-
     // ==================== SAVE STATE ====================
 
     @Override
@@ -190,7 +246,7 @@ public class MainActivity extends AppCompatActivity implements
                     .hide(mGroupsFragment)
                     .hide(mProxyFilterFragment)
                     .hide(mSettingsFragment);
-        }  else if (item.getItemId() == R.id.action_groups) {
+        }else if (item.getItemId() == R.id.action_groups) {
             ft.hide(mNetworkFragment)
                     .show(mGroupsFragment)
                     .hide(mProxyFilterFragment)
@@ -216,4 +272,83 @@ public class MainActivity extends AppCompatActivity implements
     public void onNavigationItemReselected(@NonNull MenuItem item) {
         // No-op
     }
+    @Override
+    public void onBackPressed() {
+        // Get the currently visible fragment
+        Fragment currentFragment = null;
+
+        if (mNetworkFragment != null && mNetworkFragment.isVisible()) {
+            currentFragment = mNetworkFragment;
+        }
+        else if (mGroupsFragment != null && mGroupsFragment.isVisible()) {
+            currentFragment = mGroupsFragment;
+        } else if (mProxyFilterFragment != null && mProxyFilterFragment.isVisible()) {
+            currentFragment = mProxyFilterFragment;
+        } else if (mSettingsFragment != null && mSettingsFragment.isVisible()) {
+            currentFragment = mSettingsFragment;
+        }
+
+        if (currentFragment instanceof NetworkFragment) {
+            // Network fragment - navigate to AreaListActivity
+            ((NetworkFragment) currentFragment).handleBackPress();
+            navigateToAreaList();
+        } else {
+            // Other fragments - just go back
+            super.onBackPressed();
+        }
+    }
+
+    private void navigateToAreaList() {
+        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        String savedUri = prefs.getString("saved_svg_uri", null);
+
+        if (savedUri == null) {
+            // No SVG loaded, go to HomeActivity
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+            return;
+        }
+
+        // Get saved area list
+        java.util.Set<String> savedAreaSet = prefs.getStringSet("saved_area_list", null);
+        ArrayList<String> areaList = savedAreaSet != null ? new ArrayList<>(savedAreaSet) : null;
+
+        if (areaList == null || areaList.isEmpty()) {
+            // Parse areas from SVG if not saved
+            try {
+                Uri uri = Uri.parse(savedUri);
+                areaList = SvgParserList
+                        .parseAreaIds(getContentResolver(), uri);
+
+                // Save for future
+                if (areaList != null && !areaList.isEmpty()) {
+                    prefs.edit().putStringSet("saved_area_list", new java.util.HashSet<>(areaList)).apply();
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error parsing areas", e);
+                areaList = new ArrayList<>();
+            }
+        }
+
+        if (areaList != null && !areaList.isEmpty()) {
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
+            intent.putExtra("svg_uri", savedUri);
+            intent.putStringArrayListExtra("area_list", areaList);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        } else {
+            // No areas found, go to HomeActivity
+            Intent intent = new Intent(this,
+                    no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+            startActivity(intent);
+            finish();
+        }
+    }
+
 }
