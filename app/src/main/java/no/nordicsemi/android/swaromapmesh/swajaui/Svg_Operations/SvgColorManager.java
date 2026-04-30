@@ -31,16 +31,26 @@ public class SvgColorManager {
             "fill:none;stroke:none;stroke-miterlimit:10;";
 
     // ── Dependencies (set once after SVG is loaded) ───────────────────────
-    private Document svgDocument;
+    private Document   svgDocument;
     private SvgParsers parser;
 
     // ── Snapshot maps — original styles before modification ───────────────
-    /** Original fill of each icon's inner <rect>, keyed by identity hash */
+    /**
+     * Original fill of each icon's inner <rect>.
+     * Key = identity hash of the rect Element.
+     * Value = original fill string (may come from fill attr OR style attr).
+     */
     private final Map<Integer, String> originalIconFillMap    = new HashMap<>();
+    /**
+     * Whether the original fill was stored inside the style attribute (true)
+     * or as a standalone fill attribute (false).
+     */
+    private final Map<Integer, Boolean> originalIconFillInStyle = new HashMap<>();
+
     /** Original fill of elements in the Devices group, keyed by identity hash */
-    private final Map<Integer, String> devicesOriginalFillMap = new HashMap<>();
+    private final Map<Integer, String>  devicesOriginalFillMap = new HashMap<>();
     /** Original style strings of selection_layer rects, keyed by area ID */
-    private final Map<String, String>  originalAreaStyles     = new HashMap<>();
+    private final Map<String, String>   originalAreaStyles     = new HashMap<>();
 
     /** Currently dimmed area (other areas get the dark overlay) */
     private String dimmedAreaId = null;
@@ -58,6 +68,7 @@ public class SvgColorManager {
         this.svgDocument = document;
         this.parser      = svgParser;
         originalIconFillMap.clear();
+        originalIconFillInStyle.clear();
         devicesOriginalFillMap.clear();
         originalAreaStyles.clear();
         dimmedAreaId = null;
@@ -70,18 +81,43 @@ public class SvgColorManager {
 
     // ── Snapshot helpers ──────────────────────────────────────────────────
 
-    /** Snapshot the fill of the first <rect> child inside an icon group. */
+    /**
+     * ✅ FIX: Snapshot the fill of the first <rect> child inside an icon group.
+     * Checks BOTH fill attribute AND style attribute (fill:#xxx inside style="...").
+     */
     private void snapshotIconRectFill(Element iconGroup) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
-            if ("rect".equals(parser.normalizeTag(((Element) child).getTagName()))) {
-                int    key  = System.identityHashCode(child);
-                String fill = ((Element) child).getAttribute("fill");
-                if (fill != null && !fill.isEmpty()) originalIconFillMap.put(key, fill);
+            Element childEl = (Element) child;
+            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
+
+            int key = System.identityHashCode(childEl);
+
+            // ── Priority 1: standalone fill attribute ─────────────────────
+            String fillAttr = childEl.getAttribute("fill");
+            if (fillAttr != null && !fillAttr.isEmpty()) {
+                originalIconFillMap.put(key, fillAttr);
+                originalIconFillInStyle.put(key, false);
                 return;
             }
+
+            // ── Priority 2: fill inside style attribute ───────────────────
+            String styleAttr = childEl.getAttribute("style");
+            if (styleAttr != null && styleAttr.contains("fill")) {
+                String fillFromStyle = extractFillFromStyle(styleAttr);
+                if (!fillFromStyle.equals(COLOR_TRANSPARENT)) {
+                    originalIconFillMap.put(key, fillFromStyle);
+                    originalIconFillInStyle.put(key, true);
+                    return;
+                }
+            }
+
+            // ── No fill found — store transparent as fallback ─────────────
+            originalIconFillMap.put(key, COLOR_TRANSPARENT);
+            originalIconFillInStyle.put(key, false);
+            return;
         }
     }
 
@@ -120,31 +156,82 @@ public class SvgColorManager {
     //  ICON COLOR API
     // ══════════════════════════════════════════════════════════════════════
 
-    /** Sets the fill of the first <rect> inside an icon group element. */
+    /**
+     * ✅ FIX: Sets the fill of the first <rect> inside an icon group element.
+     * Handles BOTH fill attribute AND fill inside style attribute.
+     *
+     * e.g. <rect fill="#ff0"/> → sets fill attribute directly
+     *      <rect style="fill:#ffae42; stroke:#000;"/> → updates fill inside style
+     */
     public void applyColorToIconGroup(Element iconGroup, String color) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
-            if ("rect".equals(parser.normalizeTag(((Element) child).getTagName()))) {
-                ((Element) child).setAttribute("fill", color);
-                return;
+            Element childEl = (Element) child;
+            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
+
+            int     key        = System.identityHashCode(childEl);
+            Boolean inStyle    = originalIconFillInStyle.get(key);
+            boolean useStyle   = Boolean.TRUE.equals(inStyle);
+
+            if (useStyle) {
+                // ── Update fill inside style attribute ────────────────────
+                String style = childEl.getAttribute("style");
+                if (style != null && style.contains("fill:")) {
+                    // Replace existing fill:xxx inside style
+                    String newStyle = style.replaceAll(
+                            "fill\\s*:\\s*[^;]+", "fill:" + color);
+                    childEl.setAttribute("style", newStyle);
+                } else {
+                    // style exists but no fill yet — append it
+                    String newStyle = (style != null && !style.isEmpty())
+                            ? style + ";fill:" + color
+                            : "fill:" + color;
+                    childEl.setAttribute("style", newStyle);
+                }
+            } else {
+                // ── Set fill attribute directly ───────────────────────────
+                childEl.setAttribute("fill", color);
             }
+            return;
         }
     }
 
-    /** Restores the fill of an icon group's <rect> to its snapshotted value. */
+    /**
+     * ✅ FIX: Restores the fill of an icon group's <rect> to its snapshotted value.
+     * Handles BOTH fill attribute AND fill inside style attribute.
+     */
     public void restoreIconGroupColor(Element iconGroup) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
-            if ("rect".equals(parser.normalizeTag(((Element) child).getTagName()))) {
-                int    key  = System.identityHashCode(child);
-                String orig = originalIconFillMap.get(key);
-                if (orig != null) ((Element) child).setAttribute("fill", orig);
-                return;
+            Element childEl = (Element) child;
+            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
+
+            int     key      = System.identityHashCode(childEl);
+            String  origFill = originalIconFillMap.get(key);
+            Boolean inStyle  = originalIconFillInStyle.get(key);
+
+            if (origFill == null) return; // nothing snapshotted
+
+            if (Boolean.TRUE.equals(inStyle)) {
+                // ── Restore fill inside style attribute ───────────────────
+                String style = childEl.getAttribute("style");
+                if (style != null && style.contains("fill:")) {
+                    String restored = style.replaceAll(
+                            "fill\\s*:\\s*[^;]+", "fill:" + origFill);
+                    childEl.setAttribute("style", restored);
+                } else {
+                    // Fallback: set fill attr directly
+                    childEl.setAttribute("fill", origFill);
+                }
+            } else {
+                // ── Restore fill attribute directly ───────────────────────
+                childEl.setAttribute("fill", origFill);
             }
+            return;
         }
     }
 
@@ -207,7 +294,10 @@ public class SvgColorManager {
                 continue;
             }
 
-            boolean provisioned = provisionedIds != null && provisionedIds.contains(id);
+            // ✅ normalize id before lookup — case mismatch fix
+            boolean provisioned = provisionedIds != null
+                    && provisionedIds.contains(id.trim().toLowerCase());
+
             if (provisioned) {
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
                 Set<String> related = iconToDeviceRelations.get(id);
@@ -222,7 +312,6 @@ public class SvgColorManager {
         if (devicesToShow.isEmpty()) hideAllPhysicalDevices();
         else showOnlyPhysicalDevices(devicesToShow);
     }
-
     // ══════════════════════════════════════════════════════════════════════
     //  AREA DIM LOGIC
     // ══════════════════════════════════════════════════════════════════════
@@ -284,13 +373,13 @@ public class SvgColorManager {
     }
 
     // ── Furniture ─────────────────────────────────────────────────────────
+
     private void dimFurnitureOutsideArea(String focusedAreaId) {
         if (svgDocument == null || focusedAreaId == null) return;
         Element furnitureGroup =
                 parser.findElementById(svgDocument.getDocumentElement(), "Furniture");
         if (furnitureGroup == null) return;
 
-        // Remove group-level opacity so children can be styled independently
         if (!furnitureGroup.hasAttribute("data-orig-group-style")) {
             String gs = furnitureGroup.getAttribute("style");
             furnitureGroup.setAttribute("data-orig-group-style",
@@ -323,7 +412,6 @@ public class SvgColorManager {
         }
     }
 
-    /** Restores the Furniture group and all its children to their original styles. */
     private void restoreFurnitureVisibility() {
         if (svgDocument == null) return;
         Element furnitureGroup =
@@ -353,7 +441,6 @@ public class SvgColorManager {
 
     // ── Walls ─────────────────────────────────────────────────────────────
 
-    /** Sets the Walls layer to 25% opacity (dim=true) or restores it (dim=false). */
     private void setWallsOpacity(boolean dim) {
         if (svgDocument == null) return;
         Element walls = parser.findElementById(svgDocument.getDocumentElement(), "Walls");
@@ -379,6 +466,7 @@ public class SvgColorManager {
     // ══════════════════════════════════════════════════════════════════════
     //  DOOR HIGHLIGHTING
     // ══════════════════════════════════════════════════════════════════════
+
     public void highlightDoorsInArea(String areaId, RectF areaBounds) {
         if (svgDocument == null || areaId == null) return;
         restoreAllDoors();
@@ -395,7 +483,6 @@ public class SvgColorManager {
         String normAreaId = parser.normalize(areaId);
 
         for (Element doorEl : doorElements) {
-            // Snapshot original style once
             if (!doorEl.hasAttribute("data-orig-door-style")) {
                 String orig = doorEl.getAttribute("style");
                 doorEl.setAttribute("data-orig-door-style",
@@ -412,7 +499,6 @@ public class SvgColorManager {
         }
     }
 
-    /** Restores all doors in the Furniture group to their original styles. */
     public void restoreAllDoors() {
         if (svgDocument == null) return;
         Element furnitureGroup =
@@ -453,9 +539,6 @@ public class SvgColorManager {
 
     // ── Door helpers ──────────────────────────────────────────────────────
 
-    /**
-     * Recursively collects every element with "door" in its id attribute.
-     */
     private List<Element> collectAllDoorElements(Element parent) {
         List<Element> doors = new ArrayList<>();
         String id = parent.getAttribute("id");
@@ -468,6 +551,7 @@ public class SvgColorManager {
         }
         return doors;
     }
+
     private boolean isDoorBelongingToArea(Element doorEl, String normAreaId,
                                           RectF areaBounds) {
         // Strategy 1: explicit data-area attribute
@@ -495,14 +579,12 @@ public class SvgColorManager {
         if (areaBounds != null) {
             RectF doorBounds = parser.computeBounds(doorEl);
             if (doorBounds != null && !doorBounds.isEmpty()) {
-                // Center point inside area
                 if (areaBounds.contains(doorBounds.centerX(), doorBounds.centerY()))
                     return true;
-                // ≥30% overlap
                 RectF intersection = new RectF(doorBounds);
                 if (intersection.intersect(areaBounds)) {
-                    float overlap   = intersection.width() * intersection.height();
-                    float doorArea  = doorBounds.width() * doorBounds.height();
+                    float overlap  = intersection.width() * intersection.height();
+                    float doorArea = doorBounds.width() * doorBounds.height();
                     if (doorArea > 0 && (overlap / doorArea) > 0.3f) return true;
                 }
             }

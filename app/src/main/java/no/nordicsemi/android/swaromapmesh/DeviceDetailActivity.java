@@ -1,8 +1,6 @@
 package no.nordicsemi.android.swaromapmesh;
 
-import android.content.Context;
 import android.content.Intent;
-import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
 import android.widget.Toast;
@@ -10,8 +8,6 @@ import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-import java.util.HashSet;
-import java.util.Set;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityDeviceDetailBinding;
@@ -24,30 +20,38 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 public class DeviceDetailActivity extends AppCompatActivity {
 
     private static final String TAG = "DeviceDetailActivity";
-    public static final String EXTRA_PURE_DEVICE_NAME = "pure_device_name";
-    private static final String PREFS_NAME = "mesh_prefs";
-    private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
-    private static final String KEY_SERVER_SVG_DEVICE_ID = "server_svg_device_id";
-    public static final String EXTRA_DEVICE_ID = "device_id";
-    public static final String EXTRA_ELEMENT_ID = "element_id";
-    public static final String EXTRA_DEVICE_NAME = "device_name";
+
+    // ── Intent extras (public — used by callers) ───────────────────────────
+    public static final String EXTRA_PURE_DEVICE_NAME  = "pure_device_name";
+    public static final String EXTRA_DEVICE_ID         = "device_id";
+    public static final String EXTRA_ELEMENT_ID        = "element_id";
+    public static final String EXTRA_DEVICE_NAME       = "device_name";
     public static final String EXTRA_AUTO_FILTER_DEVICE = "auto_filter_device";
-    public static final String EXTRA_DEVICE_TYPE = "device_type";
-    public static final String DEVICE_TYPE_SERVER = "server";
-    public static final String DEVICE_TYPE_CLIENT = "client";
+    public static final String EXTRA_DEVICE_TYPE       = "device_type";
+    public static final String DEVICE_TYPE_SERVER      = "server";
+    public static final String DEVICE_TYPE_CLIENT      = "client";
+
+    // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES, KEY_SERVER_SVG_DEVICE_ID
+    //    Reason: DeviceDetailActivity ab directly mesh_prefs nahi likhti.
+    //    Sabka data ClientServerElementStore ke through jaata hai. ──────────
 
     private ActivityDeviceDetailBinding binding;
-    private SharedViewModel sharedViewModel;
+    private SharedViewModel             sharedViewModel;
+
     private String deviceId;
     private String elementId;
     private String deviceName;
     private String deviceType;
-    private int svgElementIdInt = -1;
+    private int    svgElementIdInt = -1;
 
     private final ActivityResultLauncher<Intent> provisioner =
             registerForActivityResult(
                     new ActivityResultContracts.StartActivityForResult(),
                     this::handleProvisioningResult);
+
+    // =========================================================================
+    // onCreate
+    // =========================================================================
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,9 +62,9 @@ public class DeviceDetailActivity extends AppCompatActivity {
         sharedViewModel = new androidx.lifecycle.ViewModelProvider(this)
                 .get(SharedViewModel.class);
 
-        deviceId = getIntent().getStringExtra(EXTRA_DEVICE_ID);
+        deviceId   = getIntent().getStringExtra(EXTRA_DEVICE_ID);
         deviceName = getIntent().getStringExtra(EXTRA_DEVICE_NAME);
-        elementId = getIntent().getStringExtra(EXTRA_ELEMENT_ID);
+        elementId  = getIntent().getStringExtra(EXTRA_ELEMENT_ID);
         deviceType = getIntent().getStringExtra(EXTRA_DEVICE_TYPE);
 
         if (elementId != null && !elementId.isEmpty()) {
@@ -81,13 +85,11 @@ public class DeviceDetailActivity extends AppCompatActivity {
             deviceName = extractPureDeviceName(deviceId);
         }
 
-        if (elementId != null && !elementId.isEmpty()) {
-            sharedViewModel.saveElementId(deviceId, elementId);
-
-            SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            prefs.edit().putString("element_id_" + deviceId, elementId).apply();
-
-            Log.d(TAG, "✅ Saved element ID: " + elementId + " for device: " + deviceId);
+        // ✅ ONE save — sirf Store ke through, koi direct prefs write nahi
+        if (svgElementIdInt != -1) {
+            ClientServerElementStore.saveServerSvgElementId(deviceId, svgElementIdInt);
+            Log.d(TAG, "✅ onCreate: saved svgElementId=" + svgElementIdInt
+                    + " for device=" + deviceId);
         }
 
         setupToolbar();
@@ -95,25 +97,28 @@ public class DeviceDetailActivity extends AppCompatActivity {
         setupButtons();
     }
 
+    // =========================================================================
+    // UI helpers
+    // =========================================================================
+
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
-
         String name = fullDeviceId;
         if (name.contains(":")) {
             name = name.substring(name.lastIndexOf(":") + 1).trim();
         }
-        name = name.replaceAll("\\s*\\d+$", "");
-        name = name.replaceAll("\\d+$", "");
-        name = name.replaceAll("\\s+", " ").trim();
-
+        name = name.replaceAll("\\s*\\d+$", "")
+                .replaceAll("\\d+$", "")
+                .replaceAll("\\s+", " ")
+                .trim();
         return name.isEmpty() ? fullDeviceId : name;
     }
 
     private void setupToolbar() {
         if (getSupportActionBar() != null) {
             getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            String title = (deviceName != null && !deviceName.isEmpty()) ? deviceName : deviceId;
-            getSupportActionBar().setTitle(title);
+            getSupportActionBar().setTitle(
+                    (deviceName != null && !deviceName.isEmpty()) ? deviceName : deviceId);
         }
     }
 
@@ -123,14 +128,10 @@ public class DeviceDetailActivity extends AppCompatActivity {
         if (pureDeviceName != null && !pureDeviceName.isEmpty()) {
             deviceName = pureDeviceName;
             binding.tvDeviceIdValue.setText(pureDeviceName);
-            if (getSupportActionBar() != null) {
-                getSupportActionBar().setTitle(pureDeviceName);
-            }
+            if (getSupportActionBar() != null) getSupportActionBar().setTitle(pureDeviceName);
         } else if (deviceName != null && !deviceName.isEmpty()) {
             binding.tvDeviceIdValue.setText(deviceName);
-            if (getSupportActionBar() != null) {
-                getSupportActionBar().setTitle(deviceName);
-            }
+            if (getSupportActionBar() != null) getSupportActionBar().setTitle(deviceName);
         } else {
             binding.tvDeviceIdValue.setText(deviceId);
         }
@@ -138,8 +139,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         binding.tvElementIdValue.setText(
                 (elementId != null && !elementId.isEmpty()) ? elementId : "—");
 
-        Log.d(TAG, "Showing device: deviceName=" + deviceName
-                + " pureName=" + pureDeviceName
+        Log.d(TAG, "populateDeviceInfo: deviceName=" + deviceName
                 + " originalId=" + deviceId
                 + " elementId=" + elementId
                 + " svgElementIdInt=" + svgElementIdInt);
@@ -148,30 +148,44 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private void setupButtons() {
         binding.btnConnect.setOnClickListener(v -> {
             Intent intent = new Intent(this, ScannerActivity.class);
-            intent.putExtra(EXTRA_DEVICE_ID, deviceId);
+            intent.putExtra(EXTRA_DEVICE_ID,   deviceId);
             intent.putExtra(EXTRA_DEVICE_NAME, deviceName);
-            intent.putExtra(EXTRA_ELEMENT_ID, elementId);
+            intent.putExtra(EXTRA_ELEMENT_ID,  elementId);
             startActivity(intent);
         });
 
         binding.addToNetwork.setOnClickListener(v -> {
-            Toast.makeText(this, "Starting provisioning for: " + deviceName, Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Starting provisioning for: " + deviceName,
+                    Toast.LENGTH_SHORT).show();
 
             Intent intent = new Intent(this, ScannerActivity.class);
             intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
-            intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, deviceId);
-            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE, deviceName);
-            intent.putExtra(EXTRA_DEVICE_NAME, deviceName);
-            intent.putExtra(EXTRA_DEVICE_TYPE, deviceType);
-            intent.putExtra(EXTRA_ELEMENT_ID, elementId);
+            intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID,    deviceId);
+            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE,     deviceName);
+            intent.putExtra(EXTRA_DEVICE_NAME,            deviceName);
+            intent.putExtra(EXTRA_DEVICE_TYPE,            deviceType);
+            intent.putExtra(EXTRA_ELEMENT_ID,             elementId);
 
-            Log.d(TAG, "Provisioning: Original ID=" + deviceId + " Display Name=" + deviceName);
-            Log.d(TAG, "EXTRA_AUTO_FILTER_DEVICE=" + deviceName);
-            Log.d(TAG, "EXTRA_DEVICE_NAME=" + deviceName);
-
+            Log.d(TAG, "Launch provisioning: deviceId=" + deviceId
+                    + " deviceName=" + deviceName);
             provisioner.launch(intent);
         });
     }
+
+    // =========================================================================
+    // handleProvisioningResult  ← MAIN CHANGE
+    //
+    // Pehle:
+    //   • 5 alag jagah data save hota tha (direct prefs + VM + Store)
+    //   • Case inconsistency: "Casting:Relay Node1" vs "casting:relay node1"
+    //   • element_id_ key duplicate tha (onCreate + yahan)
+    //
+    // Ab:
+    //   • Sirf ClientServerElementStore.saveDevice() — ek atomic call
+    //   • sharedViewModel.syncFromStore() — VM ko Store se sync karo
+    //   • sharedViewModel.mapNodeToSvg() — UUID mapping (in-memory + node_svg_ prefs)
+    //   • Koi direct prefs write nahi is method mein
+    // =========================================================================
 
     private void handleProvisioningResult(final ActivityResult result) {
         Log.d(TAG, "handleProvisioningResult: code=" + result.getResultCode());
@@ -182,115 +196,112 @@ public class DeviceDetailActivity extends AppCompatActivity {
         }
 
         final Intent data = result.getData();
-        boolean provisioningSuccess = data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
-        Log.d(TAG, "PROVISIONING_COMPLETED=" + provisioningSuccess);
+        boolean provisioningSuccess =
+                data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
 
         if (!provisioningSuccess) {
             Log.d(TAG, "Provisioning not completed");
             return;
         }
 
+        // ── Resolve svgDeviceId ───────────────────────────────────────────
         String svgDeviceId = data.getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
-        Log.d(TAG, "svgDeviceId from result=" + svgDeviceId);
-
         if (svgDeviceId == null || svgDeviceId.isEmpty()) {
             svgDeviceId = deviceId;
-            Log.w(TAG, "svgDeviceId null, fallback to deviceId=" + deviceId);
+            Log.w(TAG, "svgDeviceId null — fallback to deviceId=" + deviceId);
         }
-
         final String finalSvgDeviceId = svgDeviceId;
-        final SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
-        // ✅ 1. Save provisioned device set
-        Set<String> current = new HashSet<>(
-                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
-        current.add(finalSvgDeviceId);
-        prefs.edit()
-                .putStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>(current))
-                .apply();
-
-        // ✅ 2. Mark provisioned in ViewModel
-        sharedViewModel.markDeviceProvisioned(finalSvgDeviceId);
-        Log.d(TAG, "✅ markDeviceProvisioned: " + finalSvgDeviceId);
-
-        // ✅ 3. Save element ID
-        if (elementId != null && !elementId.isEmpty()) {
-            sharedViewModel.saveElementId(finalSvgDeviceId, elementId);
-            prefs.edit()
-                    .putString("element_id_" + finalSvgDeviceId, elementId)
-                    .apply();
-            Log.d(TAG, "✅ Saved elementId=" + elementId + " for svgDeviceId=" + finalSvgDeviceId);
-        } else {
-            Log.e(TAG, "❌ elementId is null/empty — cannot save for svgDeviceId=" + finalSvgDeviceId);
+        // ── Resolve svgElementId ──────────────────────────────────────────
+        // svgElementIdInt already parsed in onCreate; use it directly.
+        if (svgElementIdInt == -1) {
+            Log.e(TAG, "❌ svgElementIdInt = -1 — elementId was invalid: " + elementId);
         }
 
-        // ✅ 4. Node mapping — UUID, Unicast, MAC, SVG Element ID
+        // ── Get provisioned node ──────────────────────────────────────────
         ProvisionedMeshNode provisionedNode = sharedViewModel.getLastProvisionedNode();
 
-        if (provisionedNode != null) {
-            String storeKey = finalSvgDeviceId.trim().toLowerCase();
-            // e.g. "casting:relay node1"
-
-            // 4a. UUID → SVG mapping
-            sharedViewModel.mapNodeToSvg(provisionedNode.getUuid(), finalSvgDeviceId);
-            Log.d(TAG, "✅ mapNodeToSvg: uuid=" + provisionedNode.getUuid()
-                    + " → svgDeviceId=" + finalSvgDeviceId);
-
-            // 4b. Unicast address
-            ClientServerElementStore.saveServerUnicastAddress(
-                    storeKey, provisionedNode.getUnicastAddress());
-            Log.d(TAG, "✅ Saved unicast=" + provisionedNode.getUnicastAddress()
-                    + " for storeKey=" + storeKey);
-
-            // 4c. MAC address
-            String mac = provisionedNode.getMacAddress();
-            if (mac != null && !mac.isEmpty()) {
-                ClientServerElementStore.saveServerMacAddress(storeKey, mac);
-                Log.d(TAG, "✅ Saved MAC=" + mac + " for storeKey=" + storeKey);
-            } else {
-                Log.w(TAG, "⚠️ MAC address null/empty for storeKey=" + storeKey);
-            }
-
-            // 4d. SVG element ID
-            int svgElementId = sharedViewModel.getSvgElementIdAsInt(finalSvgDeviceId);
-            if (svgElementId != -1) {
-                ClientServerElementStore.saveServerSvgElementId(storeKey, svgElementId);
-                Log.d(TAG, "✅ Saved svgElementId=" + svgElementId
-                        + " for storeKey=" + storeKey);
-            } else {
-                Log.w(TAG, "⚠️ svgElementId not found for svgDeviceId=" + finalSvgDeviceId);
-            }
-
-        } else {
-            Log.e(TAG, "❌ provisionedNode is null — node mapping skipped for: " + finalSvgDeviceId);
+        if (provisionedNode == null) {
+            Log.e(TAG, "❌ provisionedNode is null — cannot save addresses for: "
+                    + finalSvgDeviceId);
+            // Still mark provisioned so SVG turns green
+            ClientServerElementStore.markProvisioned(finalSvgDeviceId);
+            sharedViewModel.syncFromStore();
+            showProvisionedToast(finalSvgDeviceId);
+            finish();
+            return;
         }
 
-        // ✅ 5. Handle device type specific logic
-        if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
-            Log.d(TAG, "📱 CLIENT provisioned: " + finalSvgDeviceId);
-            prefs.edit().putString("client_svg_element_" + finalSvgDeviceId, elementId).apply();
-            Toast.makeText(this,
-                    "Client " + deviceName + " provisioned!\nElement ID: " + elementId,
-                    Toast.LENGTH_LONG).show();
+        // ── ✅ SINGLE ATOMIC SAVE via Store ───────────────────────────────
+        // Replaces:
+        //   prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, ...) ← REMOVED
+        //   sharedViewModel.markDeviceProvisioned()                  ← REMOVED
+        //   sharedViewModel.saveElementId()                          ← REMOVED
+        //   prefs.edit().putString("element_id_" + ...)             ← REMOVED
+        //   ClientServerElementStore.saveServerUnicastAddress()      ← REMOVED
+        //   ClientServerElementStore.saveServerMacAddress()          ← REMOVED
+        //   ClientServerElementStore.saveServerSvgElementId()        ← REMOVED
+        ClientServerElementStore.saveDevice(
+                finalSvgDeviceId,
+                provisionedNode.getUnicastAddress(),
+                svgElementIdInt,
+                provisionedNode.getMacAddress()
+        );
 
-        } else if (DEVICE_TYPE_SERVER.equals(deviceType)) {
-            Log.d(TAG, "🖥️ SERVER provisioned: " + finalSvgDeviceId);
+        Log.d(TAG, "✅ saveDevice: svgId=" + finalSvgDeviceId
+                + " unicast=0x" + String.format("%04X", provisionedNode.getUnicastAddress())
+                + " svgElementId=" + svgElementIdInt
+                + " mac=" + provisionedNode.getMacAddress());
+
+        // ── UUID → SVG mapping (in-memory + node_svg_ prefs) ─────────────
+        sharedViewModel.mapNodeToSvg(provisionedNode.getUuid(), finalSvgDeviceId);
+        Log.d(TAG, "✅ mapNodeToSvg: uuid=" + provisionedNode.getUuid()
+                + " → " + finalSvgDeviceId);
+
+        // ── Sync ViewModel LiveData from Store ────────────────────────────
+        // SharedViewModel ab directly prefs nahi padhta —
+        // Store se fresh provisioned set lekar LiveData update karta hai.
+        sharedViewModel.syncFromStore();
+
+        // ── Device-type specific logic ────────────────────────────────────
+        if (DEVICE_TYPE_SERVER.equals(deviceType)) {
             sharedViewModel.setServerSvgDeviceId(finalSvgDeviceId);
-            prefs.edit().putString(KEY_SERVER_SVG_DEVICE_ID, finalSvgDeviceId).apply();
-            Toast.makeText(this,
-                    "Server " + deviceName + " provisioned!\nElement ID: " + elementId,
-                    Toast.LENGTH_LONG).show();
+            Log.d(TAG, "🖥️ SERVER provisioned: " + finalSvgDeviceId);
+
+        } else if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
+            Log.d(TAG, "📱 CLIENT provisioned: " + finalSvgDeviceId);
 
         } else {
-            Log.d(TAG, "Unknown device type: " + deviceType);
-            Toast.makeText(this,
-                    deviceName + " provisioned successfully!",
-                    Toast.LENGTH_LONG).show();
+            Log.d(TAG, "ℹ️ Unknown device type: " + deviceType);
         }
+
+        showProvisionedToast(finalSvgDeviceId);
 
         Log.d(TAG, "✅ Provisioning fully completed for: " + finalSvgDeviceId);
         finish();
     }
+
+    // =========================================================================
+    // Toast helper
+    // =========================================================================
+
+    private void showProvisionedToast(String svgDeviceId) {
+        String label = (deviceName != null && !deviceName.isEmpty())
+                ? deviceName : svgDeviceId;
+        String msg;
+        if (DEVICE_TYPE_SERVER.equals(deviceType)) {
+            msg = "Server " + label + " provisioned!\nElement ID: " + elementId;
+        } else if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
+            msg = "Client " + label + " provisioned!\nElement ID: " + elementId;
+        } else {
+            msg = label + " provisioned successfully!";
+        }
+        Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
+    }
+
+    // =========================================================================
+    // Navigation
+    // =========================================================================
 
     @Override
     public boolean onSupportNavigateUp() {

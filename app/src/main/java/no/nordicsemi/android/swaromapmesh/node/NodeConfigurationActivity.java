@@ -55,6 +55,7 @@ import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.transport.ProxyConfigFilterStatus;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.BaseActivity;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.NodeConfigurationViewModel;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -419,7 +420,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
                     + " address=0x" + String.format("%04X", elementAddress));
         }
 
-        mSharedViewModel.saveAllClientElementAddresses(svgDeviceId, elementAddresses);
+        ClientServerElementStore.saveAllClientElementAddresses(svgDeviceId, elementAddresses);
         Log.d(TAG, "✅ handleClientAddressSaving: saved "
                 + elementAddresses.size() + " elements for svgDeviceId=" + svgDeviceId);
     }

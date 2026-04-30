@@ -52,6 +52,7 @@ import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.DeviceInfo;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgParsers;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
@@ -60,15 +61,17 @@ public class NetworkFragment extends Fragment {
     private static final String TAG = "NetworkFragment";
 
     // ── Zoom constants ────────────────────────────────────────────────────
-    private static final float MAX_ZOOM        = 10f;
-    private static final float DOUBLE_TAP_ZOOM = 2.5f;
-    private static final float TAP_TOLERANCE   = 8f;
+    private static final float MAX_ZOOM           = 10f;
+    private static final float DOUBLE_TAP_ZOOM    = 2.5f;
+    private static final float TAP_TOLERANCE      = 8f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
+    private static final float TAP_MOVE_SLOP      = 10f;
+    private static final long  TAP_MAX_DURATION   = 250;
 
-    // ── Prefs ─────────────────────────────────────────────────────────────
-    private static final String PREFS_NAME              = "mesh_prefs";
-    private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
+    // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES
+    //    Reason: NetworkFragment ab directly mesh_prefs nahi padhta.
+    //    Provisioned check sirf ClientServerElementStore ke through hota hai. ─
 
     // ── Area / zoom lock state ────────────────────────────────────────────
     private float  areaLockedMinZoom  = -1f;
@@ -93,11 +96,10 @@ public class NetworkFragment extends Fragment {
     // ── Data ──────────────────────────────────────────────────────────────
     private final Map<String, DeviceInfo>   deviceMap             = new LinkedHashMap<>();
     private final Map<String, Set<String>>  iconToDeviceRelations = new HashMap<>();
-
     private String selectedDeviceId;
 
     // ── Helper classes ────────────────────────────────────────────────────
-    private final SvgParsers svgParser    = new SvgParsers();
+    private final SvgParsers     svgParser    = new SvgParsers();
     private final SvgColorManager colorManager = new SvgColorManager();
 
     // ── SVG state ─────────────────────────────────────────────────────────
@@ -123,9 +125,7 @@ public class NetworkFragment extends Fragment {
     // ── Tap helpers ───────────────────────────────────────────────────────
     private float   tapDownX, tapDownY;
     private long    tapDownTime;
-    private boolean hasMoved   = false;
-    private static final float TAP_MOVE_SLOP    = 10f;
-    private static final long  TAP_MAX_DURATION = 250;
+    private boolean hasMoved = false;
 
     // ══════════════════════════════════════════════════════════════════════
     //  LIFECYCLE
@@ -136,19 +136,19 @@ public class NetworkFragment extends Fragment {
     public View onCreateView(@NonNull LayoutInflater inflater,
                              @Nullable ViewGroup container,
                              @Nullable Bundle savedInstanceState) {
-        binding   = FragmentNetworkBinding.inflate(inflater, container, false);
+        binding    = FragmentNetworkBinding.inflate(inflater, container, false);
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
         setupZoomAndPan();
         observeViewModel();
 
-        // ✅ Direct load — don't wait for URI observer
-        showLoading(true);
-        loadSvgFromAssets("SwajaOffice.svg");
+//        showLoading(true);
+        loadSvgFromAssets("office.svg");
 
         return binding.getRoot();
     }
 
     private void observeViewModel() {
+
         mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
             if (binding == null) return;
             mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
@@ -177,6 +177,9 @@ public class NetworkFragment extends Fragment {
             }
         });
 
+        // ✅ provisionedDeviceIds LiveData — Store se sync hoti hai (normalized keys)
+        // refreshColors() mein getProvisionedSet() call hota hai jo Store se normalized
+        // Set<String> return karta hai — case mismatch bug permanently khatam.
         mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), ids -> {
             if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
             if (mAutoSetupInProgress) return;
@@ -184,7 +187,6 @@ public class NetworkFragment extends Fragment {
             refreshColors();
             reRenderSvg();
         });
-
     }
 
     @Override
@@ -226,8 +228,8 @@ public class NetworkFragment extends Fragment {
 
     public boolean handleBackPress() {
         if (areaLockedId != null) {
-            areaLockedId       = null;
-            areaLockedMinZoom  = -1f;
+            areaLockedId      = null;
+            areaLockedMinZoom = -1f;
             currentFocusAreaId = null;
             colorManager.restoreAllAreas(
                     svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
@@ -266,6 +268,7 @@ public class NetworkFragment extends Fragment {
                 if (assets != null)
                     for (String a : assets)
                         if (a.equals(assetFileName)) { found = true; break; }
+
                 if (!found) {
                     mainHandler.post(() -> {
                         showLoading(false);
@@ -275,9 +278,11 @@ public class NetworkFragment extends Fragment {
                     });
                     return;
                 }
+
                 InputStream is1 = requireContext().getAssets().open(assetFileName);
                 Document    doc = svgParser.parseDocument(is1);
                 is1.close();
+
                 InputStream is2 = requireContext().getAssets().open(assetFileName);
                 SVG         svg = SVG.getFromInputStream(is2);
                 is2.close();
@@ -349,20 +354,19 @@ public class NetworkFragment extends Fragment {
         renderSvg(svg, true);
         showLoading(false);
     }
-
     // ══════════════════════════════════════════════════════════════════════
-    //  COLOR REFRESH  (delegates to SvgColorManager)
+    //  COLOR REFRESH
     // ══════════════════════════════════════════════════════════════════════
-
     private void refreshColors() {
         colorManager.refreshAllColors(
                 deviceMap,
-                getProvisionedFromPrefs(),
+                getProvisionedSet(),
                 selectedDeviceId,
                 iconToDeviceRelations,
                 currentFocusAreaId
         );
     }
+
 
     // ══════════════════════════════════════════════════════════════════════
     //  AREA ZOOM
@@ -371,7 +375,6 @@ public class NetworkFragment extends Fragment {
     private void zoomToArea(String areaId) {
         RectF areaBounds = svgParser.selectionLayerBounds.get(areaId);
         if (areaBounds == null) {
-            // Fallback: union of device icon bounds in that area
             List<String> iconIds = svgParser.areaMap.get(areaId);
             if (iconIds == null || iconIds.isEmpty()) return;
             for (String iconId : iconIds) {
@@ -387,16 +390,12 @@ public class NetworkFragment extends Fragment {
         Log.d(TAG, "zoomToArea '" + areaId + "' → " + areaBounds);
         currentFocusAreaId = areaId;
 
-        // Dim other areas + highlight doors
         colorManager.dimOtherAreas(
                 areaId, svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-
-        // Show only this area's device icons
         refreshColors();
         reRenderSvg();
 
         final RectF finalBounds = new RectF(areaBounds);
-
         mainHandler.postDelayed(() -> {
             if (binding == null) return;
             Runnable doZoom = () -> {
@@ -433,18 +432,11 @@ public class NetworkFragment extends Fragment {
         }, 300);
     }
 
-    /**
-     * Exit area zoom on double-tap:
-     * Zoom back to full floor plan but keep icons restricted to the focused area.
-     */
     private void exitAreaZoom() {
         areaLockedId      = null;
         areaLockedMinZoom = -1f;
-        // currentFocusAreaId intentionally kept — icons stay restricted
-
         colorManager.restoreAllAreas(
                 svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-
         if (currentFocusAreaId != null) refreshColors();
         else                            refreshColors();
 
@@ -452,9 +444,25 @@ public class NetworkFragment extends Fragment {
         binding.svgView.post(() -> fitFloorPlanToView(true));
     }
 
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  PROVISIONED HELPERS  ← CORE FIX
+    //
+
+    private boolean isProvisioned(String deviceId) {
+        return ClientServerElementStore.isProvisioned(deviceId);
+    }
+
+    private Set<String> getProvisionedSet() {
+        return ClientServerElementStore.getProvisionedKeys();
+    }
+
+
     // ══════════════════════════════════════════════════════════════════════
     //  FLOOR PLAN FIT
     // ══════════════════════════════════════════════════════════════════════
+
+
 
     private void fitFloorPlanToView(boolean animate) {
         if (binding == null || binding.svgView.getDrawable() == null) return;
@@ -569,7 +577,9 @@ public class NetworkFragment extends Fragment {
                     binding.svgView.setImageMatrix(frozenMatrix);
                     binding.svgView.invalidate();
                 });
-            } catch (Exception e) { Log.e(TAG, "reRenderSvg error", e); }
+            } catch (Exception e) {
+                Log.e(TAG, "reRenderSvg error", e);
+            }
         });
     }
 
@@ -580,7 +590,10 @@ public class NetworkFragment extends Fragment {
             StringWriter sw = new StringWriter();
             t.transform(new DOMSource(doc), new StreamResult(sw));
             return sw.toString();
-        } catch (Exception e) { Log.e(TAG, "documentToString error", e); return ""; }
+        } catch (Exception e) {
+            Log.e(TAG, "documentToString error", e);
+            return "";
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -608,18 +621,6 @@ public class NetworkFragment extends Fragment {
         } else {
             if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
         }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  PREFS
-    // ══════════════════════════════════════════════════════════════════════
-
-    private Set<String> getProvisionedFromPrefs() {
-        if (getContext() == null) return new HashSet<>();
-        SharedPreferences prefs =
-                requireContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        return new HashSet<>(
-                prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>()));
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -799,19 +800,22 @@ public class NetworkFragment extends Fragment {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  DEVICE TAP
+    //  DEVICE TAP  ← CORE FIX
+    //
+    //  Pehle: provisioned.contains(deviceId) → case-sensitive exact match → FAIL
+    //  Ab:    isProvisioned(deviceId) → Store.normalize() → reliable ✅
     // ══════════════════════════════════════════════════════════════════════
 
     private void onDeviceTapped(String deviceId) {
-        Set<String> provisioned = getProvisionedFromPrefs();
-        DeviceInfo  device      = deviceMap.get(deviceId);
+        DeviceInfo device = deviceMap.get(deviceId);
 
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
 
         if (device != null && device.element != null) {
-            colorManager.applyColorToIconGroup(device.element,
-                    provisioned.contains(deviceId)
+            colorManager.applyColorToIconGroup(
+                    device.element,
+                    isProvisioned(deviceId)
                             ? SvgColorManager.COLOR_TRANSPARENT
                             : SvgColorManager.COLOR_SELECTED);
         }
@@ -823,12 +827,14 @@ public class NetworkFragment extends Fragment {
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String      displayName      = extractPureDeviceName(deviceId);
-        Set<String> relatedDevices   = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
-        String      relationDevName  = relatedDevices.isEmpty()
+        String      displayName     = extractPureDeviceName(deviceId);
+        Set<String> relatedDevices  = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
+        String      relationDevName = relatedDevices.isEmpty()
                 ? null : relatedDevices.iterator().next();
 
-        if (provisioned.contains(deviceId)) {
+        // ✅ isProvisioned() — Store ke through, normalize() use karta hai
+        // "Casting:Relay Node1" → normalize → "casting:relay node1" → unicast check → true/false
+        if (isProvisioned(deviceId)) {
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
@@ -840,6 +846,7 @@ public class NetworkFragment extends Fragment {
             startActivity(intent);
             return;
         }
+
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
@@ -849,10 +856,6 @@ public class NetworkFragment extends Fragment {
         startActivity(intent);
     }
 
-    /**
-     * Strips area prefix and trailing digits to get a clean display name.
-     * e.g. "LivingRoom:Light 1" → "Light"
-     */
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
         String name = fullDeviceId;
@@ -872,7 +875,8 @@ public class NetworkFragment extends Fragment {
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
         DeviceInfo device = deviceMap.get(selectedDeviceId);
-        if (device != null && !getProvisionedFromPrefs().contains(selectedDeviceId)) {
+        // ✅ isProvisioned() — Store ke through
+        if (device != null && !isProvisioned(selectedDeviceId)) {
             colorManager.restoreIconGroupColor(device.element);
             reRenderSvg();
         }
@@ -1003,7 +1007,9 @@ public class NetworkFragment extends Fragment {
                 matrix.setValues(matrixValues);
                 clampMatrix();
                 binding.svgView.setImageMatrix(matrix);
-            } else { anim.cancel(); }
+            } else {
+                anim.cancel();
+            }
         });
         flingAnimator.start();
     }

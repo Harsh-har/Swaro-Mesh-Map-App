@@ -381,9 +381,9 @@ public class TestProvisionActivity extends AppCompatActivity {
     }
 
     private boolean isProvisioned(String id) {
-        SharedPreferences prefs   = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        Set<String>       devices = prefs.getStringSet(KEY_PROVISIONED_DEVICES, new HashSet<>());
-        return devices.contains(id);
+        if (id == null) return false;
+        return ClientServerElementStore
+                .getServerUnicastAddress(id.trim().toLowerCase()) != -1;
     }
 
     @Override

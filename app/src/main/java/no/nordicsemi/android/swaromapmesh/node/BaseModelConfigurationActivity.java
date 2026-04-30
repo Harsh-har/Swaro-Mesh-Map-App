@@ -96,7 +96,7 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         SwipeRefreshLayout.OnRefreshListener {
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Log Tags — filter in Logcat by these tags
+    // Log Tags
     // ─────────────────────────────────────────────────────────────────────────
     private static final String TAG         = "BaseModelConfig";
     private static final String TAG_STATURE = "STATURE_CMD";
@@ -105,24 +105,23 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private static final String TAG_LIGHT   = "LIGHT_CMD";
     private static final String TAG_TID     = "TID";
     private static final String TAG_MODEL   = "MODEL_CARD";
+    private static final String TAG_PUB     = "AUTO_PUB";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Model IDs
     // ─────────────────────────────────────────────────────────────────────────
-    private static final int GENERIC_ONOFF_SERVER = 0x1000; // → Short + Long commands
-    private static final int GENERIC_ONOFF_CLIENT = 0x1001; // → Scene + Stature commands
+    private static final int GENERIC_ONOFF_SERVER = 0x1000;
+    private static final int GENERIC_ONOFF_CLIENT = 0x1001;
 
     private static final String DIALOG_FRAGMENT_CONFIGURATION_STATUS = "DIALOG_FRAGMENT_CONFIGURATION_STATUS";
     private static final String PROGRESS_BAR_STATE = "PROGRESS_BAR_STATE";
 
     private static final int DEFAULT_BRIGHTNESS_VALUE = 30;
-    private static final int MIN_BRIGHTNESS = 0;
-    private static final int MAX_BRIGHTNESS = 255;
-
-    private static final int MIN_LENGTH = 0;
-    private static final int MAX_LENGTH = 255;
-
-    private static final int MAX_TID = 255;
+    private static final int MIN_BRIGHTNESS           = 0;
+    private static final int MAX_BRIGHTNESS           = 255;
+    private static final int MIN_LENGTH               = 0;
+    private static final int MAX_LENGTH               = 255;
+    private static final int MAX_TID                  = 255;
 
     private static final String PRESS_TYPE_SINGLE = "Single";
     private static final String PRESS_TYPE_DOUBLE = "Double";
@@ -138,40 +137,40 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     // Command containers
     private LinearLayout mContainerShortLongCommands;
     private LinearLayout mContainerSceneCommands;
-    private View mGenericStatureCard;
+    private View         mGenericStatureCard;
 
     CoordinatorLayout mContainer;
-    View    mContainerAppKeyBinding;
-    Button  mActionBindAppKey;
-    TextView mAppKeyView;
-    TextView mUnbindHint;
-    View    mContainerPublication;
-    Button  mActionSetPublication;
-    Button  mActionClearPublication;
-    TextView mPublishAddressView;
-    View    mContainerSubscribe;
-    Button  mActionSubscribe;
-    TextView mSubscribeAddressView;
-    TextView mSubscribeHint;
-    ProgressBar mProgressbar;
+    View              mContainerAppKeyBinding;
+    Button            mActionBindAppKey;
+    TextView          mAppKeyView;
+    TextView          mUnbindHint;
+    View              mContainerPublication;
+    Button            mActionSetPublication;
+    Button            mActionClearPublication;
+    TextView          mPublishAddressView;
+    View              mContainerSubscribe;
+    Button            mActionSubscribe;
+    TextView          mSubscribeAddressView;
+    TextView          mSubscribeHint;
+    ProgressBar       mProgressbar;
     SwipeRefreshLayout mSwipe;
 
-    protected List<Integer> mGroupAddress = new ArrayList<>();
-    protected List<Integer> mKeyIndexes   = new ArrayList<>();
-    protected GroupAddressAdapter mSubscriptionAdapter;
-    protected BoundAppKeysAdapter mBoundAppKeyAdapter;
-    protected Button mActionRead;
-    protected Button mActionSetRelayState;
-    protected Button mSetNetworkTransmitStateButton;
+    protected List<Integer>        mGroupAddress       = new ArrayList<>();
+    protected List<Integer>        mKeyIndexes         = new ArrayList<>();
+    protected GroupAddressAdapter  mSubscriptionAdapter;
+    protected BoundAppKeysAdapter  mBoundAppKeyAdapter;
+    protected Button               mActionRead;
+    protected Button               mActionSetRelayState;
+    protected Button               mSetNetworkTransmitStateButton;
 
     // Short Command
-    protected Button mSendButton;
+    protected Button            mSendButton;
     protected TextInputEditText mCommandEditText;
     protected TextInputEditText mStateEditText;
 
     // Long Command
-    protected Button mLongSendButton;
-    protected Button mLongReadButton;
+    protected Button            mLongSendButton;
+    protected Button            mLongReadButton;
     protected TextInputEditText mLengthEditText;
     protected TextInputEditText mLongAddressEditText;
     protected List<TextInputLayout>   mLongDataFields    = new ArrayList<>();
@@ -184,17 +183,17 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     protected TextInputEditText mModeEditText;
     protected TextInputEditText mDeviceEditText;
     protected TextInputEditText mSceneStateEditText;
-    protected Button mBtnPressSingle;
-    protected Button mBtnPressDouble;
-    protected Button mBtnPressLong;
-    protected Button mSceneSendButton;
+    protected Button            mBtnPressSingle;
+    protected Button            mBtnPressDouble;
+    protected Button            mBtnPressLong;
+    protected Button            mSceneSendButton;
 
     // Stature Command
     protected TextInputEditText mStatureIncDecEditText;
     protected TextInputEditText mStatureUpdateEditText;
     protected TextInputEditText mStatureDeviceCategoryEditText;
     protected TextInputEditText mStatureValueEditText;
-    protected Button mStatureSendButton;
+    protected Button            mStatureSendButton;
 
     private RecyclerView recyclerViewBoundKeys, recyclerViewSubscriptions;
 
@@ -307,7 +306,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             new ItemTouchHelper(new RemovableItemTouchHelperCallback(this))
                     .attachToRecyclerView(recyclerViewSubscriptions);
             mSubscriptionAdapter = new GroupAddressAdapter(this,
-                    mViewModel.getNetworkLiveData().getMeshNetwork(), mViewModel.getSelectedModel());
+                    mViewModel.getNetworkLiveData().getMeshNetwork(),
+                    mViewModel.getSelectedModel());
             recyclerViewSubscriptions.setAdapter(mSubscriptionAdapter);
 
             recyclerViewBoundKeys = findViewById(R.id.recycler_view_bound_keys);
@@ -316,7 +316,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             new ItemTouchHelper(new RemovableItemTouchHelperCallback(this))
                     .attachToRecyclerView(recyclerViewBoundKeys);
             mBoundAppKeyAdapter = new BoundAppKeysAdapter(this,
-                    mViewModel.getNetworkLiveData().getAppKeys(), mViewModel.getSelectedModel());
+                    mViewModel.getNetworkLiveData().getAppKeys(),
+                    mViewModel.getSelectedModel());
             recyclerViewBoundKeys.setAdapter(mBoundAppKeyAdapter);
 
             // Listeners
@@ -350,7 +351,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
                 if (status != null) {
                     hideProgressBar();
                     DialogFragmentTransactionStatus
-                            .newInstance("Transaction Failed", getString(R.string.operation_timed_out))
+                            .newInstance("Transaction Failed",
+                                    getString(R.string.operation_timed_out))
                             .show(getSupportFragmentManager(), null);
                 }
             });
@@ -365,7 +367,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             if (model != null && getSupportActionBar() != null) {
                 getSupportActionBar().setTitle(model.getModelName());
                 getSupportActionBar().setSubtitle(getString(R.string.model_id,
-                        CompositionDataParser.formatModelIdentifier(model.getModelId(), true)));
+                        CompositionDataParser.formatModelIdentifier(
+                                model.getModelId(), true)));
             }
         });
 
@@ -397,8 +400,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         boolean showStature   = (modelId == GENERIC_ONOFF_CLIENT);
 
         mContainerShortLongCommands.setVisibility(showShortLong ? View.VISIBLE : View.GONE);
-        mContainerSceneCommands.setVisibility(showScene ? View.VISIBLE : View.GONE);
-        mGenericStatureCard.setVisibility(showStature ? View.VISIBLE : View.GONE);
+        mContainerSceneCommands.setVisibility(showScene     ? View.VISIBLE : View.GONE);
+        mGenericStatureCard.setVisibility(showStature   ? View.VISIBLE : View.GONE);
 
         Log.d(TAG_MODEL, "→ Card visibility:");
         Log.d(TAG_MODEL, "   Short/Long: " + (showShortLong ? "VISIBLE" : "GONE"));
@@ -407,13 +410,9 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         Log.d(TAG_MODEL, "══════════════════════════════");
     }
 
-    private void hideAllCommandCards() {
-        mContainerShortLongCommands.setVisibility(View.GONE);
-        mContainerSceneCommands.setVisibility(View.GONE);
-        mGenericStatureCard.setVisibility(View.GONE);
-    }
-
+    // ─────────────────────────────────────────────────────────────────────────
     // Binary helpers
+    // ─────────────────────────────────────────────────────────────────────────
     private static String toBin8(int v) {
         return String.format("%8s", Integer.toBinaryString(v & 0xFF)).replace(' ', '0');
     }
@@ -449,11 +448,16 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     }
 
     private void addSceneValidationListeners() {
-        mSceneIdEditText.addTextChangedListener(new SimpleTextWatcher(this::validateSceneId));
-        mTypeEditText.addTextChangedListener(new SimpleTextWatcher(this::validateType));
-        mModeEditText.addTextChangedListener(new SimpleTextWatcher(this::validateMode));
-        mDeviceEditText.addTextChangedListener(new SimpleTextWatcher(this::validateDevice));
-        mSceneStateEditText.addTextChangedListener(new SimpleTextWatcher(this::validateSceneState));
+        mSceneIdEditText.addTextChangedListener(
+                new SimpleTextWatcher(this::validateSceneId));
+        mTypeEditText.addTextChangedListener(
+                new SimpleTextWatcher(this::validateType));
+        mModeEditText.addTextChangedListener(
+                new SimpleTextWatcher(this::validateMode));
+        mDeviceEditText.addTextChangedListener(
+                new SimpleTextWatcher(this::validateDevice));
+        mSceneStateEditText.addTextChangedListener(
+                new SimpleTextWatcher(this::validateSceneState));
     }
 
     private void validateSceneId()    { validateRange(mSceneIdEditText,    1, 240, "Scene ID must be 1–240"); }
@@ -465,13 +469,17 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private void validateRange(TextInputEditText et, int min, int max, String err) {
         try {
             String t = et.getText() != null ? et.getText().toString().trim() : "";
-            if (!t.isEmpty()) et.setError((Integer.parseInt(t) < min || Integer.parseInt(t) > max) ? err : null);
-        } catch (NumberFormatException e) { et.setError("Invalid value"); }
+            if (!t.isEmpty()) {
+                int v = Integer.parseInt(t);
+                et.setError((v < min || v > max) ? err : null);
+            }
+        } catch (NumberFormatException e) {
+            et.setError("Invalid value");
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // Auto Bind — ✅ FIX: uses sendAcknowledgedMessageSilent() so NO progress
-    //             bar appears on screen entry
+    // Auto Bind — silent (no progress bar on screen entry)
     // ─────────────────────────────────────────────────────────────────────────
     private boolean isAutoBindTriggered = false;
 
@@ -483,14 +491,12 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         if (node == null || element == null || model == null) return;
         if (!node.isExist(SigModelParser.CONFIGURATION_SERVER)) return;
         if (!checkConnectivity(mContainer)) return;
-        if (model.getBoundAppKeyIndexes() != null && !model.getBoundAppKeyIndexes().isEmpty()) return;
+        if (model.getBoundAppKeyIndexes() != null
+                && !model.getBoundAppKeyIndexes().isEmpty()) return;
         final List<ApplicationKey> keys = mViewModel.getNetworkLiveData().getAppKeys();
         if (keys == null || keys.isEmpty()) return;
         isAutoBindTriggered = true;
         Log.d(TAG, "tryAutoBind ▶ binding key index " + keys.get(0).getKeyIndex());
-
-        // ✅ CHANGED: was sendAcknowledgedMessage() which called showProgressBar()
-        //    Now uses silent version — no ugly progress bar on first load
         sendAcknowledgedMessageSilent(
                 node.getUnicastAddress(),
                 new ConfigModelAppBind(
@@ -528,13 +534,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             final int idx = i;
             mLongDataEditTexts.get(i).addTextChangedListener(
                     new SimpleTextWatcher(() -> validateBrightnessField(idx)));
-
-            if (i < 7) {
-                mLongDataEditTexts.get(i).setImeOptions(EditorInfo.IME_ACTION_NEXT);
-            } else {
-                mLongDataEditTexts.get(i).setImeOptions(EditorInfo.IME_ACTION_DONE);
-            }
-
+            mLongDataEditTexts.get(i).setImeOptions(
+                    i < 7 ? EditorInfo.IME_ACTION_NEXT : EditorInfo.IME_ACTION_DONE);
             mLongDataFields.get(i).setVisibility(View.VISIBLE);
         }
     }
@@ -544,7 +545,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             String t = mLongDataEditTexts.get(idx).getText().toString().trim();
             if (!t.isEmpty()) {
                 int b = Integer.parseInt(t);
-                mLongDataFields.get(idx).setError((b < 0 || b > 255) ? "Brightness must be 0–255" : null);
+                mLongDataFields.get(idx).setError(
+                        (b < 0 || b > 255) ? "Brightness must be 0–255" : null);
             }
         } catch (NumberFormatException e) {
             mLongDataFields.get(idx).setError("Invalid value");
@@ -553,25 +555,33 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
 
     private void readLongCommand() {
         Log.d(TAG_LIGHT, "readLongCommand ▶ TODO not yet implemented");
-        mViewModel.displaySnackBar(this, mContainer, "Reading from device...", Snackbar.LENGTH_SHORT);
+        mViewModel.displaySnackBar(this, mContainer,
+                "Reading from device...", Snackbar.LENGTH_SHORT);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Lifecycle
     // ─────────────────────────────────────────────────────────────────────────
     @Override protected void onStart() { super.onStart(); mViewModel.setActivityVisible(true); }
-    @Override protected void onStop()  {
-        super.onStop(); mViewModel.setActivityVisible(false);
+    @Override protected void onStop() {
+        super.onStop();
+        mViewModel.setActivityVisible(false);
         if (isFinishing()) mHandler.removeCallbacksAndMessages(null);
     }
     @Override protected void onSaveInstanceState(@NonNull Bundle out) {
         super.onSaveInstanceState(out);
-        out.putBoolean(PROGRESS_BAR_STATE, mProgressbar.getVisibility() == View.VISIBLE);
+        out.putBoolean(PROGRESS_BAR_STATE,
+                mProgressbar.getVisibility() == View.VISIBLE);
     }
     @Override protected void onRestoreInstanceState(@NonNull Bundle in) {
         super.onRestoreInstanceState(in);
-        if (in.getBoolean(PROGRESS_BAR_STATE)) { mProgressbar.setVisibility(View.VISIBLE); disableClickableViews(); }
-        else { mProgressbar.setVisibility(View.INVISIBLE); enableClickableViews(); }
+        if (in.getBoolean(PROGRESS_BAR_STATE)) {
+            mProgressbar.setVisibility(View.VISIBLE);
+            disableClickableViews();
+        } else {
+            mProgressbar.setVisibility(View.INVISIBLE);
+            enableClickableViews();
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -588,27 +598,38 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     @Override public boolean onGroupAdded(@NonNull String name, int address) {
         MeshNetwork n = mViewModel.getNetworkLiveData().getMeshNetwork();
         Group g = n.createGroup(n.getSelectedProvisioner(), address, name);
-        if (n.addGroup(g)) { subscribe(g); return true; } return false;
+        if (n.addGroup(g)) { subscribe(g); return true; }
+        return false;
     }
     @Override public boolean onGroupAdded(@NonNull Group group) {
         MeshNetwork n = mViewModel.getNetworkLiveData().getMeshNetwork();
-        if (n.addGroup(group)) { subscribe(group); return true; } return false;
+        if (n.addGroup(group)) { subscribe(group); return true; }
+        return false;
     }
     @Override public void subscribe(Group group) {
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;
-        Element el = mViewModel.getSelectedElement().getValue(); if (el == null) return;
-        MeshModel m = mViewModel.getSelectedModel().getValue(); if (m == null) return;
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+        Element el = mViewModel.getSelectedElement().getValue();
+        if (el == null) return;
+        MeshModel m = mViewModel.getSelectedModel().getValue();
+        if (m == null) return;
         MeshMessage msg = group.getAddressLabel() == null
-                ? new ConfigModelSubscriptionAdd(el.getElementAddress(), group.getAddress(), m.getModelId())
-                : new ConfigModelSubscriptionVirtualAddressAdd(el.getElementAddress(), group.getAddressLabel(), m.getModelId());
+                ? new ConfigModelSubscriptionAdd(
+                el.getElementAddress(), group.getAddress(), m.getModelId())
+                : new ConfigModelSubscriptionVirtualAddressAdd(
+                el.getElementAddress(), group.getAddressLabel(), m.getModelId());
         sendAcknowledgedMessage(node.getUnicastAddress(), msg);
     }
     @Override public void subscribe(int address) {
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;
-        Element el = mViewModel.getSelectedElement().getValue(); if (el == null) return;
-        MeshModel m = mViewModel.getSelectedModel().getValue(); if (m == null) return;
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+        Element el = mViewModel.getSelectedElement().getValue();
+        if (el == null) return;
+        MeshModel m = mViewModel.getSelectedModel().getValue();
+        if (m == null) return;
         sendAcknowledgedMessage(node.getUnicastAddress(),
-                new ConfigModelSubscriptionAdd(el.getElementAddress(), address, m.getModelId()));
+                new ConfigModelSubscriptionAdd(
+                        el.getElementAddress(), address, m.getModelId()));
     }
     @Override public void onItemDismiss(RemovableViewHolder vh) {
         int pos = vh.getAbsoluteAdapterPosition();
@@ -623,24 +644,40 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     // ─────────────────────────────────────────────────────────────────────────
     @Override public void onRefresh() {
         final MeshModel model = mViewModel.getSelectedModel().getValue();
-        if (!checkConnectivity(mContainer) || model == null) { mSwipe.setRefreshing(false); return; }
-        final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
-        final Element element = mViewModel.getSelectedElement().getValue();
+        if (!checkConnectivity(mContainer) || model == null) {
+            mSwipe.setRefreshing(false);
+            return;
+        }
+        final ProvisionedMeshNode node    = mViewModel.getSelectedMeshNode().getValue();
+        final Element             element = mViewModel.getSelectedElement().getValue();
         if (node == null || element == null) return;
+
         if (model instanceof SigModel) {
-            if (!(model instanceof ConfigurationServerModel) && !(model instanceof ConfigurationClientModel)) {
-                mViewModel.displaySnackBar(this, mContainer, getString(R.string.listing_model_configuration), Snackbar.LENGTH_LONG);
-                mViewModel.getMessageQueue().add(new ConfigSigModelAppGet(element.getElementAddress(), model.getModelId()));
+            if (!(model instanceof ConfigurationServerModel)
+                    && !(model instanceof ConfigurationClientModel)) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        getString(R.string.listing_model_configuration),
+                        Snackbar.LENGTH_LONG);
+                mViewModel.getMessageQueue().add(new ConfigSigModelAppGet(
+                        element.getElementAddress(), model.getModelId()));
                 if (model.getModelId() != SigModelParser.SCENE_SETUP_SERVER) {
-                    mViewModel.getMessageQueue().add(new ConfigSigModelSubscriptionGet(element.getElementAddress(), model.getModelId()));
-                    queuePublicationGetMessage(element.getElementAddress(), model.getModelId());
+                    mViewModel.getMessageQueue().add(new ConfigSigModelSubscriptionGet(
+                            element.getElementAddress(), model.getModelId()));
+                    queuePublicationGetMessage(
+                            element.getElementAddress(), model.getModelId());
                 }
                 sendQueuedMessage(node.getUnicastAddress());
-            } else { mSwipe.setRefreshing(false); }
+            } else {
+                mSwipe.setRefreshing(false);
+            }
         } else {
-            mViewModel.displaySnackBar(this, mContainer, getString(R.string.listing_model_configuration), Snackbar.LENGTH_LONG);
-            mViewModel.getMessageQueue().add(new ConfigVendorModelAppGet(element.getElementAddress(), model.getModelId()));
-            mViewModel.getMessageQueue().add(new ConfigVendorModelSubscriptionGet(element.getElementAddress(), model.getModelId()));
+            mViewModel.displaySnackBar(this, mContainer,
+                    getString(R.string.listing_model_configuration),
+                    Snackbar.LENGTH_LONG);
+            mViewModel.getMessageQueue().add(new ConfigVendorModelAppGet(
+                    element.getElementAddress(), model.getModelId()));
+            mViewModel.getMessageQueue().add(new ConfigVendorModelSubscriptionGet(
+                    element.getElementAddress(), model.getModelId()));
             queuePublicationGetMessage(element.getElementAddress(), model.getModelId());
             sendQueuedMessage(node.getUnicastAddress());
         }
@@ -653,169 +690,230 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         MeshMessage m = mViewModel.getMessageQueue().peek();
         if (m != null) sendAcknowledgedMessage(address, m);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // navigateToPublication — ✅ FIXED: Area-aware lookup via
+    //   ClientServerElementStore.getKeyBySvgElementIdAndArea()
+    //   Same logic as AreaClientListActivity.getElementRows() — always correct.
+    // ─────────────────────────────────────────────────────────────────────────
     protected void navigateToPublication() {
-        MeshModel model = mViewModel.getSelectedModel().getValue();
+        final MeshModel           model   = mViewModel.getSelectedModel().getValue();
+        final Element             element = mViewModel.getSelectedElement().getValue();
+        final ProvisionedMeshNode node    = mViewModel.getSelectedMeshNode().getValue();
+
         if (model == null || model.getBoundAppKeyIndexes().isEmpty()) {
-            mViewModel.displaySnackBar(this, mContainer, getString(R.string.error_no_app_keys_bound), Snackbar.LENGTH_LONG);
+            mViewModel.displaySnackBar(this, mContainer,
+                    getString(R.string.error_no_app_keys_bound), Snackbar.LENGTH_LONG);
             return;
         }
 
-        // ✅ AUTO PUBLICATION — client element ke liye server address set karo
-        Element element = mViewModel.getSelectedElement().getValue();
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        // Only auto-publish for GenericOnOffClient model
+        if (element == null || node == null || model.getModelId() != GENERIC_ONOFF_CLIENT) {
+            publicationSettings.launch(
+                    new Intent(this, PublicationSettingsActivity.class));
+            return;
+        }
 
-        if (element != null && node != null && model.getModelId() == GENERIC_ONOFF_CLIENT) {
+        // ── Step 1: Get client node name + extract area prefix ────────────────
+        String clientNodeName = node.getNodeName() != null
+                ? node.getNodeName().trim() : null;
 
-            // Client node ka naam
-            String clientDeviceId = node.getNodeName() != null
-                    ? node.getNodeName().trim().toLowerCase() : null;
+        if (clientNodeName == null || clientNodeName.isEmpty()) {
+            Log.w(TAG_PUB, "⚠️ Client node name null — falling back to dialog");
+            publicationSettings.launch(
+                    new Intent(this, PublicationSettingsActivity.class));
+            return;
+        }
 
-            if (clientDeviceId != null) {
+        // Store key: "vcri:sw-cn01-aa" (full lowercase)
+        String clientStoreKey = clientNodeName.toLowerCase();
 
-                int targetElementAddress = element.getElementAddress();
-                int clientElementIndex = -1;
-                for (int i = 0; i <= 40; i++) {
-                    int storedAddr = ClientServerElementStore.getClientAddress(clientDeviceId, i);
-                    if (storedAddr == targetElementAddress) {
-                        clientElementIndex = i;
-                        break;
-                    }
-                }
+        // Area prefix: "VCRI:SW-CN01-AA" → "vcri"
+        String clientArea = "";
+        if (clientNodeName.contains(":")) {
+            clientArea = clientNodeName.split(":")[0].trim().toLowerCase();
+        }
 
-                Log.d(TAG, "AUTO PUB: clientDeviceId=" + clientDeviceId
-                        + " elementIndex=" + clientElementIndex
-                        + " elementAddr=0x" + String.format("%04X", targetElementAddress));
+        Log.d(TAG_PUB, "navigateToPublication: clientNodeName=" + clientNodeName
+                + " clientStoreKey=" + clientStoreKey
+                + " clientArea=" + clientArea);
 
-                if (clientElementIndex >= 0) {
+        // ── Step 2: Find element index from stored client element addresses ───
+        int targetElementAddress = element.getElementAddress();
+        int clientElementIndex   = -1;
 
-                    int matchingSvgId = clientElementIndex; // index == svgElementId
-                    
-                    MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-                    if (network != null) {
-                        int serverPublishAddress = -1;
-
-                        for (ProvisionedMeshNode n : network.getNodes()) {
-                            String serverDeviceId = n.getNodeName() != null
-                                    ? n.getNodeName().trim().toLowerCase() : null;
-                            if (serverDeviceId == null) continue;
-
-                            int svgId = no.nordicsemi.android.swaromapmesh.viewmodels
-                                    .ClientServerElementStore.getServerSvgElementId(serverDeviceId);
-
-                            Log.d(TAG, "  Checking server=" + serverDeviceId
-                                    + " svgId=" + svgId
-                                    + " matchingSvgId=" + matchingSvgId);
-
-                            if (svgId == matchingSvgId) {
-                                // ✅ Match mila — server ka primary element address lo
-                                serverPublishAddress = no.nordicsemi.android.swaromapmesh.viewmodels
-                                        .ClientServerElementStore.getServerPrimaryElementAddress(serverDeviceId);
-
-                                Log.d(TAG, "✅ AUTO PUB MATCH: server=" + serverDeviceId
-                                        + " svgId=" + svgId
-                                        + " publishAddr=0x" + String.format("%04X", serverPublishAddress));
-                                break;
-                            }
-                        }
-
-                        // ✅ Server mila — directly publication set karo, dialog skip karo
-                        if (serverPublishAddress != -1) {
-                            final int finalPublishAddress = serverPublishAddress;
-                            final int appKeyIndex = model.getBoundAppKeyIndexes().get(0);
-
-                            // ✅ Find server node unicast and element address for reverse pub
-                            int serverUnicast     = -1;
-                            int serverElementAddr = -1;
-
-                            for (ProvisionedMeshNode n : network.getNodes()) {
-                                String serverDeviceId = n.getNodeName() != null
-                                        ? n.getNodeName().trim().toLowerCase() : null;
-                                if (serverDeviceId == null) continue;
-                                int svgId = ClientServerElementStore.getServerSvgElementId(serverDeviceId);
-                                if (svgId == matchingSvgId) {
-                                    serverUnicast     = n.getUnicastAddress();
-                                    serverElementAddr = ClientServerElementStore
-                                            .getServerPrimaryElementAddress(serverDeviceId);
-                                    break;
-                                }
-                            }
-
-                            // ✅ Register reverse publication BEFORE sending client pub
-                            if (serverUnicast != -1 && serverElementAddr != -1) {
-                                ((ModelConfigurationViewModel) mViewModel)
-                                        .getNrfMeshRepository()
-                                        .setPendingReversePublication(
-                                                serverUnicast,
-                                                serverElementAddr,
-                                                targetElementAddress,  // client element addr
-                                                appKeyIndex
-                                        );
-                                Log.d(TAG, "✅ Reverse pub queued: server=0x"
-                                        + String.format("%04X", serverUnicast)
-                                        + " → clientElem=0x"
-                                        + String.format("%04X", targetElementAddress));
-                            }
-
-                            // Send client → server pub (reverse fires automatically on STATUS callback)
-                            try {
-                                ConfigModelPublicationSet pubSet = new ConfigModelPublicationSet(
-                                        targetElementAddress,
-                                        finalPublishAddress,
-                                        appKeyIndex,
-                                        false, 5, 0, 0, 0, 0,
-                                        model.getModelId()
-                                );
-                                sendAcknowledgedMessage(node.getUnicastAddress(), pubSet);
-                                mViewModel.displaySnackBar(this, mContainer,
-                                        "Publication set ↔ bidirectional",
-                                        Snackbar.LENGTH_LONG);
-                                return;
-                            } catch (Exception e) {
-                                Log.e(TAG, "❌ Auto publication failed", e);
-                            }
-                        }
-              else {
-                            Log.w(TAG, "⚠️ No matching server found for svgId=" + matchingSvgId);
-                        }
-                    }
-                }
+        for (int i = 0; i <= 40; i++) {
+            int storedAddr = ClientServerElementStore.getClientAddress(clientStoreKey, i);
+            if (storedAddr == targetElementAddress) {
+                clientElementIndex = i;
+                break;
             }
         }
 
-        // Default — normal publication settings dialog
-        publicationSettings.launch(new Intent(this, PublicationSettingsActivity.class));
+        Log.d(TAG_PUB, "  targetElementAddr=0x"
+                + String.format("%04X", targetElementAddress)
+                + " clientElementIndex=" + clientElementIndex);
+
+        if (clientElementIndex < 0) {
+            Log.w(TAG_PUB, "⚠️ Element index not found for client="
+                    + clientStoreKey + " — falling back to dialog");
+            publicationSettings.launch(
+                    new Intent(this, PublicationSettingsActivity.class));
+            return;
+        }
+
+        // svgId = clientElementIndex (0-based, same convention as AreaClientListActivity)
+        int matchingSvgId = clientElementIndex;
+
+        // ── Step 3: Area-aware server lookup ─────────────────────────────────
+        // ✅ This is the exact same call AreaClientListActivity.getElementRows() makes.
+        //    getKeyBySvgElementIdAndArea() checks BOTH svgId AND area prefix — no wrong matches.
+        String serverStoreKey = ClientServerElementStore
+                .getKeyBySvgElementIdAndArea(matchingSvgId, clientArea);
+
+        Log.d(TAG_PUB, "  matchingSvgId=" + matchingSvgId
+                + " serverStoreKey=" + serverStoreKey);
+
+        if (serverStoreKey == null) {
+            Log.w(TAG_PUB, "⚠️ No server found for svgId=" + matchingSvgId
+                    + " area=" + clientArea + " — falling back to dialog");
+            publicationSettings.launch(
+                    new Intent(this, PublicationSettingsActivity.class));
+            return;
+        }
+
+        // ── Step 4: Fetch stored server addresses ─────────────────────────────
+        int serverUnicastAddress = ClientServerElementStore
+                .getServerUnicastAddress(serverStoreKey);
+        int serverElementAddr    = ClientServerElementStore
+                .getServerPrimaryElementAddress(serverStoreKey);
+
+        Log.d(TAG_PUB, "  serverUnicastAddr=0x"
+                + String.format("%04X", serverUnicastAddress)
+                + " serverElementAddr=0x"
+                + String.format("%04X", serverElementAddr));
+
+        if (serverUnicastAddress == -1 || serverElementAddr == -1) {
+            Log.w(TAG_PUB, "⚠️ Server addresses not stored yet for key="
+                    + serverStoreKey + " — falling back to dialog");
+            publicationSettings.launch(
+                    new Intent(this, PublicationSettingsActivity.class));
+            return;
+        }
+
+        // ── Step 5: Register reverse publication (server → client) ────────────
+        final int appKeyIndex = model.getBoundAppKeyIndexes().get(0);
+
+        ((ModelConfigurationViewModel) mViewModel)
+                .getNrfMeshRepository()
+                .setPendingReversePublication(
+                        serverUnicastAddress,
+                        serverElementAddr,
+                        targetElementAddress,   // client element address
+                        appKeyIndex
+                );
+
+        Log.d(TAG_PUB, "✅ Reverse pub queued: server=0x"
+                + String.format("%04X", serverUnicastAddress)
+                + " serverElem=0x" + String.format("%04X", serverElementAddr)
+                + " → clientElem=0x" + String.format("%04X", targetElementAddress));
+
+        // ── Step 6: Send client → server publication ──────────────────────────
+        try {
+            ConfigModelPublicationSet pubSet = new ConfigModelPublicationSet(
+                    targetElementAddress,
+                    serverElementAddr,
+                    appKeyIndex,
+                    false, 5, 0, 0, 0, 0,
+                    model.getModelId()
+            );
+            sendAcknowledgedMessage(node.getUnicastAddress(), pubSet);
+
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Publication set ↔ bidirectional",
+                    Snackbar.LENGTH_LONG);
+
+            Log.d(TAG_PUB, "✅ Client→Server pub sent:"
+                    + " client=0x" + String.format("%04X", node.getUnicastAddress())
+                    + " clientElem=0x" + String.format("%04X", targetElementAddress)
+                    + " → serverElem=0x" + String.format("%04X", serverElementAddr));
+
+        } catch (Exception e) {
+            Log.e(TAG_PUB, "❌ Auto publication failed", e);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Auto-pub failed: " + e.getMessage(),
+                    Snackbar.LENGTH_SHORT);
+        }
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // App Key helpers
+    // ─────────────────────────────────────────────────────────────────────────
     private void bindAppKey(int idx) {
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;
-        Element el = mViewModel.getSelectedElement().getValue(); if (el == null) return;
-        MeshModel m = mViewModel.getSelectedModel().getValue(); if (m == null) return;
-        sendAcknowledgedMessage(node.getUnicastAddress(), new ConfigModelAppBind(el.getElementAddress(), m.getModelId(), idx));
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+        Element el = mViewModel.getSelectedElement().getValue();
+        if (el == null) return;
+        MeshModel m = mViewModel.getSelectedModel().getValue();
+        if (m == null) return;
+        sendAcknowledgedMessage(node.getUnicastAddress(),
+                new ConfigModelAppBind(el.getElementAddress(), m.getModelId(), idx));
     }
+
     private void unbindAppKey(int pos) {
         if (mBoundAppKeyAdapter.getItemCount() == 0) return;
-        if (!checkConnectivity(mContainer)) { mBoundAppKeyAdapter.notifyItemChanged(pos); return; }
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;
-        Element el = mViewModel.getSelectedElement().getValue(); if (el == null) return;
-        MeshModel m = mViewModel.getSelectedModel().getValue(); if (m == null) return;
-        sendAcknowledgedMessage(node.getUnicastAddress(), new ConfigModelAppUnbind(
-                el.getElementAddress(), m.getModelId(), mBoundAppKeyAdapter.getAppKey(pos).getKeyIndex()));
+        if (!checkConnectivity(mContainer)) {
+            mBoundAppKeyAdapter.notifyItemChanged(pos);
+            return;
+        }
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+        Element el = mViewModel.getSelectedElement().getValue();
+        if (el == null) return;
+        MeshModel m = mViewModel.getSelectedModel().getValue();
+        if (m == null) return;
+        sendAcknowledgedMessage(node.getUnicastAddress(),
+                new ConfigModelAppUnbind(
+                        el.getElementAddress(),
+                        m.getModelId(),
+                        mBoundAppKeyAdapter.getAppKey(pos).getKeyIndex()));
     }
+
     private void clearPublication() {
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;
-        Element el = mViewModel.getSelectedElement().getValue(); if (el == null) return;
-        MeshModel m = mViewModel.getSelectedModel().getValue(); if (m == null) return;
-        sendAcknowledgedMessage(node.getUnicastAddress(), new ConfigModelPublicationSet(el.getElementAddress(), m.getModelId()));
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+        Element el = mViewModel.getSelectedElement().getValue();
+        if (el == null) return;
+        MeshModel m = mViewModel.getSelectedModel().getValue();
+        if (m == null) return;
+        sendAcknowledgedMessage(node.getUnicastAddress(),
+                new ConfigModelPublicationSet(el.getElementAddress(), m.getModelId()));
     }
+
     private void deleteSubscription(int pos) {
         if (mSubscriptionAdapter.getItemCount() == 0) return;
-        if (!checkConnectivity(mContainer)) { mSubscriptionAdapter.notifyItemChanged(pos); return; }
+        if (!checkConnectivity(mContainer)) {
+            mSubscriptionAdapter.notifyItemChanged(pos);
+            return;
+        }
         int addr = mGroupAddress.get(pos);
-        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue(); if (node == null) return;
-        Element el = mViewModel.getSelectedElement().getValue(); if (el == null) return;
-        MeshModel m = mViewModel.getSelectedModel().getValue(); if (m == null) return;
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node == null) return;
+        Element el = mViewModel.getSelectedElement().getValue();
+        if (el == null) return;
+        MeshModel m = mViewModel.getSelectedModel().getValue();
+        if (m == null) return;
         MeshMessage msg = null;
-        if (isValidGroupAddress(addr)) msg = new ConfigModelSubscriptionDelete(el.getElementAddress(), addr, m.getModelId());
-        else { UUID u = m.getLabelUUID(addr); if (u != null) msg = new ConfigModelSubscriptionVirtualAddressDelete(el.getElementAddress(), u, m.getModelId()); }
+        if (isValidGroupAddress(addr)) {
+            msg = new ConfigModelSubscriptionDelete(
+                    el.getElementAddress(), addr, m.getModelId());
+        } else {
+            UUID u = m.getLabelUUID(addr);
+            if (u != null) {
+                msg = new ConfigModelSubscriptionVirtualAddressDelete(
+                        el.getElementAddress(), u, m.getModelId());
+            }
+        }
         if (msg != null) sendAcknowledgedMessage(node.getUnicastAddress(), msg);
     }
 
@@ -824,67 +922,108 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     // ─────────────────────────────────────────────────────────────────────────
     @Override protected final void showProgressBar() {
         mHandler.postDelayed(mRunnableOperationTimeout, MESSAGE_TIME_OUT);
-        disableClickableViews(); mProgressbar.setVisibility(View.VISIBLE);
+        disableClickableViews();
+        mProgressbar.setVisibility(View.VISIBLE);
     }
+
     @Override protected final void hideProgressBar() {
-        mSwipe.setRefreshing(false); enableClickableViews();
+        mSwipe.setRefreshing(false);
+        enableClickableViews();
         mProgressbar.setVisibility(View.INVISIBLE);
         mHandler.removeCallbacks(mRunnableOperationTimeout);
     }
+
     @Override protected void enableClickableViews() {
-        mActionBindAppKey.setEnabled(true); mActionSetPublication.setEnabled(true);
-        mActionClearPublication.setEnabled(true); mActionSubscribe.setEnabled(true);
-        if (mActionSetRelayState != null) mActionSetRelayState.setEnabled(true);
+        mActionBindAppKey.setEnabled(true);
+        mActionSetPublication.setEnabled(true);
+        mActionClearPublication.setEnabled(true);
+        mActionSubscribe.setEnabled(true);
+        if (mActionSetRelayState != null)           mActionSetRelayState.setEnabled(true);
         if (mSetNetworkTransmitStateButton != null) mSetNetworkTransmitStateButton.setEnabled(true);
         if (mActionRead != null && !mActionRead.isEnabled()) mActionRead.setEnabled(true);
     }
+
     @Override protected void disableClickableViews() {
-        mActionBindAppKey.setEnabled(false); mActionSetPublication.setEnabled(false);
-        mActionClearPublication.setEnabled(false); mActionSubscribe.setEnabled(false);
-        if (mActionSetRelayState != null) mActionSetRelayState.setEnabled(false);
+        mActionBindAppKey.setEnabled(false);
+        mActionSetPublication.setEnabled(false);
+        mActionClearPublication.setEnabled(false);
+        mActionSubscribe.setEnabled(false);
+        if (mActionSetRelayState != null)           mActionSetRelayState.setEnabled(false);
         if (mSetNetworkTransmitStateButton != null) mSetNetworkTransmitStateButton.setEnabled(false);
-        if (mActionRead != null) mActionRead.setEnabled(false);
+        if (mActionRead != null)                    mActionRead.setEnabled(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // UI Updates
     // ─────────────────────────────────────────────────────────────────────────
     protected void updateAppStatusUi(MeshModel mm) {
-        List<Integer> keys = mm.getBoundAppKeyIndexes(); mKeyIndexes.clear(); mKeyIndexes.addAll(keys);
-        if (!keys.isEmpty()) { mUnbindHint.setVisibility(View.VISIBLE); mAppKeyView.setVisibility(View.GONE); recyclerViewBoundKeys.setVisibility(View.VISIBLE); }
-        else { mUnbindHint.setVisibility(View.GONE); mAppKeyView.setVisibility(View.VISIBLE); recyclerViewBoundKeys.setVisibility(View.GONE); }
+        List<Integer> keys = mm.getBoundAppKeyIndexes();
+        mKeyIndexes.clear();
+        mKeyIndexes.addAll(keys);
+        if (!keys.isEmpty()) {
+            mUnbindHint.setVisibility(View.VISIBLE);
+            mAppKeyView.setVisibility(View.GONE);
+            recyclerViewBoundKeys.setVisibility(View.VISIBLE);
+        } else {
+            mUnbindHint.setVisibility(View.GONE);
+            mAppKeyView.setVisibility(View.VISIBLE);
+            recyclerViewBoundKeys.setVisibility(View.GONE);
+        }
     }
+
     protected void updatePublicationUi(MeshModel mm) {
         PublicationSettings ps = mm.getPublicationSettings();
         if (ps != null) {
             int addr = ps.getPublishAddress();
-            if (isValidVirtualAddress(addr)) { UUID u = ps.getLabelUUID(); mPublishAddressView.setText(u != null ? u.toString().toUpperCase(Locale.US) : formatAddress(addr, true)); }
-            else mPublishAddressView.setText(formatAddress(addr, true));
+            if (isValidVirtualAddress(addr)) {
+                UUID u = ps.getLabelUUID();
+                mPublishAddressView.setText(u != null
+                        ? u.toString().toUpperCase(Locale.US)
+                        : formatAddress(addr, true));
+            } else {
+                mPublishAddressView.setText(formatAddress(addr, true));
+            }
             mActionClearPublication.setVisibility(View.VISIBLE);
-        } else { mPublishAddressView.setText(R.string.none); mActionClearPublication.setVisibility(View.GONE); }
+        } else {
+            mPublishAddressView.setText(R.string.none);
+            mActionClearPublication.setVisibility(View.GONE);
+        }
     }
+
     protected void updateSubscriptionUi(MeshModel mm) {
-        List<Integer> subs = mm.getSubscribedAddresses(); mGroupAddress.clear(); mGroupAddress.addAll(subs);
-        if (!subs.isEmpty()) { mSubscribeHint.setVisibility(View.VISIBLE); mSubscribeAddressView.setVisibility(View.GONE); recyclerViewSubscriptions.setVisibility(View.VISIBLE); }
-        else { mSubscribeHint.setVisibility(View.GONE); mSubscribeAddressView.setVisibility(View.VISIBLE); recyclerViewSubscriptions.setVisibility(View.GONE); }
+        List<Integer> subs = mm.getSubscribedAddresses();
+        mGroupAddress.clear();
+        mGroupAddress.addAll(subs);
+        if (!subs.isEmpty()) {
+            mSubscribeHint.setVisibility(View.VISIBLE);
+            mSubscribeAddressView.setVisibility(View.GONE);
+            recyclerViewSubscriptions.setVisibility(View.VISIBLE);
+        } else {
+            mSubscribeHint.setVisibility(View.GONE);
+            mSubscribeAddressView.setVisibility(View.VISIBLE);
+            recyclerViewSubscriptions.setVisibility(View.GONE);
+        }
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     // Message Senders
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Send a mesh PDU and show the progress bar + disable views.
-     * Use for user-initiated operations.
-     */
+    /** Send PDU + show progress bar. Use for user-initiated operations. */
     protected void sendMessage(@NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
             ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
-            if (node != null) { mViewModel.getMeshManagerApi().createMeshPdu(node.getUnicastAddress(), msg); showProgressBar(); }
+            if (node != null) {
+                mViewModel.getMeshManagerApi().createMeshPdu(node.getUnicastAddress(), msg);
+                showProgressBar();
+            }
         } catch (IllegalArgumentException ex) {
             hideProgressBar();
-            DialogFragmentError.newInstance(getString(R.string.title_error), ex.getMessage() == null ? getString(R.string.unknwon_error) : ex.getMessage())
+            DialogFragmentError.newInstance(
+                            getString(R.string.title_error),
+                            ex.getMessage() == null
+                                    ? getString(R.string.unknwon_error) : ex.getMessage())
                     .show(getSupportFragmentManager(), null);
         }
     }
@@ -892,41 +1031,43 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     protected boolean handleStatuses() {
         MeshMessage m = mViewModel.getMessageQueue().peek();
         if (m != null) { sendMessage(m); return true; }
-        mViewModel.displaySnackBar(this, mContainer, getString(R.string.operation_success), Snackbar.LENGTH_SHORT);
+        mViewModel.displaySnackBar(this, mContainer,
+                getString(R.string.operation_success), Snackbar.LENGTH_SHORT);
         return false;
     }
 
-    /**
-     * Send an acknowledged mesh PDU and show the progress bar.
-     * Use for user-initiated operations.
-     */
+    /** Send acknowledged PDU + show progress bar. Use for user-initiated operations. */
     protected void sendAcknowledgedMessage(int address, @NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
-            mViewModel.getMeshManagerApi().createMeshPdu(address, msg); showProgressBar();
+            mViewModel.getMeshManagerApi().createMeshPdu(address, msg);
+            showProgressBar();
         } catch (IllegalArgumentException ex) {
             hideProgressBar();
-            DialogFragmentError.newInstance(getString(R.string.title_error), ex.getMessage() == null ? getString(R.string.unknwon_error) : ex.getMessage())
+            DialogFragmentError.newInstance(
+                            getString(R.string.title_error),
+                            ex.getMessage() == null
+                                    ? getString(R.string.unknwon_error) : ex.getMessage())
                     .show(getSupportFragmentManager(), null);
         }
     }
 
     /**
-     * ✅ NEW: Send an acknowledged mesh PDU WITHOUT showing the progress bar.
-     * Used by tryAutoBind() so the screen doesn't show a blocking progress bar
-     * on first load when auto-binding the AppKey.
+     * Send acknowledged PDU WITHOUT showing the progress bar.
+     * Used by tryAutoBind() so no blocking UI appears on screen entry.
      */
     protected void sendAcknowledgedMessageSilent(int address, @NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;
-            // No showProgressBar() — intentionally silent
             mViewModel.getMeshManagerApi().createMeshPdu(address, msg);
-            Log.d(TAG, "sendAcknowledgedMessageSilent ▶ PDU sent silently to 0x" + Integer.toHexString(address));
+            Log.d(TAG, "sendAcknowledgedMessageSilent ▶ PDU sent silently to 0x"
+                    + Integer.toHexString(address));
         } catch (IllegalArgumentException ex) {
             DialogFragmentError.newInstance(
-                    getString(R.string.title_error),
-                    ex.getMessage() == null ? getString(R.string.unknwon_error) : ex.getMessage()
-            ).show(getSupportFragmentManager(), null);
+                            getString(R.string.title_error),
+                            ex.getMessage() == null
+                                    ? getString(R.string.unknwon_error) : ex.getMessage())
+                    .show(getSupportFragmentManager(), null);
         }
     }
 
@@ -935,22 +1076,30 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             if (!checkConnectivity(mContainer)) return;
             mViewModel.getMeshManagerApi().createMeshPdu(address, msg);
         } catch (IllegalArgumentException ex) {
-            DialogFragmentError.newInstance(getString(R.string.title_error), ex.getMessage() == null ? getString(R.string.unknwon_error) : ex.getMessage())
+            DialogFragmentError.newInstance(
+                            getString(R.string.title_error),
+                            ex.getMessage() == null
+                                    ? getString(R.string.unknwon_error) : ex.getMessage())
                     .show(getSupportFragmentManager(), null);
         }
     }
 
     protected void updateClickableViews() {
         MeshModel m = mViewModel.getSelectedModel().getValue();
-        if (m != null && m.getModelId() == SigModelParser.CONFIGURATION_CLIENT) disableClickableViews();
+        if (m != null && m.getModelId() == SigModelParser.CONFIGURATION_CLIENT)
+            disableClickableViews();
     }
+
     protected void queuePublicationGetMessage(int address, int modelId) {
         mViewModel.getMessageQueue().add(new ConfigModelPublicationGet(address, modelId));
     }
-    protected void displayStatusDialogFragment(@NonNull String title, @NonNull String message) {
+
+    protected void displayStatusDialogFragment(@NonNull String title,
+                                               @NonNull String message) {
         if (mViewModel.isActivityVisible())
             DialogFragmentConfigStatus.newInstance(title, message)
-                    .show(getSupportFragmentManager(), DIALOG_FRAGMENT_CONFIGURATION_STATUS);
+                    .show(getSupportFragmentManager(),
+                            DIALOG_FRAGMENT_CONFIGURATION_STATUS);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -959,20 +1108,28 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private int getNextGenericOnOffTid() {
         int c = genericOnOffTidCounter.getAndIncrement();
         if (c > MAX_TID) { genericOnOffTidCounter.set(0); c = 0; }
-        Log.d(TAG_TID, "OnOff TID=" + c); return c;
+        Log.d(TAG_TID, "OnOff TID=" + c);
+        return c;
     }
+
     private int getNextGenericLightTid() {
         int c = genericLightTidCounter.getAndIncrement();
         if (c > MAX_TID) { genericLightTidCounter.set(0); c = 0; }
-        Log.d(TAG_TID, "Light TID=" + c); return c;
+        Log.d(TAG_TID, "Light TID=" + c);
+        return c;
     }
+
     private int getNextSceneTid() {
         int c = sceneTidCounter.getAndIncrement();
         if (c > MAX_TID) { sceneTidCounter.set(0); c = 0; }
-        Log.d(TAG_TID, "Scene TID=" + c); return c;
+        Log.d(TAG_TID, "Scene TID=" + c);
+        return c;
     }
+
     public void resetTidCounters() {
-        genericOnOffTidCounter.set(0); genericLightTidCounter.set(0); sceneTidCounter.set(0);
+        genericOnOffTidCounter.set(0);
+        genericLightTidCounter.set(0);
+        sceneTidCounter.set(0);
         Log.d(TAG_TID, "All TIDs reset to 0");
     }
 
@@ -983,30 +1140,56 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         final ProvisionedMeshNode node  = mViewModel.getSelectedMeshNode().getValue();
         final MeshModel           model = mViewModel.getSelectedModel().getValue();
         if (node == null || model == null) {
-            mViewModel.displaySnackBar(this, mContainer, "Node/Model not selected", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Node/Model not selected", Snackbar.LENGTH_SHORT);
             return;
         }
-        final String cs = mCommandEditText.getText() != null ? mCommandEditText.getText().toString().trim() : "";
-        final String ss = mStateEditText.getText()   != null ? mStateEditText.getText().toString().trim()   : "";
+        final String cs = mCommandEditText.getText() != null
+                ? mCommandEditText.getText().toString().trim() : "";
+        final String ss = mStateEditText.getText() != null
+                ? mStateEditText.getText().toString().trim() : "";
         if (cs.isEmpty() || ss.isEmpty()) {
-            mViewModel.displaySnackBar(this, mContainer, "Enter command and state", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Enter command and state", Snackbar.LENGTH_SHORT);
             return;
         }
         try {
-            int cmd = Integer.parseInt(cs), state = Integer.parseInt(ss);
-            if (cmd < 0 || cmd > 255) { mViewModel.displaySnackBar(this, mContainer, "Command 0–255", Snackbar.LENGTH_SHORT); return; }
-            if (state < 0 || state > 255) { mViewModel.displaySnackBar(this, mContainer, "State 0–255", Snackbar.LENGTH_SHORT); return; }
+            int cmd   = Integer.parseInt(cs);
+            int state = Integer.parseInt(ss);
+            if (cmd < 0 || cmd > 255) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Command 0–255", Snackbar.LENGTH_SHORT);
+                return;
+            }
+            if (state < 0 || state > 255) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "State 0–255", Snackbar.LENGTH_SHORT);
+                return;
+            }
             List<Integer> keys = model.getBoundAppKeyIndexes();
-            if (keys.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Bind AppKey first", Snackbar.LENGTH_SHORT); return; }
+            if (keys.isEmpty()) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Bind AppKey first", Snackbar.LENGTH_SHORT);
+                return;
+            }
             ApplicationKey appKey = null;
-            for (ApplicationKey k : mViewModel.getNetworkLiveData().getAppKeys())
+            for (ApplicationKey k : mViewModel.getNetworkLiveData().getAppKeys()) {
                 if (k.getKeyIndex() == keys.get(0)) { appKey = k; break; }
-            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT); return; }
+            }
+            if (appKey == null) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "AppKey not found", Snackbar.LENGTH_SHORT);
+                return;
+            }
             int tid = getNextGenericOnOffTid();
-            Log.d(TAG_ONOFF, String.format("══ GenericOnOffSet cmd=0x%02X state=0x%02X tid=%d ══", cmd, state, tid));
-            sendAcknowledgedMessage(node.getUnicastAddress(), new GenericOnOffSet(appKey, cmd, state, tid));
+            Log.d(TAG_ONOFF, String.format(
+                    "══ GenericOnOffSet cmd=0x%02X state=0x%02X tid=%d ══",
+                    cmd, state, tid));
+            sendAcknowledgedMessage(node.getUnicastAddress(),
+                    new GenericOnOffSet(appKey, cmd, state, tid));
         } catch (NumberFormatException e) {
-            mViewModel.displaySnackBar(this, mContainer, "Invalid number", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Invalid number", Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -1018,46 +1201,79 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         final Element             element = mViewModel.getSelectedElement().getValue();
         final MeshModel           model   = mViewModel.getSelectedModel().getValue();
         if (node == null || element == null || model == null) {
-            mViewModel.displaySnackBar(this, mContainer, "Node/Element/Model not selected", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Node/Element/Model not selected", Snackbar.LENGTH_SHORT);
             return;
         }
         try {
             String ls = mLengthEditText.getText().toString().trim();
-            if (ls.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Enter length (0–255)", Snackbar.LENGTH_SHORT); return; }
+            if (ls.isEmpty()) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Enter length (0–255)", Snackbar.LENGTH_SHORT);
+                return;
+            }
             int length = Integer.parseInt(ls);
-            if (length < MIN_LENGTH || length > MAX_LENGTH) { mViewModel.displaySnackBar(this, mContainer, "Length must be 0–255", Snackbar.LENGTH_SHORT); return; }
-
+            if (length < MIN_LENGTH || length > MAX_LENGTH) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Length must be 0–255", Snackbar.LENGTH_SHORT);
+                return;
+            }
             String cs = mLongAddressEditText.getText().toString().trim();
-            if (cs.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Enter command", Snackbar.LENGTH_SHORT); return; }
+            if (cs.isEmpty()) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Enter command", Snackbar.LENGTH_SHORT);
+                return;
+            }
             int command = Integer.parseInt(cs);
-            if (command < 0 || command > 255) { mViewModel.displaySnackBar(this, mContainer, "Command 0–255", Snackbar.LENGTH_SHORT); return; }
-
+            if (command < 0 || command > 255) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Command 0–255", Snackbar.LENGTH_SHORT);
+                return;
+            }
             int[] brightness = new int[8];
             for (int i = 0; i < 8; i++) {
                 String vs = mLongDataEditTexts.get(i).getText().toString().trim();
-                if (vs.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "Enter brightness for field " + (i+1), Snackbar.LENGTH_SHORT); return; }
+                if (vs.isEmpty()) {
+                    mViewModel.displaySnackBar(this, mContainer,
+                            "Enter brightness for field " + (i + 1),
+                            Snackbar.LENGTH_SHORT);
+                    return;
+                }
                 brightness[i] = Integer.parseInt(vs);
-                if (brightness[i] < 0 || brightness[i] > 255) { mViewModel.displaySnackBar(this, mContainer, "Brightness for field " + (i+1) + " must be 0–255", Snackbar.LENGTH_SHORT); return; }
+                if (brightness[i] < 0 || brightness[i] > 255) {
+                    mViewModel.displaySnackBar(this, mContainer,
+                            "Brightness for field " + (i + 1) + " must be 0–255",
+                            Snackbar.LENGTH_SHORT);
+                    return;
+                }
             }
-
             List<Integer> bk = model.getBoundAppKeyIndexes();
-            if (bk.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "No AppKey bound", Snackbar.LENGTH_SHORT); return; }
-            ApplicationKey appKey = mViewModel.getNetworkLiveData().getMeshNetwork().getAppKey(bk.get(0));
-            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT); return; }
-
-            int tid = getNextGenericLightTid();
+            if (bk.isEmpty()) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "No AppKey bound", Snackbar.LENGTH_SHORT);
+                return;
+            }
+            ApplicationKey appKey = mViewModel.getNetworkLiveData()
+                    .getMeshNetwork().getAppKey(bk.get(0));
+            if (appKey == null) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "AppKey not found", Snackbar.LENGTH_SHORT);
+                return;
+            }
+            int            tid = getNextGenericLightTid();
             GenericLightSet msg = new GenericLightSet(appKey, length, command, brightness, tid);
-
-            Log.d(TAG_LIGHT, String.format("══ GenericLightSet len=%d cmd=0x%02X ALL_8_VALUES=%s tid=%d ══",
+            Log.d(TAG_LIGHT, String.format(
+                    "══ GenericLightSet len=%d cmd=0x%02X ALL_8_VALUES=%s tid=%d ══",
                     length, command, Arrays.toString(brightness), tid));
             mViewModel.displaySnackBar(this, mContainer,
-                    String.format("Sending LEN=%d CMD=0x%02X with all 8 brightness values TID=%d", length, command, tid),
+                    String.format("Sending LEN=%d CMD=0x%02X with all 8 brightness values TID=%d",
+                            length, command, tid),
                     Snackbar.LENGTH_LONG);
             sendAcknowledgedMessage(node.getUnicastAddress(), msg);
-
         } catch (Exception e) {
             Log.e(TAG_LIGHT, "Error", e);
-            mViewModel.displaySnackBar(this, mContainer, "Failed: " + e.getMessage(), Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Failed: " + e.getMessage(), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -1069,7 +1285,8 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         final Element             element = mViewModel.getSelectedElement().getValue();
         final MeshModel           model   = mViewModel.getSelectedModel().getValue();
         if (node == null || element == null || model == null) {
-            mViewModel.displaySnackBar(this, mContainer, "Node/Element/Model not selected", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Node/Element/Model not selected", Snackbar.LENGTH_SHORT);
             return;
         }
         try {
@@ -1078,26 +1295,55 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
             int mode    = parseAndValidateInt(mModeEditText,    "Mode",     0, 7);
             int device  = parseAndValidateInt(mDeviceEditText,  "Device",   0, 7);
             int state   = parseAndValidateInt(mSceneStateEditText, "State", 0, 3);
-            String ps = mPressEditText.getText() != null ? mPressEditText.getText().toString().trim() : "";
+
+            String ps = mPressEditText.getText() != null
+                    ? mPressEditText.getText().toString().trim() : "";
             int pressCode = GenericSceneSet.getPressTypeCode(ps);
-            if (pressCode < 0 || pressCode > 3) { mViewModel.displaySnackBar(this, mContainer, "Invalid press type", Snackbar.LENGTH_SHORT); return; }
+            if (pressCode < 0 || pressCode > 3) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Invalid press type", Snackbar.LENGTH_SHORT);
+                return;
+            }
             int tid = getNextSceneTid() & 0xFF;
+
             List<Integer> bk = model.getBoundAppKeyIndexes();
-            if (bk == null || bk.isEmpty()) { mViewModel.displaySnackBar(this, mContainer, "No AppKey bound", Snackbar.LENGTH_SHORT); return; }
-            ApplicationKey appKey = mViewModel.getNetworkLiveData().getMeshNetwork().getAppKey(bk.get(0));
-            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found", Snackbar.LENGTH_SHORT); return; }
-            GenericSceneSet sceneMsg = new GenericSceneSet(appKey, sceneId, type, pressCode, mode, device, state, tid);
-            if (!verifyMessageStructure(sceneMsg, sceneId, type, pressCode, mode, device, state, tid)) { mViewModel.displaySnackBar(this, mContainer, "Verification failed", Snackbar.LENGTH_SHORT); return; }
-            logSceneCommand(sceneMsg, element.getElementAddress(), mViewModel.getNetworkLiveData().getMeshNetwork());
+            if (bk == null || bk.isEmpty()) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "No AppKey bound", Snackbar.LENGTH_SHORT);
+                return;
+            }
+            ApplicationKey appKey = mViewModel.getNetworkLiveData()
+                    .getMeshNetwork().getAppKey(bk.get(0));
+            if (appKey == null) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "AppKey not found", Snackbar.LENGTH_SHORT);
+                return;
+            }
+
+            GenericSceneSet sceneMsg = new GenericSceneSet(
+                    appKey, sceneId, type, pressCode, mode, device, state, tid);
+            if (!verifyMessageStructure(sceneMsg, sceneId, type, pressCode,
+                    mode, device, state, tid)) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "Verification failed", Snackbar.LENGTH_SHORT);
+                return;
+            }
+            logSceneCommand(sceneMsg, element.getElementAddress(),
+                    mViewModel.getNetworkLiveData().getMeshNetwork());
             sendUnacknowledgedMessage(element.getElementAddress(), sceneMsg);
-            mViewModel.displaySnackBar(this, mContainer, String.format("Scene sent → 0x%04X", element.getElementAddress()), Snackbar.LENGTH_LONG);
+            mViewModel.displaySnackBar(this, mContainer,
+                    String.format("Scene sent → 0x%04X", element.getElementAddress()),
+                    Snackbar.LENGTH_LONG);
         } catch (NumberFormatException e) {
-            mViewModel.displaySnackBar(this, mContainer, "Invalid number", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Invalid number", Snackbar.LENGTH_SHORT);
         } catch (IllegalArgumentException e) {
-            mViewModel.displaySnackBar(this, mContainer, e.getMessage(), Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    e.getMessage(), Snackbar.LENGTH_SHORT);
         } catch (Exception e) {
             Log.e(TAG_SCENE, "Failed", e);
-            mViewModel.displaySnackBar(this, mContainer, "Failed: " + e.getMessage(), Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Failed: " + e.getMessage(), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -1110,28 +1356,40 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         final MeshModel           model   = mViewModel.getSelectedModel().getValue();
 
         if (node == null || element == null || model == null) {
-            mViewModel.displaySnackBar(this, mContainer, "Node / Element / Model not selected", Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Node / Element / Model not selected", Snackbar.LENGTH_SHORT);
             return;
         }
-
         try {
-            int incDec         = parseAndValidateInt(mStatureIncDecEditText,         "Increment/Decrement (0=Dec, 1=Inc)", 0, 1);
-            int updateType     = parseAndValidateInt(mStatureUpdateEditText,         "Update Type (0=Category, 1=Device)", 0, 1);
-            int deviceCategory = parseAndValidateInt(mStatureDeviceCategoryEditText, "Device/Category ID",                0, 63);
-            int stepValue      = parseAndValidateInt(mStatureValueEditText,          "Value/Step",                        0, 255);
+            int incDec         = parseAndValidateInt(mStatureIncDecEditText,
+                    "Increment/Decrement (0=Dec, 1=Inc)", 0, 1);
+            int updateType     = parseAndValidateInt(mStatureUpdateEditText,
+                    "Update Type (0=Category, 1=Device)", 0, 1);
+            int deviceCategory = parseAndValidateInt(mStatureDeviceCategoryEditText,
+                    "Device/Category ID", 0, 63);
+            int stepValue      = parseAndValidateInt(mStatureValueEditText,
+                    "Value/Step", 0, 255);
 
-            boolean isIncrement = (incDec == 1);
+            boolean isIncrement = (incDec     == 1);
             boolean isUpdate    = (updateType == 1);
 
             List<Integer> keys = model.getBoundAppKeyIndexes();
             if (keys == null || keys.isEmpty()) {
-                mViewModel.displaySnackBar(this, mContainer, "No AppKey bound - bind an app key first", Snackbar.LENGTH_LONG);
+                mViewModel.displaySnackBar(this, mContainer,
+                        "No AppKey bound - bind an app key first",
+                        Snackbar.LENGTH_LONG);
                 return;
             }
-            ApplicationKey appKey = mViewModel.getNetworkLiveData().getMeshNetwork().getAppKey(keys.get(0));
-            if (appKey == null) { mViewModel.displaySnackBar(this, mContainer, "AppKey not found in network", Snackbar.LENGTH_SHORT); return; }
+            ApplicationKey appKey = mViewModel.getNetworkLiveData()
+                    .getMeshNetwork().getAppKey(keys.get(0));
+            if (appKey == null) {
+                mViewModel.displaySnackBar(this, mContainer,
+                        "AppKey not found in network", Snackbar.LENGTH_SHORT);
+                return;
+            }
 
-            GenericStatureSet msg = new GenericStatureSet(appKey, isIncrement, isUpdate, deviceCategory, stepValue);
+            GenericStatureSet msg = new GenericStatureSet(
+                    appKey, isIncrement, isUpdate, deviceCategory, stepValue);
 
             int controlByte = 0;
             if (isIncrement) controlByte |= (1 << 7);
@@ -1142,29 +1400,44 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
 
             Log.d(TAG_STATURE, "══════════════════════════════════════");
             Log.d(TAG_STATURE, "🔷 GENERIC STATURE SET COMMAND");
-            Log.d(TAG_STATURE, String.format("📌 Destination (Element): 0x%04X (%d)", dst, dst));
-            Log.d(TAG_STATURE, String.format("📌 Model: %s (0x%04X)", model.getModelName(), model.getModelId()));
-            Log.d(TAG_STATURE, String.format("   • Inc/Dec       : %s (%d)", isIncrement ? "INCREMENT (1)" : "DECREMENT (0)", incDec));
-            Log.d(TAG_STATURE, String.format("   • Update Type   : %s (%d)", isUpdate ? "DEVICE (1)" : "CATEGORY (0)", updateType));
-            Log.d(TAG_STATURE, String.format("   • Device/Cat ID : %d (0x%02X)", deviceCategory, deviceCategory));
-            Log.d(TAG_STATURE, String.format("   • Value/Step    : %d (0x%02X)", stepValue, stepValue));
-            Log.d(TAG_STATURE, String.format("   BYTE 0 (Control): %s (0x%02X)", toBin8(controlByte), controlByte));
-            Log.d(TAG_STATURE, String.format("   BYTE 1 (Value)  : %s (0x%02X)", toBin8(stepValue), stepValue));
+            Log.d(TAG_STATURE, String.format(
+                    "📌 Destination (Element): 0x%04X (%d)", dst, dst));
+            Log.d(TAG_STATURE, String.format(
+                    "📌 Model: %s (0x%04X)", model.getModelName(), model.getModelId()));
+            Log.d(TAG_STATURE, String.format(
+                    "   • Inc/Dec       : %s (%d)",
+                    isIncrement ? "INCREMENT (1)" : "DECREMENT (0)", incDec));
+            Log.d(TAG_STATURE, String.format(
+                    "   • Update Type   : %s (%d)",
+                    isUpdate ? "DEVICE (1)" : "CATEGORY (0)", updateType));
+            Log.d(TAG_STATURE, String.format(
+                    "   • Device/Cat ID : %d (0x%02X)", deviceCategory, deviceCategory));
+            Log.d(TAG_STATURE, String.format(
+                    "   • Value/Step    : %d (0x%02X)", stepValue, stepValue));
+            Log.d(TAG_STATURE, String.format(
+                    "   BYTE 0 (Control): %s (0x%02X)", toBin8(controlByte), controlByte));
+            Log.d(TAG_STATURE, String.format(
+                    "   BYTE 1 (Value)  : %s (0x%02X)", toBin8(stepValue), stepValue));
             Log.d(TAG_STATURE, "══════════════════════════════════════");
 
             mViewModel.displaySnackBar(this, mContainer,
                     String.format("Sending to element 0x%04X → %s %s #%d by %d",
-                            dst, isIncrement ? "INC" : "DEC", isUpdate ? "DEVICE" : "CATEGORY", deviceCategory, stepValue),
+                            dst,
+                            isIncrement ? "INC" : "DEC",
+                            isUpdate    ? "DEVICE" : "CATEGORY",
+                            deviceCategory, stepValue),
                     Snackbar.LENGTH_LONG);
 
             sendAcknowledgedMessage(dst, msg);
 
         } catch (IllegalArgumentException e) {
             Log.e(TAG_STATURE, "Validation error", e);
-            mViewModel.displaySnackBar(this, mContainer, "Error: " + e.getMessage(), Snackbar.LENGTH_LONG);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Error: " + e.getMessage(), Snackbar.LENGTH_LONG);
         } catch (Exception e) {
             Log.e(TAG_STATURE, "Failed to send Generic Stature command", e);
-            mViewModel.displaySnackBar(this, mContainer, "Failed to send: " + e.getMessage(), Snackbar.LENGTH_SHORT);
+            mViewModel.displaySnackBar(this, mContainer,
+                    "Failed to send: " + e.getMessage(), Snackbar.LENGTH_SHORT);
         }
     }
 
@@ -1175,26 +1448,47 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         String t = et.getText() != null ? et.getText().toString().trim() : "";
         if (t.isEmpty()) throw new IllegalArgumentException(name + " cannot be empty");
         int v = Integer.parseInt(t);
-        if (v < min || v > max) throw new IllegalArgumentException(String.format("%s must be %d–%d", name, min, max));
+        if (v < min || v > max)
+            throw new IllegalArgumentException(
+                    String.format("%s must be %d–%d", name, min, max));
         return v;
     }
 
-    private boolean verifyMessageStructure(GenericSceneSet msg, int sId, int type, int press, int mode, int dev, int state, int tid) {
+    private boolean verifyMessageStructure(GenericSceneSet msg,
+                                           int sId, int type, int press,
+                                           int mode, int dev, int state, int tid) {
         byte[] p = msg.getParameters();
-        if (p == null || p.length != 4) { Log.e(TAG_SCENE, "Invalid params"); return false; }
-        if ((p[0]&0xFF) != sId) { Log.e(TAG_SCENE, "SceneID mismatch"); return false; }
-        if (((p[1]>>2)&0x3F) != type || (p[1]&0x03) != press) { Log.e(TAG_SCENE, "Type/Press mismatch"); return false; }
-        if (((p[2]>>5)&0x07) != mode || ((p[2]>>2)&0x07) != dev || (p[2]&0x03) != state) { Log.e(TAG_SCENE, "Mode/Dev/State mismatch"); return false; }
-        if ((p[3]&0xFF) != tid) { Log.e(TAG_SCENE, "TID mismatch"); return false; }
-        Log.d(TAG_SCENE, "Verify PASSED ✓"); return true;
+        if (p == null || p.length != 4) {
+            Log.e(TAG_SCENE, "Invalid params"); return false;
+        }
+        if ((p[0] & 0xFF) != sId) {
+            Log.e(TAG_SCENE, "SceneID mismatch"); return false;
+        }
+        if (((p[1] >> 2) & 0x3F) != type || (p[1] & 0x03) != press) {
+            Log.e(TAG_SCENE, "Type/Press mismatch"); return false;
+        }
+        if (((p[2] >> 5) & 0x07) != mode
+                || ((p[2] >> 2) & 0x07) != dev
+                || (p[2] & 0x03) != state) {
+            Log.e(TAG_SCENE, "Mode/Dev/State mismatch"); return false;
+        }
+        if ((p[3] & 0xFF) != tid) {
+            Log.e(TAG_SCENE, "TID mismatch"); return false;
+        }
+        Log.d(TAG_SCENE, "Verify PASSED ✓");
+        return true;
     }
 
     private void logSceneCommand(GenericSceneSet msg, int addr, MeshNetwork net) {
         byte[] p = msg.getParameters();
         Log.d(TAG_SCENE, "══ GenericSceneSet ══");
-        Log.d(TAG_SCENE, String.format("Dest=0x%04X  Full=[%02X %02X %02X %02X]", addr, p[0]&0xFF, p[1]&0xFF, p[2]&0xFF, p[3]&0xFF));
-        Log.d(TAG_SCENE, String.format("SceneID=%d Type=%d Press=%d Mode=%d Device=%d State=%d TID=%d",
-                p[0]&0xFF, (p[1]>>2)&0x3F, p[1]&0x03, (p[2]>>5)&0x07, (p[2]>>2)&0x07, p[2]&0x03, p[3]&0xFF));
+        Log.d(TAG_SCENE, String.format(
+                "Dest=0x%04X  Full=[%02X %02X %02X %02X]",
+                addr, p[0] & 0xFF, p[1] & 0xFF, p[2] & 0xFF, p[3] & 0xFF));
+        Log.d(TAG_SCENE, String.format(
+                "SceneID=%d Type=%d Press=%d Mode=%d Device=%d State=%d TID=%d",
+                p[0] & 0xFF, (p[1] >> 2) & 0x3F, p[1] & 0x03,
+                (p[2] >> 5) & 0x07, (p[2] >> 2) & 0x07, p[2] & 0x03, p[3] & 0xFF));
     }
 
     // ─────────────────────────────────────────────────────────────────────────
