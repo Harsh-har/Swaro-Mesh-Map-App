@@ -855,6 +855,23 @@ public class NetworkFragment extends Fragment {
         }
         reRenderSvg();
 
+        // ✅ ADD: SVG tap pe svgElementId pre-save karo
+        // Ye ensure karta hai ki triggerAutoPublication mein svgId
+        // hamesha available ho — even before provisioning starts
+        if (device != null && device.elementId != null) {
+            try {
+                int svgId = Integer.parseInt(device.elementId.trim());
+                if (svgId >= 0) {
+                    ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
+                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved"
+                            + " device=" + deviceId
+                            + " svgId=" + svgId);
+                }
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
+            }
+        }
+
         SharedPreferences prefs = requireContext()
                 .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
         Uri    svgUri       = mViewModel.getSvgUri().getValue();
@@ -866,8 +883,6 @@ public class NetworkFragment extends Fragment {
         String      relationDevName = relatedDevices.isEmpty()
                 ? null : relatedDevices.iterator().next();
 
-        // ✅ isProvisioned() — Store ke through, normalize() use karta hai
-        // "Casting:Relay Node1" → normalize → "casting:relay node1" → unicast check → true/false
         if (isProvisioned(deviceId)) {
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
@@ -889,7 +904,6 @@ public class NetworkFragment extends Fragment {
                 device != null ? device.elementId : null);
         startActivity(intent);
     }
-
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
         String name = fullDeviceId;

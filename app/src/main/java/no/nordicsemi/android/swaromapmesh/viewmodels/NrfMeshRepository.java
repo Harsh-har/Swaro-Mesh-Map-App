@@ -681,6 +681,150 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // onMeshMessageReceived — main dispatcher
     // =========================================================================
 
+
+    // =========================================================================
+// buildPublicationPairsFromStore
+// AreaClientListActivity ki exact same logic use karke pairs nikalo
+// clientKey = e.g. "sw-cn01-aa" or "smt:sw-cn01-aa"
+// =========================================================================
+    private void buildPublicationPairsFromStore(
+            @NonNull final ProvisionedMeshNode clientNode,
+            @NonNull final String clientKey) {
+
+        final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
+        if (appKeys == null || appKeys.isEmpty()) {
+            Log.w(TAG_BIND, "buildPublicationPairsFromStore: no AppKey");
+            mIsAutoSetupInProgress.postValue(false);
+            return;
+        }
+        final int appKeyIndex = appKeys.get(0).getKeyIndex();
+
+        // clientArea derive karo — "smt:sw-cn01-aa" → "smt"
+        String clientArea = "";
+        if (clientKey.contains(":")) {
+            clientArea = clientKey.split(":")[0].trim().toLowerCase();
+        }
+
+        // clientNode ka unicast
+        final int clientUnicast = clientNode.getUnicastAddress();
+
+        Log.d(TAG_BIND, "buildPublicationPairsFromStore:"
+                + " clientKey='" + clientKey + "'"
+                + " clientArea='" + clientArea + "'"
+                + " clientUnicast=0x" + String.format("%04X", clientUnicast));
+
+        // ── AreaClientListActivity ki exact logic ─────────────────────────────
+        // element_addr_<key>_<index> entries collect karo
+        SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
+        if (prefs == null) {
+            Log.e(TAG_BIND, "buildPublicationPairsFromStore: prefs null");
+            mIsAutoSetupInProgress.postValue(false);
+            return;
+        }
+
+        // key = clientKey ka name part (without area prefix)
+        String nameKey = clientKey.contains(":")
+                ? clientKey.split(":")[1].trim().toLowerCase()
+                : clientKey.trim().toLowerCase();
+
+        // Collect element_addr_ entries for this client
+        java.util.Map<Integer, Integer> elementMap = new java.util.TreeMap<>();
+        for (java.util.Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            String k = entry.getKey();
+            if (!k.startsWith("element_addr_")) continue;
+
+            String rest = k.substring("element_addr_".length());
+            int sep = rest.lastIndexOf("_");
+            if (sep == -1) continue;
+
+            String kName  = rest.substring(0, sep).toLowerCase();
+            String kIndex = rest.substring(sep + 1);
+
+            if (kName.equals(nameKey)) {
+                try {
+                    int idx  = Integer.parseInt(kIndex);
+                    int addr = (Integer) entry.getValue();
+                    elementMap.put(idx, addr);
+                } catch (Exception ignored) {}
+            }
+        }
+
+        Log.d(TAG_BIND, "buildPublicationPairsFromStore: found "
+                + elementMap.size() + " elements for key='" + nameKey + "'");
+
+        if (elementMap.isEmpty()) {
+            Log.w(TAG_BIND, "buildPublicationPairsFromStore: no elements found — abort");
+            mIsAutoSetupInProgress.postValue(false);
+            return;
+        }
+
+        int pairCount = 0;
+
+        // ── Exactly AreaClientListActivity.getElementRows() logic ────────────
+        for (java.util.Map.Entry<Integer, Integer> e : elementMap.entrySet()) {
+            int svgId      = e.getKey();    // 0-based svgId
+            int clientElem = e.getValue();  // client element address
+
+            // Area-aware server lookup — same as AreaClientListActivity
+            String serverStoreKey = ClientServerElementStore
+                    .getKeyBySvgElementIdAndArea(svgId, clientArea);
+
+            if (serverStoreKey == null) {
+                Log.w(TAG_BIND, "  svgId=" + svgId + " → no server match, skip");
+                continue;
+            }
+
+            int serverUnicast = ClientServerElementStore
+                    .getServerUnicastAddress(serverStoreKey);
+            int serverElem    = ClientServerElementStore
+                    .getServerPrimaryElementAddress(serverStoreKey);
+
+            if (serverUnicast == -1 || serverElem == -1) {
+                Log.w(TAG_BIND, "  svgId=" + svgId
+                        + " serverKey='" + serverStoreKey + "'"
+                        + " serverUnicast=" + serverUnicast
+                        + " serverElem=" + serverElem + " → skip");
+                continue;
+            }
+
+            // ✅ Verify server is actually provisioned in mesh network
+            if (mMeshNetwork != null && mMeshNetwork.getNode(serverUnicast) == null) {
+                Log.w(TAG_BIND, "  svgId=" + svgId
+                        + " server=0x" + String.format("%04X", serverUnicast)
+                        + " not in mesh network — skip");
+                continue;
+            }
+
+            Log.d(TAG_BIND, "  ✅ PAIR svgId=" + svgId
+                    + " clientElem=0x" + String.format("%04X", clientElem)
+                    + " → serverKey='" + serverStoreKey + "'"
+                    + " serverUnicast=0x" + String.format("%04X", serverUnicast)
+                    + " serverElem=0x" + String.format("%04X", serverElem));
+
+            // Save mapping
+            ClientServerElementStore.saveClientToServerMapping(
+                    clientKey, svgId, serverStoreKey);
+
+            // Enqueue
+            enqueuePublication(
+                    clientUnicast, clientElem,
+                    serverUnicast, serverElem,
+                    appKeyIndex
+            );
+            pairCount++;
+        }
+
+        if (pairCount == 0) {
+            Log.w(TAG_BIND, "buildPublicationPairsFromStore: 0 pairs — no servers provisioned yet");
+            mIsAutoSetupInProgress.postValue(false);
+            return;
+        }
+
+        Log.d(TAG_BIND, "✅ buildPublicationPairsFromStore: "
+                + pairCount + " pairs enqueued — starting queue");
+        mIsAutoSetupInProgress.postValue(true);
+        mHandler.postDelayed(this::processNextPublication, 500);
+    }
     @Override
     public void onMeshMessageReceived(final int src,
                                       @NonNull final MeshMessage meshMessage) {
@@ -834,34 +978,40 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                         mIsAutoSetupInProgress.postValue(false);
                     }
                 }
-
                 // ── STEP1 ACK: client confirmed → fire STEP2 ─────────────────
                 else if (mPendingReverseServerUnicast != -1
                         && src == mPendingReverseClientUnicast) {
 
-                    final int serverUnicast     = mPendingReverseServerUnicast;
-                    final int serverElementAddr = mPendingReverseServerElementAddr;
-                    final int clientElementAddr = mPendingReverseClientElementAddr;
-                    final int appKeyIndex       = mPendingReverseAppKeyIndex;
+                    // ✅ Queue se fresh values — stored state pe depend mat karo
+                    if (mPendingPublicationQueue.isEmpty()) {
+                        Log.e(TAG, "❌ STEP1 ACK but queue empty");
+                        clearPendingPublicationState();
+                        mIsAutoSetupInProgress.postValue(false);
+                        return;
+                    }
 
-                    // Clear STEP1 state before sending STEP2
+                    int[] currentPub            = mPendingPublicationQueue.get(0);
+                    final int serverUnicast     = currentPub[2];
+                    final int serverElementAddr = currentPub[3];
+                    final int clientElementAddr = currentPub[1];
+                    final int appKeyIndex       = currentPub[4];
+
+                    // Clear STEP1 state
                     mPendingReverseServerUnicast     = -1;
                     mPendingReverseServerElementAddr = -1;
                     mPendingReverseClientElementAddr = -1;
                     mPendingReverseClientUnicast     = -1;
                     mPendingReverseAppKeyIndex       = -1;
 
-                    // Register STEP2 ACK expectation
+                    // Register STEP2
                     mWaitingForStep2Ack = true;
                     mStep2ServerUnicast = serverUnicast;
 
                     mHandler.postDelayed(() -> {
-                        Log.d(TAG, "📤 STEP2 (server→client): server=0x"
+                        Log.d(TAG, "📤 STEP2 server=0x"
                                 + String.format("%04X", serverUnicast)
-                                + " serverElem=0x"
-                                + String.format("%04X", serverElementAddr)
-                                + " → clientElem=0x"
-                                + String.format("%04X", clientElementAddr));
+                                + " serverElem=0x" + String.format("%04X", serverElementAddr)
+                                + " → clientElem=0x" + String.format("%04X", clientElementAddr));
                         try {
                             mMeshManagerApi.createMeshPdu(
                                     serverUnicast,
@@ -873,21 +1023,16 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                                             MODEL_GENERIC_ONOFF_SERVER
                                     )
                             );
-                            Log.d(TAG, "✅ STEP2 PDU sent to server=0x"
-                                    + String.format("%04X", serverUnicast));
                         } catch (Exception e) {
                             Log.e(TAG, "❌ STEP2 failed: " + e.getMessage());
                             mWaitingForStep2Ack = false;
                             mStep2ServerUnicast = -1;
-                            // Remove failed pair and try next
-                            if (!mPendingPublicationQueue.isEmpty()) {
+                            if (!mPendingPublicationQueue.isEmpty())
                                 mPendingPublicationQueue.remove(0);
-                            }
-                            if (!mPendingPublicationQueue.isEmpty()) {
+                            if (!mPendingPublicationQueue.isEmpty())
                                 mHandler.postDelayed(this::processNextPublication, 800);
-                            } else {
+                            else
                                 mIsAutoSetupInProgress.postValue(false);
-                            }
                         }
                     }, 500);
                 }
@@ -1009,17 +1154,20 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
 
     /** Called from BaseModelConfigurationActivity for manual publication. */
+    // ✅ NEW — clientUnicast bhi set hoga
     public void setPendingReversePublication(int serverUnicast, int serverElementAddr,
-                                             int clientElementAddr, int appKeyIndex) {
+                                             int clientElementAddr, int clientUnicast,
+                                             int appKeyIndex) {
         mPendingReverseServerUnicast     = serverUnicast;
         mPendingReverseServerElementAddr = serverElementAddr;
         mPendingReverseClientElementAddr = clientElementAddr;
-        mPendingReverseClientUnicast     = -1; // not used for manual path
+        mPendingReverseClientUnicast     = clientUnicast;
         mPendingReverseAppKeyIndex       = appKeyIndex;
-        Log.d(TAG, "setPendingReversePublication (manual): server=0x"
-                + String.format("%04X", serverUnicast)
+        Log.d(TAG, "setPendingReversePublication:"
+                + " server=0x" + String.format("%04X", serverUnicast)
                 + " serverElem=0x" + String.format("%04X", serverElementAddr)
-                + " clientElem=0x" + String.format("%04X", clientElementAddr));
+                + " clientElem=0x" + String.format("%04X", clientElementAddr)
+                + " clientUnicast=0x" + String.format("%04X", clientUnicast));
     }
 
     // =========================================================================
@@ -1321,150 +1469,15 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             @NonNull final ProvisionedMeshNode clientNode,
             @NonNull final String clientKey) {
 
-        if (mMeshNetwork == null) return;
+        Log.d(TAG_BIND, "triggerPublicationForExistingServers → buildPublicationPairsFromStore"
+                + " clientKey='" + clientKey + "'");
 
-        final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
-        if (appKeys == null || appKeys.isEmpty()) {
-            Log.w(TAG_BIND, "triggerPublicationForExistingServers: no AppKey");
-            return;
-        }
-        final int appKeyIndex = appKeys.get(0).getKeyIndex();
-        final String provisionerUuid =
-                mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
+        // ✅ Client element addresses pehle save karo
+        saveClientElementAddresses(clientNode, clientKey);
 
-        // Sort client elements by address
-        List<Element> sortedClientElements =
-                new ArrayList<>(clientNode.getElements().values());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            sortedClientElements.sort((a, b) ->
-                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
-        }
-
-        // Client area
-        String clientArea = null;
-        if (clientKey.contains(":")) {
-            clientArea = clientKey.substring(0, clientKey.indexOf(":")).trim().toLowerCase();
-        } else {
-            for (String key : ClientServerElementStore.getProvisionedKeys()) {
-                if (!key.contains(":")) continue;
-                String namePart = key.substring(key.indexOf(":") + 1).trim().toLowerCase();
-                if (namePart.equals(clientKey.trim().toLowerCase())) {
-                    clientArea = key.substring(0, key.indexOf(":")).trim().toLowerCase();
-                    break;
-                }
-            }
-        }
-
-        Log.d(TAG_BIND, "triggerPublicationForExistingServers:"
-                + " clientKey='" + clientKey + "'"
-                + " clientArea='" + clientArea + "'"
-                + " clientUnicast=0x"
-                + String.format("%04X", clientNode.getUnicastAddress()));
-
-        int matchCount = 0;
-
-        for (ProvisionedMeshNode candidate : mMeshNetwork.getNodes()) {
-            if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
-            if (candidate.getUnicastAddress() == clientNode.getUnicastAddress()) continue;
-
-            // Must be a server node
-            boolean hasServer     = false;
-            int serverElementAddr = -1;
-            for (Element el : candidate.getElements().values()) {
-                for (MeshModel m : el.getMeshModels().values()) {
-                    if (m.getModelId() == MODEL_GENERIC_ONOFF_SERVER) {
-                        hasServer         = true;
-                        serverElementAddr = el.getElementAddress();
-                        break;
-                    }
-                }
-                if (hasServer) break;
-            }
-            if (!hasServer || serverElementAddr == -1) continue;
-
-            final String serverRawName  = normalizeId(candidate.getNodeName());
-            final String serverStoreKey = resolveServerKeyByNodeName(serverRawName);
-            if (serverStoreKey == null) continue;
-
-            // Area match
-            if (clientArea != null && !clientArea.isEmpty()) {
-                String serverArea = ClientServerElementStore.getServerAreaId(serverStoreKey);
-                if (serverArea == null && serverStoreKey.contains(":")) {
-                    serverArea = serverStoreKey.substring(0, serverStoreKey.indexOf(":"))
-                            .trim().toLowerCase();
-                }
-                if (serverArea != null && !serverArea.equalsIgnoreCase(clientArea)) {
-                    Log.d(TAG_BIND, "  skip server='" + serverStoreKey
-                            + "' area mismatch: server='" + serverArea
-                            + "' client='" + clientArea + "'");
-                    continue;
-                }
-            }
-
-            int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverStoreKey);
-            if (serverSvgId == -1) continue;
-
-            // Find client element matching serverSvgId (0-based index)
-            int clientElementAddr = -1;
-            int clientIndex       = 0;
-            for (Element el : sortedClientElements) {
-                boolean hasClientModel = false;
-                for (MeshModel m : el.getMeshModels().values()) {
-                    if (m.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
-                        hasClientModel = true;
-                        break;
-                    }
-                }
-                if (hasClientModel) {
-                    if (clientIndex == serverSvgId) {
-                        clientElementAddr = el.getElementAddress();
-                        break;
-                    }
-                    clientIndex++;
-                }
-            }
-
-            // Fallback: Store lookup
-            if (clientElementAddr == -1) {
-                clientElementAddr = ClientServerElementStore
-                        .getClientAddress(clientKey, serverSvgId);
-            }
-
-            if (clientElementAddr == -1) {
-                Log.w(TAG_BIND, "  no client elem for svgId=" + serverSvgId
-                        + " serverKey='" + serverStoreKey + "'");
-                continue;
-            }
-
-            Log.d(TAG_BIND, "✅ triggerPublicationForExistingServers match:"
-                    + " server='" + serverStoreKey + "'"
-                    + " svgId=" + serverSvgId
-                    + " serverElem=0x" + String.format("%04X", serverElementAddr)
-                    + " clientElem=0x" + String.format("%04X", clientElementAddr)
-                    + " clientUnicast=0x"
-                    + String.format("%04X", clientNode.getUnicastAddress()));
-
-            ClientServerElementStore.saveClientToServerMapping(
-                    clientKey, serverSvgId, serverStoreKey);
-
-            // ✅ Enqueue — do NOT break, collect all servers
-            enqueuePublication(
-                    clientNode.getUnicastAddress(), clientElementAddr,
-                    candidate.getUnicastAddress(), serverElementAddr,
-                    appKeyIndex
-            );
-            matchCount++;
-        }
-
-        if (matchCount == 0) {
-            Log.w(TAG_BIND, "triggerPublicationForExistingServers: no servers found");
-            return;
-        }
-
-        Log.d(TAG_BIND, "triggerPublicationForExistingServers: "
-                + matchCount + " server(s) queued — starting queue processor");
-        mIsAutoSetupInProgress.postValue(true);
-        mHandler.postDelayed(this::processNextPublication, 500);
+        // Thoda wait karo taaki store mein write complete ho
+        mHandler.postDelayed(() ->
+                buildPublicationPairsFromStore(clientNode, clientKey), 1000);
     }
 
     // =========================================================================
@@ -1613,7 +1626,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // triggerAutoPublication — "client pehle, server baad" scenario
     // =========================================================================
-
     private void triggerAutoPublication(@NonNull final ProvisionedMeshNode serverNode) {
 
         if (mMeshNetwork == null) {
@@ -1628,136 +1640,80 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
-        final int appKeyIndex = appKeys.get(0).getKeyIndex();
 
+        // Server ka storeKey resolve karo
         final String rawServerName  = normalizeId(serverNode.getNodeName());
         final String serverStoreKey = resolveServerKeyByNodeName(rawServerName);
 
-        if (serverStoreKey == null || serverStoreKey.isEmpty()) {
+        if (serverStoreKey == null) {
             Log.e(TAG_BIND, "triggerAutoPublication: cannot resolve key for '"
                     + serverNode.getNodeName() + "' — abort");
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        final int serverSvgId =
-                ClientServerElementStore.getServerSvgElementId(serverStoreKey);
-        if (serverSvgId == -1) {
-            Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for '"
-                    + serverStoreKey + "' — abort");
-            mIsAutoSetupInProgress.postValue(false);
-            return;
+        // Server area
+        String serverArea = ClientServerElementStore.getServerAreaId(serverStoreKey);
+        if (serverArea == null && serverStoreKey.contains(":")) {
+            serverArea = serverStoreKey.split(":")[0].trim().toLowerCase();
         }
 
-        final int serverElementAddr =
-                ClientServerElementStore.getServerPrimaryElementAddress(serverStoreKey);
-        if (serverElementAddr == -1) {
-            Log.e(TAG_BIND, "triggerAutoPublication: server elem addr not found for '"
-                    + serverStoreKey + "' — abort");
-            mIsAutoSetupInProgress.postValue(false);
-            return;
-        }
+        Log.d(TAG_BIND, "triggerAutoPublication: serverKey='" + serverStoreKey
+                + "' serverArea='" + serverArea + "'"
+                + " — scanning for provisioned clients");
 
-        final String serverAreaId =
-                ClientServerElementStore.getServerAreaId(serverStoreKey);
-        Log.d(TAG_BIND, "triggerAutoPublication ▶"
-                + " serverKey='" + serverStoreKey + "'"
-                + " svgId=" + serverSvgId
-                + " serverElem=0x" + String.format("%04X", serverElementAddr)
-                + " serverArea='" + serverAreaId + "'");
-
-        // ── Find matching client ───────────────────────────────────────────────
-        int    clientElementAddr = -1;
-        int    clientUnicast     = -1;
-        String matchedClientKey  = null;
-
+        // Provisioned client nodes dhundho
         final String provisionerUuid =
                 mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
+        final String finalServerArea = serverArea;
 
         for (ProvisionedMeshNode candidate : mMeshNetwork.getNodes()) {
             if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
             if (candidate.getUnicastAddress() == serverNode.getUnicastAddress()) continue;
 
+            // Client node hai?
             boolean hasClient = false;
             for (Element el : candidate.getElements().values()) {
                 for (MeshModel m : el.getMeshModels().values()) {
                     if (m.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
-                        hasClient = true;
-                        break;
+                        hasClient = true; break;
                     }
                 }
                 if (hasClient) break;
             }
             if (!hasClient) continue;
 
-            final String devKey = normalizeId(candidate.getNodeName());
-            final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
-            if (addr == -1) {
-                Log.d(TAG_BIND, "  no client addr: devKey='"
-                        + devKey + "' svgId=" + serverSvgId);
-                continue;
-            }
+            final String clientKey = normalizeId(candidate.getNodeName());
 
-            final String clientAreaId = getClientAreaId(candidate, devKey);
-            Log.d(TAG_BIND, "  candidate='" + devKey
-                    + "' clientArea='" + clientAreaId + "'"
-                    + " serverArea='" + serverAreaId + "'");
-
-            if (serverAreaId != null && !serverAreaId.isEmpty()) {
-                if (clientAreaId == null) {
-                    boolean clientKeyMatchesArea = false;
-                    if (devKey.contains(":")) {
-                        String prefix = devKey.substring(0, devKey.indexOf(":"))
-                                .trim().toLowerCase();
-                        clientKeyMatchesArea = prefix.equalsIgnoreCase(serverAreaId);
-                    }
-                    if (!clientKeyMatchesArea) {
-                        Log.d(TAG_BIND, "  ❌ Area mismatch (null clientArea) — skip");
-                        continue;
-                    }
-                    Log.d(TAG_BIND, "  ✅ Area matched via clientKey prefix");
-                } else if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
-                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip");
+            // Area match
+            if (finalServerArea != null && !finalServerArea.isEmpty()) {
+                String clientAreaId = getClientAreaId(candidate, clientKey);
+                if (clientAreaId == null && clientKey != null && clientKey.contains(":")) {
+                    clientAreaId = clientKey.split(":")[0].trim().toLowerCase();
+                }
+                if (clientAreaId != null
+                        && !finalServerArea.equalsIgnoreCase(clientAreaId)) {
+                    Log.d(TAG_BIND, "  skip client='" + clientKey
+                            + "' area mismatch");
                     continue;
                 }
             }
 
-            clientElementAddr = addr;
-            clientUnicast     = candidate.getUnicastAddress();
-            matchedClientKey  = devKey;
-            Log.d(TAG_BIND, "✅ Client match: devKey='" + devKey
-                    + "' svgId=" + serverSvgId
-                    + " clientElem=0x" + String.format("%04X", clientElementAddr)
-                    + " clientUnicast=0x" + String.format("%04X", clientUnicast));
-            break;
+            Log.d(TAG_BIND, "✅ triggerAutoPublication: found client='"
+                    + clientKey + "' → buildPublicationPairsFromStore");
+
+            // ✅ Client mila — Store-based pair building use karo
+            final ProvisionedMeshNode finalClient = candidate;
+            final String finalClientKey = clientKey;
+            mHandler.postDelayed(() ->
+                    buildPublicationPairsFromStore(finalClient, finalClientKey), 500);
+            return; // Pehla matching client kafi hai
         }
 
-        if (clientElementAddr == -1 || clientUnicast == -1) {
-            Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId="
-                    + serverSvgId + " — skipping.");
-            mIsAutoSetupInProgress.postValue(false);
-            return;
-        }
-
-        if (matchedClientKey != null) {
-            ClientServerElementStore.saveClientToServerMapping(
-                    matchedClientKey, serverSvgId, serverStoreKey);
-            Log.d(TAG_BIND, "✅ client_to_server: "
-                    + matchedClientKey + "[" + serverSvgId + "] → " + serverStoreKey);
-        }
-
-        // ✅ Enqueue single pair and start queue processor
-        enqueuePublication(
-                clientUnicast, clientElementAddr,
-                serverNode.getUnicastAddress(), serverElementAddr,
-                appKeyIndex
-        );
-
-        mIsAutoSetupInProgress.postValue(true);
-        mHandler.postDelayed(this::processNextPublication, 300);
-    }
-
-    // =========================================================================
+        Log.w(TAG_BIND, "triggerAutoPublication: no provisioned client found for area='"
+                + serverArea + "' — will pair when client provisions");
+        mIsAutoSetupInProgress.postValue(false);
+    }    // =========================================================================
     // getClientAreaId
     // =========================================================================
 

@@ -15,6 +15,7 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 
 import java.util.Date;
+import java.util.Set;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -38,6 +39,7 @@ import no.nordicsemi.android.swaromapmesh.provisioners.ProvisionersActivity;
 import no.nordicsemi.android.swaromapmesh.scenes.ScenesActivity;
 import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 import static androidx.activity.result.contract.ActivityResultContracts.GetContent;
@@ -253,15 +255,40 @@ public class SettingsFragment extends Fragment implements
 
     @Override
     public void onNetworkReset() {
+        Log.d(TAG, "=== Starting network reset ===");
+
+        // 1. Reset mesh network
         mViewModel.resetMeshNetwork();
 
+        // 2. Clear ClientServerElementStore data
+        SharedPreferences meshPrefs = requireContext()
+                .getSharedPreferences("mesh_prefs", Context.MODE_PRIVATE);
+
+        // Get all provisioned keys and clear them
+        Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
+        for (String key : provisionedKeys) {
+            ClientServerElementStore.clearDevice(key);
+            Log.d(TAG, "Cleared device: " + key);
+        }
+
+
+        // 4. Clear SVG URI
         requireContext()
                 .getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                 .edit()
                 .remove("saved_svg_uri")
                 .apply();
 
-        Intent intent = new Intent(requireContext(), no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
+        // 5. Refresh ViewModel
+        mViewModel.syncFromStore();
+        mViewModel.forceSvgRefresh();
+
+        Log.d(TAG, "=== Network reset complete. Provisioned devices left: " +
+                ClientServerElementStore.getProvisionedKeys().size());
+
+        // 6. Navigate to Home
+        Intent intent = new Intent(requireContext(),
+                no.nordicsemi.android.swaromapmesh.swajaui.HomeActivity.class);
         intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         startActivity(intent);
     }

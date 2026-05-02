@@ -809,10 +809,10 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
                 .setPendingReversePublication(
                         serverUnicastAddress,
                         serverElementAddr,
-                        targetElementAddress,   // client element address
+                        targetElementAddress,
+                        node.getUnicastAddress(),  // ← ADD
                         appKeyIndex
                 );
-
         Log.d(TAG_PUB, "✅ Reverse pub queued: server=0x"
                 + String.format("%04X", serverUnicastAddress)
                 + " serverElem=0x" + String.format("%04X", serverElementAddr)
