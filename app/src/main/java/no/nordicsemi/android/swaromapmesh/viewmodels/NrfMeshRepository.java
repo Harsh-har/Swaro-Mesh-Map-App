@@ -17,8 +17,8 @@ import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CO
 import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_NODE_RESET_STATUS;
 import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_RELAY_STATUS;
 import static no.nordicsemi.android.swaromapmesh.ble.BleMeshManager.MESH_PROXY_UUID;
+
 import android.bluetooth.BluetoothDevice;
-import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Environment;
@@ -26,18 +26,22 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.ParcelUuid;
 import android.util.Log;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
+
 import java.io.File;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+
 import javax.inject.Inject;
 import javax.inject.Singleton;
+
 import no.nordicsemi.android.log.LogSession;
 import no.nordicsemi.android.log.Logger;
 import no.nordicsemi.android.swaromapmesh.ApplicationKey;
@@ -108,39 +112,46 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private final MutableLiveData<Void>    mOnDeviceReady   = new MutableLiveData<>();
     private final MutableLiveData<String>  mConnectionState = new MutableLiveData<>();
 
-    private final SingleLiveEvent<Boolean>               mIsReconnecting              = new SingleLiveEvent<>();
-    private final MutableLiveData<UnprovisionedMeshNode> mUnprovisionedMeshNodeLiveData = new MutableLiveData<>();
-    private final MutableLiveData<ProvisionedMeshNode>   mProvisionedMeshNodeLiveData   = new MutableLiveData<>();
-    private final SingleLiveEvent<Integer>               mConnectedProxyAddress         = new SingleLiveEvent<>();
+    private final SingleLiveEvent<Boolean>               mIsReconnecting
+            = new SingleLiveEvent<>();
+    private final MutableLiveData<UnprovisionedMeshNode> mUnprovisionedMeshNodeLiveData
+            = new MutableLiveData<>();
+    private final MutableLiveData<ProvisionedMeshNode>   mProvisionedMeshNodeLiveData
+            = new MutableLiveData<>();
+    private final SingleLiveEvent<Integer>               mConnectedProxyAddress
+            = new SingleLiveEvent<>();
 
     private boolean mIsProvisioningComplete = false;
 
     // ── Selected items ────────────────────────────────────────────────────────
-    private final MutableLiveData<ProvisionedMeshNode> mExtendedMeshNode     = new MutableLiveData<>();
-    private final MutableLiveData<Element>             mSelectedElement      = new MutableLiveData<>();
-    private final MutableLiveData<MeshModel>           mSelectedModel        = new MutableLiveData<>();
-    private final MutableLiveData<Provisioner>         mSelectedProvisioner  = new MutableLiveData<>();
-    private final MutableLiveData<Group>               mSelectedGroupLiveData = new MutableLiveData<>();
+    private final MutableLiveData<ProvisionedMeshNode> mExtendedMeshNode
+            = new MutableLiveData<>();
+    private final MutableLiveData<Element>    mSelectedElement      = new MutableLiveData<>();
+    private final MutableLiveData<MeshModel>  mSelectedModel        = new MutableLiveData<>();
+    private final MutableLiveData<Provisioner> mSelectedProvisioner = new MutableLiveData<>();
+    private final MutableLiveData<Group>       mSelectedGroupLiveData= new MutableLiveData<>();
 
     // ── Network / messaging ───────────────────────────────────────────────────
     private final MeshNetworkLiveData          mMeshNetworkLiveData  = new MeshNetworkLiveData();
     private final SingleLiveEvent<String>      mNetworkImportState   = new SingleLiveEvent<>();
     private final SingleLiveEvent<MeshMessage> mMeshMessageLiveData  = new SingleLiveEvent<>();
-    private final MutableLiveData<List<ProvisionedMeshNode>> mProvisionedNodes = new MutableLiveData<>();
-    private final MutableLiveData<TransactionStatus> mTransactionStatus = new SingleLiveEvent<>();
+    private final MutableLiveData<List<ProvisionedMeshNode>> mProvisionedNodes
+            = new MutableLiveData<>();
+    private final MutableLiveData<TransactionStatus> mTransactionStatus
+            = new SingleLiveEvent<>();
 
     // ── Core objects ──────────────────────────────────────────────────────────
     private final MeshManagerApi mMeshManagerApi;
     private final BleMeshManager mBleMeshManager;
     private final Handler        mHandler;
 
-    private UnprovisionedMeshNode mUnprovisionedMeshNode;
-    private ProvisionedMeshNode   mProvisionedMeshNode;
-    private boolean               mIsReconnectingFlag;
-    private boolean               mIsScanning;
-    private boolean               mSetupProvisionedNode;
+    private UnprovisionedMeshNode      mUnprovisionedMeshNode;
+    private ProvisionedMeshNode        mProvisionedMeshNode;
+    private boolean                    mIsReconnectingFlag;
+    private boolean                    mIsScanning;
+    private boolean                    mSetupProvisionedNode;
     private ProvisioningStatusLiveData mProvisioningStateLiveData;
-    private MeshNetwork           mMeshNetwork;
+    private MeshNetwork                mMeshNetwork;
 
     // ── Provisioning state flags ──────────────────────────────────────────────
     private boolean mIsCompositionDataReceived;
@@ -154,11 +165,21 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private ProvisionedMeshNode mAutoBindNode        = null;
     private boolean           mIsBindingInProgress   = false;
 
-    // ── Pending reverse publication (server → client) ─────────────────────────
+    // ── Publication queue ─────────────────────────────────────────────────────
+    // Each entry: {clientUnicast, clientElem, serverUnicast, serverElem, appKeyIndex}
+    private final List<int[]> mPendingPublicationQueue = new ArrayList<>();
+
+    // ── Publication STEP state ────────────────────────────────────────────────
+    // STEP1: client→server  (waiting for STEP1 ACK to fire STEP2)
     private int mPendingReverseServerUnicast     = -1;
     private int mPendingReverseServerElementAddr = -1;
     private int mPendingReverseClientElementAddr = -1;
+    private int mPendingReverseClientUnicast     = -1;
     private int mPendingReverseAppKeyIndex       = -1;
+
+    // STEP2: server→client  (waiting for STEP2 ACK to process next in queue)
+    private boolean mWaitingForStep2Ack = false;
+    private int     mStep2ServerUnicast = -1;
 
     // ── Import callback ────────────────────────────────────────────────────────
     private Runnable mOnNetworkImportedCallback = null;
@@ -176,6 +197,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // Constructor
     // =========================================================================
+
     @Inject
     public NrfMeshRepository(final MeshManagerApi meshManagerApi,
                              final BleMeshManager bleMeshManager) {
@@ -196,6 +218,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // Getters / Setters
     // =========================================================================
+
     LiveData<Void>    isDeviceReady()      { return mOnDeviceReady; }
     LiveData<String>  getConnectionState() { return mConnectionState; }
     LiveData<Boolean> isConnected()        { return mIsConnected; }
@@ -217,7 +240,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     BleMeshManager getBleMeshManager()                  { return mBleMeshManager; }
     LiveData<MeshMessage> getMeshMessageLiveData()      { return mMeshMessageLiveData; }
     LiveData<Group>   getSelectedGroup()                { return mSelectedGroupLiveData; }
-    LiveData<UnprovisionedMeshNode> getUnprovisionedMeshNode() { return mUnprovisionedMeshNodeLiveData; }
+    LiveData<UnprovisionedMeshNode> getUnprovisionedMeshNode() {
+        return mUnprovisionedMeshNodeLiveData;
+    }
     LiveData<Integer> getConnectedProxyAddress()        { return mConnectedProxyAddress; }
     LiveData<ProvisionedMeshNode> getSelectedMeshNode() { return mExtendedMeshNode; }
     LiveData<Element>    getSelectedElement()           { return mSelectedElement; }
@@ -236,7 +261,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     void setSelectedElement(final Element element)  { mSelectedElement.postValue(element); }
     void setSelectedModel(final MeshModel model)    { mSelectedModel.postValue(model); }
-    void setSelectedProvisioner(@NonNull final Provisioner p) { mSelectedProvisioner.postValue(p); }
+    void setSelectedProvisioner(@NonNull final Provisioner p) {
+        mSelectedProvisioner.postValue(p);
+    }
 
     void setSelectedGroup(final int address) {
         final Group group = mMeshNetwork.getGroup(address);
@@ -246,6 +273,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // ScannerActivity reconnect helpers
     // =========================================================================
+
     public ProvisionedMeshNode getLastProvisionedNode() { return mProvisionedMeshNode; }
 
     public void markSetupRequired(int nodeUnicastAddress) {
@@ -273,18 +301,21 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mIsDefaultTtlReceived            = false;
         mIsAppKeyAddCompleted            = false;
         mIsNetworkRetransmitSetCompleted = false;
-        Log.d(TAG, "markSetupRequired ✅ node=0x" + Integer.toHexString(nodeUnicastAddress));
+        Log.d(TAG, "markSetupRequired ✅ node=0x"
+                + Integer.toHexString(nodeUnicastAddress));
     }
 
     // =========================================================================
     // Connection management
     // =========================================================================
+
     void resetMeshNetwork() {
         disconnect();
         mMeshManagerApi.resetMeshNetwork();
     }
 
-    void connect(final Context context, final ExtendedBluetoothDevice device,
+    void connect(final android.content.Context context,
+                 final ExtendedBluetoothDevice device,
                  final boolean connectToNetwork) {
         mMeshNetworkLiveData.setNodeName(device.getName());
         mIsProvisioningComplete          = false;
@@ -307,7 +338,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     private void initIsConnectedLiveData(final boolean connectToNetwork) {
-        mIsConnected = connectToNetwork ? new SingleLiveEvent<>() : new MutableLiveData<>();
+        mIsConnected = connectToNetwork
+                ? new SingleLiveEvent<>() : new MutableLiveData<>();
     }
 
     void disconnect() {
@@ -344,6 +376,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // BleMeshManagerCallbacks
     // =========================================================================
+
     @Override
     public void onDataReceived(final BluetoothDevice bluetoothDevice,
                                final int mtu, final byte[] pdu) {
@@ -351,7 +384,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     @Override
-    public void onDataSent(final BluetoothDevice device, final int mtu, final byte[] pdu) {
+    public void onDataSent(final BluetoothDevice device,
+                           final int mtu, final byte[] pdu) {
         mMeshManagerApi.handleWriteCallbacks(mtu, pdu);
     }
 
@@ -369,7 +403,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     @Override
     public void onDeviceDisconnecting(@NonNull final BluetoothDevice device) {
-        mConnectionState.postValue(mIsReconnectingFlag ? "Reconnecting..." : "Disconnecting...");
+        mConnectionState.postValue(
+                mIsReconnectingFlag ? "Reconnecting..." : "Disconnecting...");
     }
 
     @Override
@@ -391,6 +426,14 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mSetupProvisionedNode = false;
         mConnectedProxyAddress.postValue(null);
         mIsBindingInProgress  = false;
+
+        // ── Safety: if disconnect mid-publication, clear everything ───────────
+        if (mPendingReverseServerUnicast != -1 || mWaitingForStep2Ack
+                || !mPendingPublicationQueue.isEmpty()) {
+            Log.w(TAG, "⚠️ Disconnected mid-publication — clearing pub state");
+            clearPendingPublicationState();
+            mIsAutoSetupInProgress.postValue(false);
+        }
     }
 
     @Override public void onLinkLossOccurred(@NonNull final BluetoothDevice device) {
@@ -409,7 +452,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             if (mSetupProvisionedNode) {
                 if (mMeshNetwork.getSelectedProvisioner().getProvisionerAddress() != null) {
                     mHandler.postDelayed(() -> {
-                        final ProvisionedMeshNode node = mProvisionedMeshNodeLiveData.getValue();
+                        final ProvisionedMeshNode node =
+                                mProvisionedMeshNodeLiveData.getValue();
                         if (node != null) {
                             mMeshManagerApi.createMeshPdu(node.getUnicastAddress(),
                                     new ConfigCompositionDataGet());
@@ -435,7 +479,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     @Override
     public void onError(final BluetoothDevice device,
                         @NonNull final String message, final int errorCode) {
-        Log.e(TAG, message + " (code: " + errorCode + "), device: " + device.getAddress());
+        Log.e(TAG, message + " (code: " + errorCode
+                + "), device: " + device.getAddress());
         mConnectionState.postValue(message);
     }
 
@@ -444,6 +489,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // MeshManagerCallbacks
     // =========================================================================
+
     @Override public void onNetworkLoaded(final MeshNetwork meshNetwork) {
         loadNetwork(meshNetwork);
     }
@@ -454,15 +500,20 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         updateSelectedGroup();
     }
 
-    @Override public void onNetworkLoadFailed(final String error)   { mNetworkImportState.postValue(error); }
-    @Override public void onNetworkImportFailed(final String error) { mNetworkImportState.postValue(error); }
+    @Override public void onNetworkLoadFailed(final String error) {
+        mNetworkImportState.postValue(error);
+    }
+
+    @Override public void onNetworkImportFailed(final String error) {
+        mNetworkImportState.postValue(error);
+    }
 
     @Override
     public void onNetworkImported(final MeshNetwork meshNetwork) {
         loadNetwork(meshNetwork);
         if (mOnNetworkImportedCallback != null) {
             mHandler.post(mOnNetworkImportedCallback);
-            Log.d(TAG, "✅ onNetworkImported: rebuildProvisionedFromMesh callback fired");
+            Log.d(TAG, "✅ onNetworkImported: callback fired");
         }
         mNetworkImportState.postValue(meshNetwork.getMeshName()
                 + " has been successfully imported.\n"
@@ -478,12 +529,16 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mBleMeshManager.sendPdu(pdu);
     }
 
-    @Override public void onMeshPduCreated(final byte[] pdu) { mBleMeshManager.sendPdu(pdu); }
+    @Override public void onMeshPduCreated(final byte[] pdu) {
+        mBleMeshManager.sendPdu(pdu);
+    }
+
     @Override public int getMtu() { return mBleMeshManager.getMaximumPacketSize(); }
 
     // =========================================================================
     // MeshProvisioningStatusCallbacks
     // =========================================================================
+
     @Override
     public void onProvisioningStateChanged(final UnprovisionedMeshNode meshNode,
                                            final ProvisioningState.States state,
@@ -539,7 +594,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     private void loadNodes() {
         final List<ProvisionedMeshNode> nodes = new ArrayList<>();
-        final String provisionerUuid = mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
+        final String provisionerUuid =
+                mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
         for (final ProvisionedMeshNode node : mMeshNetwork.getNodes()) {
             if (!node.getUuid().equalsIgnoreCase(provisionerUuid)) {
                 nodes.add(node);
@@ -551,10 +607,13 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // MeshStatusCallbacks
     // =========================================================================
+
     @Override
-    public void onTransactionFailed(final int dst, final boolean hasIncompleteTimerExpired) {
+    public void onTransactionFailed(final int dst,
+                                    final boolean hasIncompleteTimerExpired) {
         mProvisionedMeshNode = mMeshNetwork.getNode(dst);
-        mTransactionStatus.postValue(new TransactionStatus(dst, hasIncompleteTimerExpired));
+        mTransactionStatus.postValue(
+                new TransactionStatus(dst, hasIncompleteTimerExpired));
     }
 
     @Override
@@ -595,7 +654,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                                                      @NonNull ControlMessage message) {}
 
     @Override
-    public void onMeshMessageProcessed(final int dst, @NonNull final MeshMessage meshMessage) {
+    public void onMeshMessageProcessed(final int dst,
+                                       @NonNull final MeshMessage meshMessage) {
         final ProvisionedMeshNode node = mMeshNetwork.getNode(dst);
         if (node != null) {
             mProvisionedMeshNode = node;
@@ -620,8 +680,10 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // onMeshMessageReceived — main dispatcher
     // =========================================================================
+
     @Override
-    public void onMeshMessageReceived(final int src, @NonNull final MeshMessage meshMessage) {
+    public void onMeshMessageReceived(final int src,
+                                      @NonNull final MeshMessage meshMessage) {
         final ProvisionedMeshNode node = mMeshNetwork.getNode(src);
         if (node != null) {
 
@@ -650,16 +712,18 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 final ConfigDefaultTtlStatus status = (ConfigDefaultTtlStatus) meshMessage;
                 if (mSetupProvisionedNode) {
                     mIsDefaultTtlReceived = true;
-                    if (mMeshNetworkLiveData.getAppKeys().isEmpty()) mSetupProvisionedNode = false;
+                    if (mMeshNetworkLiveData.getAppKeys().isEmpty())
+                        mSetupProvisionedNode = false;
                     mProvisionedMeshNodeLiveData.postValue(node);
                     mProvisioningStateLiveData.onMeshNodeStateUpdated(
                             ProvisionerStates.DEFAULT_TTL_STATUS_RECEIVED);
                     if (!mMeshNetworkLiveData.getAppKeys().isEmpty()) {
-                        final ApplicationKey appKey = mMeshNetworkLiveData.getSelectedAppKey();
+                        final ApplicationKey appKey =
+                                mMeshNetworkLiveData.getSelectedAppKey();
                         if (appKey != null) {
                             mHandler.postDelayed(() -> {
-                                final NetworkKey netKey =
-                                        mMeshNetwork.getNetKeys().get(appKey.getBoundNetKeyIndex());
+                                final NetworkKey netKey = mMeshNetwork.getNetKeys()
+                                        .get(appKey.getBoundNetKeyIndex());
                                 mMeshManagerApi.createMeshPdu(node.getUnicastAddress(),
                                         new ConfigAppKeyAdd(netKey, appKey));
                             }, 1500);
@@ -707,11 +771,12 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 final ConfigModelAppStatus status = (ConfigModelAppStatus) meshMessage;
                 updateNode(node);
                 if (node.getElements().containsKey(status.getElementAddress())) {
-                    final Element element = node.getElements().get(status.getElementAddress());
+                    final Element element =
+                            node.getElements().get(status.getElementAddress());
                     if (element != null) {
                         mSelectedElement.postValue(element);
-                        mSelectedModel.postValue(
-                                element.getMeshModels().get(status.getModelIdentifier()));
+                        mSelectedModel.postValue(element.getMeshModels()
+                                .get(status.getModelIdentifier()));
                     }
                 }
                 if (mAutoBindNode != null
@@ -722,51 +787,109 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 }
 
             } else if (meshMessage.getOpCode() == CONFIG_MODEL_PUBLICATION_STATUS) {
-                if (updateNode(node)) {
-                    final ConfigModelPublicationStatus status =
-                            (ConfigModelPublicationStatus) meshMessage;
-                    if (node.getElements().containsKey(status.getElementAddress())) {
-                        final Element element = node.getElements().get(status.getElementAddress());
+
+                // best-effort update — ignore return (publication ACK may come from
+                // a different node than mProvisionedMeshNode)
+                updateNode(node);
+
+                final ConfigModelPublicationStatus status =
+                        (ConfigModelPublicationStatus) meshMessage;
+
+                if (node.getElements().containsKey(status.getElementAddress())) {
+                    final Element element =
+                            node.getElements().get(status.getElementAddress());
+                    if (element != null) {
                         mSelectedElement.postValue(element);
-                        mSelectedModel.postValue(
-                                element.getMeshModels().get(status.getModelIdentifier()));
+                        mSelectedModel.postValue(element.getMeshModels()
+                                .get(status.getModelIdentifier()));
+                    }
+                }
+
+                Log.d(TAG, "CONFIG_MODEL_PUBLICATION_STATUS src=0x"
+                        + String.format("%04X", src)
+                        + " pendingClientUnicast=0x"
+                        + String.format("%04X", mPendingReverseClientUnicast)
+                        + " waitStep2=" + mWaitingForStep2Ack
+                        + " step2Server=0x" + String.format("%04X", mStep2ServerUnicast)
+                        + " queueSize=" + mPendingPublicationQueue.size());
+
+                // ── STEP2 ACK: server confirmed publication ───────────────────
+                if (mWaitingForStep2Ack && src == mStep2ServerUnicast) {
+                    mWaitingForStep2Ack = false;
+                    mStep2ServerUnicast = -1;
+
+                    // Remove completed pair from queue
+                    if (!mPendingPublicationQueue.isEmpty()) {
+                        mPendingPublicationQueue.remove(0);
                     }
 
-                    // ── Pending reverse publication (server → client) ──────────
-                    if (mPendingReverseServerUnicast != -1) {
-                        final int serverUnicast     = mPendingReverseServerUnicast;
-                        final int serverElementAddr = mPendingReverseServerElementAddr;
-                        final int clientElementAddr = mPendingReverseClientElementAddr;
-                        final int appKeyIndex       = mPendingReverseAppKeyIndex;
+                    Log.d(TAG, "✅ STEP2 ACK — " + mPendingPublicationQueue.size()
+                            + " pairs remaining in queue");
 
-                        mPendingReverseServerUnicast     = -1;
-                        mPendingReverseServerElementAddr = -1;
-                        mPendingReverseClientElementAddr = -1;
-                        mPendingReverseAppKeyIndex       = -1;
+                    if (!mPendingPublicationQueue.isEmpty()) {
+                        // Process next pair
+                        mHandler.postDelayed(this::processNextPublication, 800);
+                    } else {
+                        Log.d(TAG, "✅ All publications complete ✅");
+                        mIsAutoSetupInProgress.postValue(false);
+                    }
+                }
 
-                        mHandler.postDelayed(() -> {
-                            try {
-                                Log.d(TAG, "🔄 REVERSE PUB: server=0x"
-                                        + String.format("%04X", serverUnicast)
-                                        + " serverElem=0x"
-                                        + String.format("%04X", serverElementAddr)
-                                        + " → clientElem=0x"
-                                        + String.format("%04X", clientElementAddr));
-                                mMeshManagerApi.createMeshPdu(
-                                        serverUnicast,
-                                        new ConfigModelPublicationSet(
-                                                serverElementAddr,
-                                                clientElementAddr,
-                                                appKeyIndex,
-                                                false, 5, 0, 0, 0, 0,
-                                                MODEL_GENERIC_ONOFF_SERVER
-                                        )
-                                );
-                            } catch (Exception e) {
-                                Log.e(TAG, "❌ Reverse publication failed: " + e.getMessage());
+                // ── STEP1 ACK: client confirmed → fire STEP2 ─────────────────
+                else if (mPendingReverseServerUnicast != -1
+                        && src == mPendingReverseClientUnicast) {
+
+                    final int serverUnicast     = mPendingReverseServerUnicast;
+                    final int serverElementAddr = mPendingReverseServerElementAddr;
+                    final int clientElementAddr = mPendingReverseClientElementAddr;
+                    final int appKeyIndex       = mPendingReverseAppKeyIndex;
+
+                    // Clear STEP1 state before sending STEP2
+                    mPendingReverseServerUnicast     = -1;
+                    mPendingReverseServerElementAddr = -1;
+                    mPendingReverseClientElementAddr = -1;
+                    mPendingReverseClientUnicast     = -1;
+                    mPendingReverseAppKeyIndex       = -1;
+
+                    // Register STEP2 ACK expectation
+                    mWaitingForStep2Ack = true;
+                    mStep2ServerUnicast = serverUnicast;
+
+                    mHandler.postDelayed(() -> {
+                        Log.d(TAG, "📤 STEP2 (server→client): server=0x"
+                                + String.format("%04X", serverUnicast)
+                                + " serverElem=0x"
+                                + String.format("%04X", serverElementAddr)
+                                + " → clientElem=0x"
+                                + String.format("%04X", clientElementAddr));
+                        try {
+                            mMeshManagerApi.createMeshPdu(
+                                    serverUnicast,
+                                    new ConfigModelPublicationSet(
+                                            serverElementAddr,
+                                            clientElementAddr,
+                                            appKeyIndex,
+                                            false, 5, 0, 0, 0, 0,
+                                            MODEL_GENERIC_ONOFF_SERVER
+                                    )
+                            );
+                            Log.d(TAG, "✅ STEP2 PDU sent to server=0x"
+                                    + String.format("%04X", serverUnicast));
+                        } catch (Exception e) {
+                            Log.e(TAG, "❌ STEP2 failed: " + e.getMessage());
+                            mWaitingForStep2Ack = false;
+                            mStep2ServerUnicast = -1;
+                            // Remove failed pair and try next
+                            if (!mPendingPublicationQueue.isEmpty()) {
+                                mPendingPublicationQueue.remove(0);
                             }
-                        }, 1000);
-                    }
+                            if (!mPendingPublicationQueue.isEmpty()) {
+                                mHandler.postDelayed(this::processNextPublication, 800);
+                            } else {
+                                mIsAutoSetupInProgress.postValue(false);
+                            }
+                        }
+                    }, 500);
                 }
 
             } else if (meshMessage.getOpCode() == CONFIG_MODEL_SUBSCRIPTION_STATUS) {
@@ -774,10 +897,11 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                     final ConfigModelSubscriptionStatus status =
                             (ConfigModelSubscriptionStatus) meshMessage;
                     if (node.getElements().containsKey(status.getElementAddress())) {
-                        final Element element = node.getElements().get(status.getElementAddress());
+                        final Element element =
+                                node.getElements().get(status.getElementAddress());
                         mSelectedElement.postValue(element);
-                        mSelectedModel.postValue(
-                                element.getMeshModels().get(status.getModelIdentifier()));
+                        mSelectedModel.postValue(element.getMeshModels()
+                                .get(status.getModelIdentifier()));
                     }
                 }
 
@@ -792,7 +916,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
             } else if (meshMessage.getOpCode() == CONFIG_HEARTBEAT_PUBLICATION_STATUS) {
                 if (updateNode(node)) {
-                    final Element element = node.getElements().get(meshMessage.getSrc());
+                    final Element element =
+                            node.getElements().get(meshMessage.getSrc());
                     if (element != null)
                         mSelectedModel.postValue(element.getMeshModels()
                                 .get((int) SigModelParser.CONFIGURATION_SERVER));
@@ -801,7 +926,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
             } else if (meshMessage.getOpCode() == CONFIG_HEARTBEAT_SUBSCRIPTION_STATUS) {
                 if (updateNode(node)) {
-                    final Element element = node.getElements().get(meshMessage.getSrc());
+                    final Element element =
+                            node.getElements().get(meshMessage.getSrc());
                     if (element != null)
                         mSelectedModel.postValue(element.getMeshModels()
                                 .get((int) SigModelParser.CONFIGURATION_SERVER));
@@ -815,7 +941,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 if (updateNode(node)) {
                     final GenericOnOffStatus status = (GenericOnOffStatus) meshMessage;
                     if (node.getElements().containsKey(status.getSrcAddress())) {
-                        final Element element = node.getElements().get(status.getSrcAddress());
+                        final Element element =
+                                node.getElements().get(status.getSrcAddress());
                         mSelectedElement.postValue(element);
                         mSelectedModel.postValue(element.getMeshModels()
                                 .get((int) SigModelParser.GENERIC_ON_OFF_SERVER));
@@ -826,7 +953,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 if (updateNode(node)) {
                     final GenericLevelStatus status = (GenericLevelStatus) meshMessage;
                     if (node.getElements().containsKey(status.getSrcAddress())) {
-                        final Element element = node.getElements().get(status.getSrcAddress());
+                        final Element element =
+                                node.getElements().get(status.getSrcAddress());
                         mSelectedElement.postValue(element);
                         mSelectedModel.postValue(element.getMeshModels()
                                 .get((int) SigModelParser.GENERIC_LEVEL_SERVER));
@@ -851,12 +979,14 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
             } else if (meshMessage instanceof VendorModelMessageStatus) {
                 if (updateNode(node)) {
-                    final VendorModelMessageStatus status = (VendorModelMessageStatus) meshMessage;
+                    final VendorModelMessageStatus status =
+                            (VendorModelMessageStatus) meshMessage;
                     if (node.getElements().containsKey(status.getSrcAddress())) {
-                        final Element element = node.getElements().get(status.getSrcAddress());
+                        final Element element =
+                                node.getElements().get(status.getSrcAddress());
                         mSelectedElement.postValue(element);
-                        mSelectedModel.postValue(
-                                element.getMeshModels().get(status.getModelIdentifier()));
+                        mSelectedModel.postValue(element.getMeshModels()
+                                .get(status.getModelIdentifier()));
                     }
                 }
             }
@@ -869,18 +999,122 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     @Override
-    public void onMessageDecryptionFailed(final String meshLayer, final String errorMessage) {
+    public void onMessageDecryptionFailed(final String meshLayer,
+                                          final String errorMessage) {
         Log.e(TAG, "Decryption failed in " + meshLayer + " : " + errorMessage);
+    }
+
+    // =========================================================================
+    // Publication helpers — public API
+    // =========================================================================
+
+    /** Called from BaseModelConfigurationActivity for manual publication. */
+    public void setPendingReversePublication(int serverUnicast, int serverElementAddr,
+                                             int clientElementAddr, int appKeyIndex) {
+        mPendingReverseServerUnicast     = serverUnicast;
+        mPendingReverseServerElementAddr = serverElementAddr;
+        mPendingReverseClientElementAddr = clientElementAddr;
+        mPendingReverseClientUnicast     = -1; // not used for manual path
+        mPendingReverseAppKeyIndex       = appKeyIndex;
+        Log.d(TAG, "setPendingReversePublication (manual): server=0x"
+                + String.format("%04X", serverUnicast)
+                + " serverElem=0x" + String.format("%04X", serverElementAddr)
+                + " clientElem=0x" + String.format("%04X", clientElementAddr));
+    }
+
+    // =========================================================================
+    // Publication queue processor
+    // =========================================================================
+
+    /**
+     * Processes the next server-client publication pair from the queue.
+     * Called after STEP2 ACK is received (or on initial queue start).
+     * Format: {clientUnicast, clientElem, serverUnicast, serverElem, appKeyIndex}
+     */
+    private void processNextPublication() {
+        if (mPendingPublicationQueue.isEmpty()) {
+            Log.d(TAG, "✅ processNextPublication: queue empty — all done");
+            mIsAutoSetupInProgress.postValue(false);
+            return;
+        }
+
+        int[] pub = mPendingPublicationQueue.get(0);
+        int clientUnicast = pub[0];
+        int clientElem    = pub[1];
+        int serverUnicast = pub[2];
+        int serverElem    = pub[3];
+        int appKeyIndex   = pub[4];
+
+        mIsAutoSetupInProgress.postValue(true);
+
+        // Register STEP1 state
+        mPendingReverseServerUnicast     = serverUnicast;
+        mPendingReverseServerElementAddr = serverElem;
+        mPendingReverseClientElementAddr = clientElem;
+        mPendingReverseClientUnicast     = clientUnicast;
+        mPendingReverseAppKeyIndex       = appKeyIndex;
+
+        Log.d(TAG, "📤 processNextPublication STEP1 ["
+                + mPendingPublicationQueue.size() + " in queue]"
+                + " clientUnicast=0x" + String.format("%04X", clientUnicast)
+                + " clientElem=0x" + String.format("%04X", clientElem)
+                + " → serverElem=0x" + String.format("%04X", serverElem));
+
+        try {
+            mMeshManagerApi.createMeshPdu(
+                    clientUnicast,
+                    new ConfigModelPublicationSet(
+                            clientElem, serverElem, appKeyIndex,
+                            false, 5, 0, 0, 0, 0,
+                            MODEL_GENERIC_ONOFF_CLIENT
+                    )
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "❌ processNextPublication STEP1 failed: " + e.getMessage());
+            mPendingPublicationQueue.remove(0);
+            mPendingReverseServerUnicast = -1;
+            mPendingReverseClientUnicast = -1;
+            mPendingReverseAppKeyIndex   = -1;
+            mHandler.postDelayed(this::processNextPublication, 500);
+        }
+    }
+
+    /** Internal — queues a publication pair for sequential processing. */
+    private void enqueuePublication(int clientUnicast, int clientElem,
+                                    int serverUnicast, int serverElem,
+                                    int appKeyIndex) {
+        mPendingPublicationQueue.add(new int[]{
+                clientUnicast, clientElem, serverUnicast, serverElem, appKeyIndex
+        });
+        Log.d(TAG_BIND, "📋 Enqueued publication:"
+                + " client=0x" + String.format("%04X", clientUnicast)
+                + " clientElem=0x" + String.format("%04X", clientElem)
+                + " server=0x" + String.format("%04X", serverUnicast)
+                + " serverElem=0x" + String.format("%04X", serverElem)
+                + " [queue size=" + mPendingPublicationQueue.size() + "]");
+    }
+
+    private void clearPendingPublicationState() {
+        mPendingReverseServerUnicast     = -1;
+        mPendingReverseServerElementAddr = -1;
+        mPendingReverseClientElementAddr = -1;
+        mPendingReverseClientUnicast     = -1;
+        mPendingReverseAppKeyIndex       = -1;
+        mWaitingForStep2Ack              = false;
+        mStep2ServerUnicast              = -1;
+        mPendingPublicationQueue.clear();
     }
 
     // =========================================================================
     // Internal helpers
     // =========================================================================
+
     private void loadNetwork(final MeshNetwork meshNetwork) {
         mMeshNetwork = meshNetwork;
         if (mMeshNetwork != null) {
             if (!mMeshNetwork.isProvisionerSelected()) {
-                final Provisioner provisioner = meshNetwork.getProvisioners().get(0);
+                final Provisioner provisioner =
+                        meshNetwork.getProvisioners().get(0);
                 provisioner.setLastSelected(true);
                 mMeshNetwork.selectProvisioner(provisioner);
             }
@@ -888,13 +1122,15 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             loadNodes();
             final ProvisionedMeshNode node = getSelectedMeshNode().getValue();
             if (node != null)
-                mExtendedMeshNode.postValue(mMeshNetwork.getNode(node.getUuid()));
+                mExtendedMeshNode.postValue(
+                        mMeshNetwork.getNode(node.getUuid()));
         }
     }
 
     private boolean updateNode(@NonNull final ProvisionedMeshNode node) {
         if (mProvisionedMeshNode != null
-                && mProvisionedMeshNode.getUnicastAddress() == node.getUnicastAddress()) {
+                && mProvisionedMeshNode.getUnicastAddress()
+                == node.getUnicastAddress()) {
             mProvisionedMeshNode = node;
             mExtendedMeshNode.postValue(node);
             return true;
@@ -912,6 +1148,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // =========================================================================
     // BLE Scanner
     // =========================================================================
+
     private void startScan() {
         if (mIsScanning) return;
         mIsScanning = true;
@@ -938,7 +1175,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         public void onScanResult(final int callbackType, final ScanResult result) {
             final ScanRecord scanRecord = result.getScanRecord();
             if (scanRecord != null) {
-                final byte[] serviceData = Utils.getServiceData(result, MESH_PROXY_UUID);
+                final byte[] serviceData =
+                        Utils.getServiceData(result, MESH_PROXY_UUID);
                 if (serviceData != null
                         && mMeshManagerApi.isAdvertisedWithNodeIdentity(serviceData)) {
                     final ProvisionedMeshNode node = mProvisionedMeshNode;
@@ -961,23 +1199,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     // =========================================================================
-    // setPendingReversePublication
-    // =========================================================================
-    public void setPendingReversePublication(int serverUnicast, int serverElementAddr,
-                                             int clientElementAddr, int appKeyIndex) {
-        mPendingReverseServerUnicast     = serverUnicast;
-        mPendingReverseServerElementAddr = serverElementAddr;
-        mPendingReverseClientElementAddr = clientElementAddr;
-        mPendingReverseAppKeyIndex       = appKeyIndex;
-        Log.d(TAG, "setPendingReversePublication: server=0x"
-                + String.format("%04X", serverUnicast)
-                + " serverElem=0x" + String.format("%04X", serverElementAddr)
-                + " clientElem=0x" + String.format("%04X", clientElementAddr));
-    }
-
-    // =========================================================================
     // AUTO APP KEY BIND
     // =========================================================================
+
     private void startAutoAppKeyBind(@NonNull final ProvisionedMeshNode node) {
         mIsAutoSetupInProgress.postValue(true);
         final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
@@ -993,11 +1217,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mAutoBindNode        = node;
         mIsBindingInProgress = false;
 
-        // ── STEP 1: Resolve the store key for this node (server nodes only) ──
-        // Client nodes use plain normalizeId() — they have their own simple key
-        final String rawName       = normalizeId(node.getNodeName());
-        final String resolvedKey   = resolveServerKeyByNodeName(rawName);
-        final String storeKey = (resolvedKey != null) ? resolvedKey : rawName;
+        final String rawName     = normalizeId(node.getNodeName());
+        final String resolvedKey = resolveServerKeyByNodeName(rawName);
+        final String storeKey    = (resolvedKey != null) ? resolvedKey : rawName;
 
         Log.d(TAG_BIND, "START AUTO BIND: nodeName='" + node.getNodeName()
                 + "' rawName='" + rawName
@@ -1018,21 +1240,22 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                         isServerNode         = true;
                         serverElementAddress = elementAddress;
                     }
-                    mPendingBindOperations.add(new int[]{elementAddress, modelId, appKeyIndex});
+                    mPendingBindOperations.add(
+                            new int[]{elementAddress, modelId, appKeyIndex});
                 } else if (modelId == MODEL_GENERIC_ONOFF_CLIENT) {
                     isClientNode = true;
-                    mPendingBindOperations.add(new int[]{elementAddress, modelId, appKeyIndex});
+                    mPendingBindOperations.add(
+                            new int[]{elementAddress, modelId, appKeyIndex});
                 } else {
-                    mPendingBindOperations.add(new int[]{elementAddress, modelId, appKeyIndex});
+                    mPendingBindOperations.add(
+                            new int[]{elementAddress, modelId, appKeyIndex});
                 }
             }
         }
 
-        // ── STEP 2: Save server info under resolvedKey (full key like "pdri:relay node1") ──
+        // ── Save server info ──────────────────────────────────────────────────
         if (isServerNode && storeKey != null && !storeKey.isEmpty()) {
-            if (serverElementAddress == -1) {
-                Log.e(TAG_BIND, "❌ serverElementAddress not found — save skip");
-            } else {
+            if (serverElementAddress != -1) {
                 int existing = ClientServerElementStore.getServerUnicastAddress(storeKey);
                 if (existing == -1) {
                     ClientServerElementStore.saveCompleteServerInfo(
@@ -1041,50 +1264,43 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                             0,
                             serverElementAddress
                     );
-                    Log.d(TAG_BIND, "✅ Server saved first time under key='" + storeKey + "'");
+                    Log.d(TAG_BIND, "✅ Server saved: key='" + storeKey + "'");
                 } else {
                     ClientServerElementStore.saveServerUnicastAddress(
                             storeKey, node.getUnicastAddress());
                     ClientServerElementStore.saveServerPrimaryElementAddress(
                             storeKey, serverElementAddress);
-                    Log.d(TAG_BIND, "✅ Server updated: key='" + storeKey
-                            + "' unicast=0x" + String.format("%04X", node.getUnicastAddress())
-                            + " elementAddr=0x" + String.format("%04X", serverElementAddress));
+                    Log.d(TAG_BIND, "✅ Server updated: key='" + storeKey + "'");
                 }
-
-                int existingSvgId = ClientServerElementStore.getServerSvgElementId(storeKey);
-                if (existingSvgId == -1) {
-                    Log.w(TAG_BIND, "⚠️ svgId not yet set for key='" + storeKey + "'");
-                } else {
-                    Log.d(TAG_BIND, "✅ svgId=" + existingSvgId
-                            + " ready for key='" + storeKey + "'");
+                if (storeKey.contains(":")) {
+                    String area = storeKey.split(":")[0].trim();
+                    ClientServerElementStore.saveServerAreaId(storeKey, area);
+                    Log.d(TAG_BIND, "✅ Server area saved: key='"
+                            + storeKey + "' area='" + area + "'");
                 }
+            } else {
+                Log.e(TAG_BIND, "❌ serverElementAddress not found — save skip");
             }
             String mac = node.getMacAddress();
             if (mac != null && !mac.isEmpty()) {
                 ClientServerElementStore.saveServerMacAddress(storeKey, mac);
-                Log.d(TAG_BIND, "✅ MAC saved: key='" + storeKey + "' mac=" + mac);
             }
         }
 
-        // ── STEP 3: For client nodes, save unicast under plain rawName key ──
-        // e.g. rawName = "relay node" — client addresses will be saved here later
+        // ── Save client unicast + trigger publication for existing servers ─────
         if (isClientNode && rawName != null && !rawName.isEmpty()) {
             int existingClientUnicast =
                     ClientServerElementStore.getServerUnicastAddress(rawName);
             if (existingClientUnicast == -1) {
                 ClientServerElementStore.saveServerUnicastAddress(
                         rawName, node.getUnicastAddress());
-                Log.d(TAG_BIND, "✅ Client unicast saved: key='" + rawName
-                        + "' unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+                Log.d(TAG_BIND, "✅ Client unicast saved: key='" + rawName + "'");
             }
+            // ✅ Client provision complete — trigger publication for already
+            // provisioned servers (server-first scenario)
+            mHandler.postDelayed(
+                    () -> triggerPublicationForExistingServers(node, rawName), 2000);
         }
-
-        int svgId = ClientServerElementStore.getServerSvgElementId(storeKey);
-        Log.d(TAG_BIND, "Type: "
-                + (isServerNode ? "SERVER" : "")
-                + (isClientNode ? (isServerNode ? "+CLIENT" : "CLIENT") : "")
-                + (svgId != -1 ? " | svgId=" + svgId : " | svgId NOT SET"));
 
         if (mPendingBindOperations.isEmpty()) {
             if (isClientNode) saveClientElementAddresses(node, rawName);
@@ -1097,20 +1313,173 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     // =========================================================================
+    // triggerPublicationForExistingServers
+    // "Server pehle, client baad" scenario
+    // =========================================================================
+
+    private void triggerPublicationForExistingServers(
+            @NonNull final ProvisionedMeshNode clientNode,
+            @NonNull final String clientKey) {
+
+        if (mMeshNetwork == null) return;
+
+        final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
+        if (appKeys == null || appKeys.isEmpty()) {
+            Log.w(TAG_BIND, "triggerPublicationForExistingServers: no AppKey");
+            return;
+        }
+        final int appKeyIndex = appKeys.get(0).getKeyIndex();
+        final String provisionerUuid =
+                mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
+
+        // Sort client elements by address
+        List<Element> sortedClientElements =
+                new ArrayList<>(clientNode.getElements().values());
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            sortedClientElements.sort((a, b) ->
+                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
+        }
+
+        // Client area
+        String clientArea = null;
+        if (clientKey.contains(":")) {
+            clientArea = clientKey.substring(0, clientKey.indexOf(":")).trim().toLowerCase();
+        } else {
+            for (String key : ClientServerElementStore.getProvisionedKeys()) {
+                if (!key.contains(":")) continue;
+                String namePart = key.substring(key.indexOf(":") + 1).trim().toLowerCase();
+                if (namePart.equals(clientKey.trim().toLowerCase())) {
+                    clientArea = key.substring(0, key.indexOf(":")).trim().toLowerCase();
+                    break;
+                }
+            }
+        }
+
+        Log.d(TAG_BIND, "triggerPublicationForExistingServers:"
+                + " clientKey='" + clientKey + "'"
+                + " clientArea='" + clientArea + "'"
+                + " clientUnicast=0x"
+                + String.format("%04X", clientNode.getUnicastAddress()));
+
+        int matchCount = 0;
+
+        for (ProvisionedMeshNode candidate : mMeshNetwork.getNodes()) {
+            if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
+            if (candidate.getUnicastAddress() == clientNode.getUnicastAddress()) continue;
+
+            // Must be a server node
+            boolean hasServer     = false;
+            int serverElementAddr = -1;
+            for (Element el : candidate.getElements().values()) {
+                for (MeshModel m : el.getMeshModels().values()) {
+                    if (m.getModelId() == MODEL_GENERIC_ONOFF_SERVER) {
+                        hasServer         = true;
+                        serverElementAddr = el.getElementAddress();
+                        break;
+                    }
+                }
+                if (hasServer) break;
+            }
+            if (!hasServer || serverElementAddr == -1) continue;
+
+            final String serverRawName  = normalizeId(candidate.getNodeName());
+            final String serverStoreKey = resolveServerKeyByNodeName(serverRawName);
+            if (serverStoreKey == null) continue;
+
+            // Area match
+            if (clientArea != null && !clientArea.isEmpty()) {
+                String serverArea = ClientServerElementStore.getServerAreaId(serverStoreKey);
+                if (serverArea == null && serverStoreKey.contains(":")) {
+                    serverArea = serverStoreKey.substring(0, serverStoreKey.indexOf(":"))
+                            .trim().toLowerCase();
+                }
+                if (serverArea != null && !serverArea.equalsIgnoreCase(clientArea)) {
+                    Log.d(TAG_BIND, "  skip server='" + serverStoreKey
+                            + "' area mismatch: server='" + serverArea
+                            + "' client='" + clientArea + "'");
+                    continue;
+                }
+            }
+
+            int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverStoreKey);
+            if (serverSvgId == -1) continue;
+
+            // Find client element matching serverSvgId (0-based index)
+            int clientElementAddr = -1;
+            int clientIndex       = 0;
+            for (Element el : sortedClientElements) {
+                boolean hasClientModel = false;
+                for (MeshModel m : el.getMeshModels().values()) {
+                    if (m.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
+                        hasClientModel = true;
+                        break;
+                    }
+                }
+                if (hasClientModel) {
+                    if (clientIndex == serverSvgId) {
+                        clientElementAddr = el.getElementAddress();
+                        break;
+                    }
+                    clientIndex++;
+                }
+            }
+
+            // Fallback: Store lookup
+            if (clientElementAddr == -1) {
+                clientElementAddr = ClientServerElementStore
+                        .getClientAddress(clientKey, serverSvgId);
+            }
+
+            if (clientElementAddr == -1) {
+                Log.w(TAG_BIND, "  no client elem for svgId=" + serverSvgId
+                        + " serverKey='" + serverStoreKey + "'");
+                continue;
+            }
+
+            Log.d(TAG_BIND, "✅ triggerPublicationForExistingServers match:"
+                    + " server='" + serverStoreKey + "'"
+                    + " svgId=" + serverSvgId
+                    + " serverElem=0x" + String.format("%04X", serverElementAddr)
+                    + " clientElem=0x" + String.format("%04X", clientElementAddr)
+                    + " clientUnicast=0x"
+                    + String.format("%04X", clientNode.getUnicastAddress()));
+
+            ClientServerElementStore.saveClientToServerMapping(
+                    clientKey, serverSvgId, serverStoreKey);
+
+            // ✅ Enqueue — do NOT break, collect all servers
+            enqueuePublication(
+                    clientNode.getUnicastAddress(), clientElementAddr,
+                    candidate.getUnicastAddress(), serverElementAddr,
+                    appKeyIndex
+            );
+            matchCount++;
+        }
+
+        if (matchCount == 0) {
+            Log.w(TAG_BIND, "triggerPublicationForExistingServers: no servers found");
+            return;
+        }
+
+        Log.d(TAG_BIND, "triggerPublicationForExistingServers: "
+                + matchCount + " server(s) queued — starting queue processor");
+        mIsAutoSetupInProgress.postValue(true);
+        mHandler.postDelayed(this::processNextPublication, 500);
+    }
+
+    // =========================================================================
     // resolveServerKeyByNodeName
-    // ─────────────────────────────────────────────────────────────────────────
+    // =========================================================================
+
     private String resolveServerKeyByNodeName(String normalizedNodeName) {
         if (normalizedNodeName == null || normalizedNodeName.isEmpty()) return null;
 
-        // Direct lookup first — exact match
         int direct = ClientServerElementStore.getServerSvgElementId(normalizedNodeName);
         if (direct != -1) {
             Log.d(TAG_BIND, "resolveServerKey: direct match '" + normalizedNodeName + "'");
             return normalizedNodeName;
         }
 
-        // Suffix match against keys that have svgId stored
-        // e.g. "pdri:relay node1" → strip prefix and digits → "relay node"
         List<String> allKeys = ClientServerElementStore.getAllServerSvgKeys();
         List<String> matches = new ArrayList<>();
 
@@ -1122,8 +1491,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
 
         if (matches.isEmpty()) {
-            Log.w(TAG_BIND, "resolveServerKey: no svgId-key match for '"
-                    + normalizedNodeName + "' — node may be client-only");
+            Log.w(TAG_BIND, "resolveServerKey: no match for '"
+                    + normalizedNodeName + "' — may be client-only");
             return null;
         }
 
@@ -1133,49 +1502,46 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             return matches.get(0);
         }
 
-        // Multiple matches — disambiguate by current node's unicast address
         if (mAutoBindNode != null) {
             int currentUnicast = mAutoBindNode.getUnicastAddress();
             for (String key : matches) {
                 int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
                 if (storedUnicast != -1 && storedUnicast == currentUnicast) {
-                    Log.d(TAG_BIND, "resolveServerKey: unicast match 0x"
-                            + String.format("%04X", currentUnicast) + " → '" + key + "'");
+                    Log.d(TAG_BIND, "resolveServerKey: unicast match → '" + key + "'");
                     return key;
                 }
             }
-            // New node — pick a key with unicast not yet assigned
             for (String key : matches) {
                 int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
                 if (storedUnicast == -1) {
-                    Log.d(TAG_BIND, "resolveServerKey: new node → unset key '"
-                            + key + "' unicast=0x"
-                            + String.format("%04X", mAutoBindNode.getUnicastAddress()));
+                    Log.d(TAG_BIND, "resolveServerKey: new node unset → '" + key + "'");
                     return key;
                 }
             }
         }
 
-        Log.w(TAG_BIND, "resolveServerKey: fallback first match: " + matches.get(0));
+        Log.w(TAG_BIND, "resolveServerKey: fallback → " + matches.get(0));
         return matches.get(0);
     }
 
     // =========================================================================
     // extractPureNameFromKey
+    // =========================================================================
+
     private String extractPureNameFromKey(String key) {
         if (key == null) return "";
         String name = key.trim().toLowerCase();
-        // Strip area prefix (everything before and including last ":")
         int colon = name.lastIndexOf(":");
         if (colon != -1) name = name.substring(colon + 1).trim();
-        // Strip trailing digits and spaces
-        name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+        name = name.replaceAll("\\s*\\d+$", "")
+                .replaceAll("\\d+$", "").trim();
         return name;
     }
 
     // =========================================================================
     // sendNextAutoBind
     // =========================================================================
+
     private void sendNextAutoBind() {
         if (mAutoBindNode == null) {
             Log.w(TAG_BIND, "sendNextAutoBind: node null — stop.");
@@ -1192,15 +1558,16 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
             for (Element element : mAutoBindNode.getElements().values()) {
                 for (MeshModel model : element.getMeshModels().values()) {
-                    if (model.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) isClientNode = true;
-                    if (model.getModelId() == MODEL_GENERIC_ONOFF_SERVER) isServerNode = true;
+                    if (model.getModelId() == MODEL_GENERIC_ONOFF_CLIENT)
+                        isClientNode = true;
+                    if (model.getModelId() == MODEL_GENERIC_ONOFF_SERVER)
+                        isServerNode = true;
                 }
             }
 
             final String rawName = normalizeId(mAutoBindNode.getNodeName());
 
             if (isClientNode) {
-                // ✅ Client addresses saved under plain rawName key
                 saveClientElementAddresses(mAutoBindNode, rawName);
             }
 
@@ -1229,85 +1596,80 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                     new ConfigModelAppBind(elementAddr, modelId, appKeyIndex)
             );
             mIsBindingInProgress = true;
-
-            if (modelId == MODEL_GENERIC_ONOFF_SERVER || modelId == MODEL_GENERIC_ONOFF_CLIENT) {
-                Log.d(TAG_BIND, "BIND [" + (mAutoBindIndex + 1) + "/"
-                        + mPendingBindOperations.size() + "]"
-                        + " Element=0x" + String.format("%04X", elementAddr)
-                        + " Model=0x" + String.format("%04X", modelId));
-            }
+            Log.d(TAG_BIND, "BIND [" + (mAutoBindIndex + 1) + "/"
+                    + mPendingBindOperations.size() + "]"
+                    + " Elem=0x" + String.format("%04X", elementAddr)
+                    + " Model=0x" + String.format("%04X", modelId));
         } catch (Exception e) {
-            Log.e(TAG_BIND, "❌ BIND FAILED Element=0x"
+            Log.e(TAG_BIND, "❌ BIND FAILED Elem=0x"
                     + String.format("%04X", elementAddr)
                     + " Model=0x" + String.format("%04X", modelId)
-                    + " Error: " + e.getMessage());
+                    + " Err: " + e.getMessage());
             mAutoBindIndex++;
             mHandler.postDelayed(this::sendNextAutoBind, 300);
         }
     }
 
     // =========================================================================
-    // triggerAutoPublication
-    // ─────────────────────────────────────────────────────────────────────────
+    // triggerAutoPublication — "client pehle, server baad" scenario
+    // =========================================================================
 
     private void triggerAutoPublication(@NonNull final ProvisionedMeshNode serverNode) {
+
         if (mMeshNetwork == null) {
             Log.e(TAG_BIND, "triggerAutoPublication: mMeshNetwork null — abort");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
         final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
             Log.e(TAG_BIND, "triggerAutoPublication: no AppKey — abort");
+            mIsAutoSetupInProgress.postValue(false);
             return;
         }
         final int appKeyIndex = appKeys.get(0).getKeyIndex();
 
-        // ── Resolve server store key ──────────────────────────────────────────
-        final String rawServerName    = normalizeId(serverNode.getNodeName());
-        final String serverStoreKey   = resolveServerKeyByNodeName(rawServerName);
+        final String rawServerName  = normalizeId(serverNode.getNodeName());
+        final String serverStoreKey = resolveServerKeyByNodeName(rawServerName);
 
         if (serverStoreKey == null || serverStoreKey.isEmpty()) {
-            Log.e(TAG_BIND, "triggerAutoPublication: cannot resolve server store key"
-                    + " for nodeName='" + serverNode.getNodeName() + "' — abort");
+            Log.e(TAG_BIND, "triggerAutoPublication: cannot resolve key for '"
+                    + serverNode.getNodeName() + "' — abort");
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        // ── Get server svgId ──────────────────────────────────────────────────
-        final int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverStoreKey);
+        final int serverSvgId =
+                ClientServerElementStore.getServerSvgElementId(serverStoreKey);
         if (serverSvgId == -1) {
-            Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for key='"
-                    + serverStoreKey + "' — abort."
-                    + " Make sure saveElementId() was called from DeviceDetailActivity.");
+            Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for '"
+                    + serverStoreKey + "' — abort");
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        // ── Get server element address ────────────────────────────────────────
         final int serverElementAddr =
                 ClientServerElementStore.getServerPrimaryElementAddress(serverStoreKey);
         if (serverElementAddr == -1) {
-            Log.e(TAG_BIND, "triggerAutoPublication: server primary element addr"
-                    + " not found for key='" + serverStoreKey + "' — abort");
+            Log.e(TAG_BIND, "triggerAutoPublication: server elem addr not found for '"
+                    + serverStoreKey + "' — abort");
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        // ── Get server area ID for area matching ──────────────────────────────
-        String serverAreaId = ClientServerElementStore.getServerAreaId(serverStoreKey);
-        Log.d(TAG_BIND, "triggerAutoPublication: serverAreaId='" + serverAreaId + "'");
-
+        final String serverAreaId =
+                ClientServerElementStore.getServerAreaId(serverStoreKey);
         Log.d(TAG_BIND, "triggerAutoPublication ▶"
                 + " serverKey='" + serverStoreKey + "'"
                 + " svgId=" + serverSvgId
                 + " serverElem=0x" + String.format("%04X", serverElementAddr)
                 + " serverArea='" + serverAreaId + "'");
 
-
-        int clientElementAddr = -1;
-        int clientUnicast     = -1;
-        String matchedClientKey = null;
+        // ── Find matching client ───────────────────────────────────────────────
+        int    clientElementAddr = -1;
+        int    clientUnicast     = -1;
+        String matchedClientKey  = null;
 
         final String provisionerUuid =
                 mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
@@ -1316,7 +1678,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
             if (candidate.getUnicastAddress() == serverNode.getUnicastAddress()) continue;
 
-            // Check candidate has GenericOnOffClient model
             boolean hasClient = false;
             for (Element el : candidate.getElements().values()) {
                 for (MeshModel m : el.getMeshModels().values()) {
@@ -1330,217 +1691,142 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             if (!hasClient) continue;
 
             final String devKey = normalizeId(candidate.getNodeName());
-
-            // serverSvgId IS the element index saved in element_addr_<devKey>_<svgId>
             final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
             if (addr == -1) {
-                Log.d(TAG_BIND, "  no client addr for devKey='" + devKey
-                        + "' svgId=" + serverSvgId);
+                Log.d(TAG_BIND, "  no client addr: devKey='"
+                        + devKey + "' svgId=" + serverSvgId);
                 continue;
             }
 
-            // ✅ FIX: getClientAreaId now uses node UUID for reliable area lookup
-            //        No more same-pureName confusion between VCRI and PDRI nodes
-            String clientAreaId = getClientAreaId(candidate, devKey);
+            final String clientAreaId = getClientAreaId(candidate, devKey);
             Log.d(TAG_BIND, "  candidate='" + devKey
-                    + "' clientAreaId='" + clientAreaId + "'"
-                    + " serverAreaId='" + serverAreaId + "'");
+                    + "' clientArea='" + clientAreaId + "'"
+                    + " serverArea='" + serverAreaId + "'");
 
             if (serverAreaId != null && !serverAreaId.isEmpty()) {
-                if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
-                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip: server="
-                            + serverAreaId + " client=" + clientAreaId);
+                if (clientAreaId == null) {
+                    boolean clientKeyMatchesArea = false;
+                    if (devKey.contains(":")) {
+                        String prefix = devKey.substring(0, devKey.indexOf(":"))
+                                .trim().toLowerCase();
+                        clientKeyMatchesArea = prefix.equalsIgnoreCase(serverAreaId);
+                    }
+                    if (!clientKeyMatchesArea) {
+                        Log.d(TAG_BIND, "  ❌ Area mismatch (null clientArea) — skip");
+                        continue;
+                    }
+                    Log.d(TAG_BIND, "  ✅ Area matched via clientKey prefix");
+                } else if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
+                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip");
                     continue;
                 }
             }
 
-            // ✅ Same area — match found
             clientElementAddr = addr;
             clientUnicast     = candidate.getUnicastAddress();
             matchedClientKey  = devKey;
-            Log.d(TAG_BIND, "✅ Client match (same area): devKey='" + devKey
+            Log.d(TAG_BIND, "✅ Client match: devKey='" + devKey
                     + "' svgId=" + serverSvgId
                     + " clientElem=0x" + String.format("%04X", clientElementAddr)
-                    + " clientUnicast=0x" + String.format("%04X", clientUnicast)
-                    + " area=" + clientAreaId);
+                    + " clientUnicast=0x" + String.format("%04X", clientUnicast));
             break;
         }
+
         if (clientElementAddr == -1 || clientUnicast == -1) {
-            Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId=" + serverSvgId
-                    + " — publication skipped.");
+            Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId="
+                    + serverSvgId + " — skipping.");
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
 
-        // ✅ NEW: Save the client element to SVG mapping
-        // This allows AreaClientListActivity to correctly look up the server
-        if (matchedClientKey != null && serverSvgId != -1) {
-            SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
-            if (prefs != null) {
-
-                int elementIndex = -1;
-                for (int i = 1; i <= 40; i++) {  // Check up to 40 elements
-                    int addr = ClientServerElementStore.getClientAddress(matchedClientKey, i);
-                    if (addr == clientElementAddr) {
-                        elementIndex = i;
-                        break;
-                    }
-                }
-
-                if (elementIndex != -1) {
-                    String mappingKey = "client_element_svg_" + matchedClientKey.toLowerCase() + "_" + elementIndex;
-                    prefs.edit().putString(mappingKey, String.valueOf(serverSvgId)).apply();
-                    Log.d(TAG_BIND, "✅ Saved client element mapping: " + matchedClientKey
-                            + "[" + elementIndex + "] → SVG ID " + serverSvgId);
-                } else {
-                    // Fallback: save with index 1
-                    String mappingKey = "client_element_svg_" + matchedClientKey.toLowerCase() + "_1";
-                    prefs.edit().putString(mappingKey, String.valueOf(serverSvgId)).apply();
-                    Log.d(TAG_BIND, "⚠️ Saved client element mapping (fallback index 1): "
-                            + matchedClientKey + " → SVG ID " + serverSvgId);
-                }
-            }
+        if (matchedClientKey != null) {
+            ClientServerElementStore.saveClientToServerMapping(
+                    matchedClientKey, serverSvgId, serverStoreKey);
+            Log.d(TAG_BIND, "✅ client_to_server: "
+                    + matchedClientKey + "[" + serverSvgId + "] → " + serverStoreKey);
         }
 
-        final int finalClientElem    = clientElementAddr;
-        final int finalClientUnicast = clientUnicast;
-        final int finalServerElem    = serverElementAddr;
-        final int finalServerUnicast = serverNode.getUnicastAddress();
-        final String finalMatchedClientKey = matchedClientKey;
-        final String finalServerStoreKey = serverStoreKey;
+        // ✅ Enqueue single pair and start queue processor
+        enqueuePublication(
+                clientUnicast, clientElementAddr,
+                serverNode.getUnicastAddress(), serverElementAddr,
+                appKeyIndex
+        );
 
-        // ── STEP 1: Client → Server publication ──────────────────────────────
-        Log.d(TAG_BIND, "📤 PUB STEP1 (client→server):"
-                + " clientUnicast=0x" + String.format("%04X", finalClientUnicast)
-                + " clientElem=0x" + String.format("%04X", finalClientElem)
-                + " → serverElem=0x" + String.format("%04X", finalServerElem));
-
-        try {
-            mMeshManagerApi.createMeshPdu(
-                    finalClientUnicast,
-                    new ConfigModelPublicationSet(
-                            finalClientElem,
-                            finalServerElem,
-                            appKeyIndex,
-                            false, 5, 0, 0, 0, 0,
-                            MODEL_GENERIC_ONOFF_CLIENT
-                    )
-            );
-        } catch (Exception e) {
-            Log.e(TAG_BIND, "❌ PUB STEP1 failed: " + e.getMessage());
-            mIsAutoSetupInProgress.postValue(false);
-            return;
-        }
-
-        // ── STEP 2: Server → Client publication (reverse) ────────────────────
-        // Also save the client-to-server mapping for UI lookup
-        mHandler.postDelayed(() -> {
-            // Save client-to-server mapping for AreaClientListActivity
-            if (finalMatchedClientKey != null && finalServerStoreKey != null && serverSvgId != -1) {
-                SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
-                if (prefs != null) {
-                    String ctosKey = "client_to_server_" + finalMatchedClientKey + "_" + serverSvgId;
-                    prefs.edit().putString(ctosKey, finalServerStoreKey).apply();
-                    Log.d(TAG_BIND, "✅ Saved client_to_server mapping: " + ctosKey
-                            + " = " + finalServerStoreKey);
-                }
-            }
-
-            Log.d(TAG_BIND, "📤 PUB STEP2 (server→client):"
-                    + " serverUnicast=0x" + String.format("%04X", finalServerUnicast)
-                    + " serverElem=0x" + String.format("%04X", finalServerElem)
-                    + " → clientElem=0x" + String.format("%04X", finalClientElem));
-            try {
-                mMeshManagerApi.createMeshPdu(
-                        finalServerUnicast,
-                        new ConfigModelPublicationSet(
-                                finalServerElem,
-                                finalClientElem,
-                                appKeyIndex,
-                                false, 5, 0, 0, 0, 0,
-                                MODEL_GENERIC_ONOFF_SERVER
-                        )
-                );
-            } catch (Exception e) {
-                Log.e(TAG_BIND, "❌ PUB STEP2 failed: " + e.getMessage());
-            }
-            mIsAutoSetupInProgress.postValue(false);
-        }, 1500);
+        mIsAutoSetupInProgress.postValue(true);
+        mHandler.postDelayed(this::processNextPublication, 300);
     }
-// =========================================================================
-// CHANGE 1: getClientAreaId() — FIXED
-// Old logic: element_id_ prefix se pureName match karta tha clientKey se
-// Problem: VCRI:SW-CN01-AA aur PDRI:SW-CN01-AA dono ka pureName "sw-cn01-aa"
-//          same hota tha, isliye wrong area return hota tha
-// Fix: directly "element_id_" + full svgDeviceId prefix check karo
-//      jisme clientKey (pure name) match ho, aur area return karo
-// =========================================================================
+
+    // =========================================================================
+    // getClientAreaId
+    // =========================================================================
 
     private String getClientAreaId(ProvisionedMeshNode clientNode, String clientKey) {
         SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
         if (prefs == null) return null;
 
-        // clientKey = "sw-cn01-aa" (normalized node name)
-        // We need to find which provisioned SVG device ID belongs to this node
-        // by matching the pure name part after ":" in the SVG device ID
-
-        // First try: match via node UUID → node_svg_ mapping (most reliable)
+        // Method 1: node_svg_ pref
         if (clientNode != null) {
             String svgId = prefs.getString("node_svg_" + clientNode.getUuid(), null);
             if (svgId != null && svgId.contains(":")) {
-                String area = svgId.substring(0, svgId.indexOf(":")).trim();
-                Log.d(TAG_BIND, "getClientAreaId: uuid→svgId='" + svgId
+                String area = svgId.substring(0, svgId.indexOf(":")).trim().toLowerCase();
+                Log.d(TAG_BIND, "getClientAreaId: uuid→'" + svgId
                         + "' area='" + area + "'");
                 return area;
             }
         }
 
-        // Fallback: scan element_id_ keys for a match
-        // element_id_VCRI:SW-CN01-AA  → pure name "sw-cn01-aa" → area "VCRI"
-        // element_id_PDRI:SW-CN01-AA  → pure name "sw-cn01-aa" → area "PDRI"
-        // We must match ONLY the one whose unicast matches this clientNode
-        String prefix = "element_id_";
+        // Method 2: element_addr_ keys scan
+        String prefix = "element_addr_";
         for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
             String k = entry.getKey();
             if (!k.startsWith(prefix)) continue;
-
-            String svgDeviceId = k.substring(prefix.length()); // "VCRI:SW-CN01-AA"
-            String pureName    = extractPureNameFromKey(svgDeviceId); // "sw-cn01-aa"
-
-            if (!pureName.equalsIgnoreCase(clientKey.trim())) continue;
-
-            // Pure name matches — now verify this svgDeviceId belongs to THIS node
-            // by checking node_svg_ prefs for clientNode uuid
-            if (clientNode != null) {
-                String mappedSvg = prefs.getString(
-                        "node_svg_" + clientNode.getUuid(), null);
-                if (mappedSvg != null) {
-                    // Only return area if this svgDeviceId matches the mapped svg
-                    if (!svgDeviceId.equalsIgnoreCase(mappedSvg)) continue;
-                }
+            String rest           = k.substring(prefix.length());
+            int    lastUnderscore = rest.lastIndexOf("_");
+            if (lastUnderscore == -1) continue;
+            String svgDeviceId = rest.substring(0, lastUnderscore);
+            if (!svgDeviceId.contains(":")) continue;
+            String areaPart = svgDeviceId.substring(0, svgDeviceId.indexOf(":"))
+                    .trim().toLowerCase();
+            String namePart = svgDeviceId.substring(svgDeviceId.indexOf(":") + 1)
+                    .trim().toLowerCase();
+            if (namePart.equals(clientKey.trim().toLowerCase())) {
+                Log.d(TAG_BIND, "getClientAreaId: element_addr scan → '"
+                        + svgDeviceId + "' area='" + areaPart + "'");
+                return areaPart;
             }
+        }
 
-            int colon = svgDeviceId.indexOf(":");
-            if (colon != -1) {
-                String area = svgDeviceId.substring(0, colon).trim();
-                Log.d(TAG_BIND, "getClientAreaId: fallback svgDeviceId='"
-                        + svgDeviceId + "' area='" + area + "'");
+        // Method 3: provisioned set scan
+        for (String key : ClientServerElementStore.getProvisionedKeys()) {
+            if (!key.contains(":")) continue;
+            String namePart = key.substring(key.indexOf(":") + 1).trim().toLowerCase();
+            if (namePart.equals(clientKey.trim().toLowerCase())) {
+                String area = key.substring(0, key.indexOf(":")).trim().toLowerCase();
+                Log.d(TAG_BIND, "getClientAreaId: provisioned scan → '"
+                        + key + "' area='" + area + "'");
                 return area;
             }
         }
 
-        Log.w(TAG_BIND, "getClientAreaId: no area found for clientKey='" + clientKey + "'");
+        Log.w(TAG_BIND, "getClientAreaId: no area found for clientKey='"
+                + clientKey + "'");
         return null;
     }
 
-    private void saveClientElementAddresses(@NonNull final ProvisionedMeshNode node,
-                                            @NonNull final String clientKey) {
+    // =========================================================================
+    // saveClientElementAddresses
+    // =========================================================================
+
+    private void saveClientElementAddresses(
+            @NonNull final ProvisionedMeshNode node,
+            @NonNull final String clientKey) {
+
         if (clientKey.isEmpty()) {
             Log.w(TAG_BIND, "saveClientElementAddresses: clientKey empty — skip");
             return;
         }
 
-        // ── Sort elements by element address (ascending) ─────────────────────
         List<Element> sortedElements = new ArrayList<>(node.getElements().values());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             sortedElements.sort((a, b) ->
@@ -1548,14 +1834,13 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         }
 
         final Map<Integer, Integer> addressMap = new HashMap<>();
-        int clientIndex = 0;  // 0-based sequential counter for CLIENT elements only
+        int clientIndex = 0;
 
-        Log.d(TAG_BIND, "╔══════════════════════════════════════════════════");
-        Log.d(TAG_BIND, "║ SAVING CLIENT ADDRESSES for key='" + clientKey + "'");
+        Log.d(TAG_BIND, "╔══════ SAVING CLIENT ADDRESSES key='"
+                + clientKey + "' ══════");
 
         for (Element element : sortedElements) {
-            int elementAddr = element.getElementAddress();
-
+            int     elementAddr    = element.getElementAddress();
             boolean hasClientModel = false;
             for (MeshModel model : element.getMeshModels().values()) {
                 if (model.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
@@ -1563,9 +1848,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                     break;
                 }
             }
-
             if (hasClientModel) {
-                // ✅ 0-based: first CLIENT = 0, second = 1, ...
                 addressMap.put(clientIndex, elementAddr);
                 Log.d(TAG_BIND, "║  CLIENT[" + clientIndex + "] → 0x"
                         + String.format("%04X", elementAddr));
@@ -1573,18 +1856,19 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             }
         }
 
-        Log.d(TAG_BIND, "║ Total client elements: " + addressMap.size());
-        Log.d(TAG_BIND, "╚══════════════════════════════════════════════════");
+        Log.d(TAG_BIND, "╚══════ Total: " + addressMap.size() + " ══════");
 
         if (!addressMap.isEmpty()) {
             ClientServerElementStore.saveAll(clientKey, addressMap);
-            Log.d(TAG_BIND, "✅ CLIENT addresses saved under key='" + clientKey + "'");
+            Log.d(TAG_BIND, "✅ CLIENT saved under key='" + clientKey + "'");
         } else {
-            Log.w(TAG_BIND, "⚠️ No client elements found for: " + node.getNodeName());
+            Log.w(TAG_BIND, "⚠️ No client elements: " + node.getNodeName());
         }
     }
 
-
+    // =========================================================================
+    // normalizeId
+    // =========================================================================
 
     private String normalizeId(String id) {
         return id == null ? null : id.trim().toLowerCase();

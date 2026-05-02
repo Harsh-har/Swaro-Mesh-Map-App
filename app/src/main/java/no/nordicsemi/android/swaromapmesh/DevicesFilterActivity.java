@@ -1,1016 +1,1616 @@
-//package no.nordicsemi.android.swaromapmesh;
+//package no.nordicsemi.android.swaromapmesh.viewmodels;
 //
-//import android.animation.ValueAnimator;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ApplicationMessageOpCodes.GENERIC_LEVEL_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ApplicationMessageOpCodes.GENERIC_ON_OFF_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ApplicationMessageOpCodes.SCENE_REGISTER_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ApplicationMessageOpCodes.SCENE_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_APPKEY_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_COMPOSITION_DATA_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_DEFAULT_TTL_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_GATT_PROXY_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_HEARTBEAT_PUBLICATION_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_HEARTBEAT_SUBSCRIPTION_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_MODEL_APP_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_MODEL_PUBLICATION_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_MODEL_SUBSCRIPTION_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_NETWORK_TRANSMIT_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_NODE_RESET_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.opcodes.ConfigMessageOpCodes.CONFIG_RELAY_STATUS;
+//import static no.nordicsemi.android.swaromapmesh.ble.BleMeshManager.MESH_PROXY_UUID;
+//
+//import android.bluetooth.BluetoothDevice;
 //import android.content.Context;
-//import android.content.Intent;
 //import android.content.SharedPreferences;
-//import android.graphics.Matrix;
-//import android.graphics.Picture;
-//import android.graphics.RectF;
-//import android.graphics.drawable.PictureDrawable;
-//import android.net.Uri;
-//import android.os.Bundle;
+//import android.os.Build;
+//import android.os.Environment;
 //import android.os.Handler;
 //import android.os.Looper;
+//import android.os.ParcelUuid;
 //import android.util.Log;
-//import android.view.GestureDetector;
-//import android.view.LayoutInflater;
-//import android.view.MotionEvent;
-//import android.view.ScaleGestureDetector;
-//import android.view.VelocityTracker;
-//import android.view.View;
-//import android.view.ViewGroup;
-//import android.view.animation.DecelerateInterpolator;
-//import android.widget.ImageView;
-//import android.widget.OverScroller;
-//import android.widget.Toast;
+//
 //import androidx.annotation.NonNull;
 //import androidx.annotation.Nullable;
-//import androidx.fragment.app.Fragment;
-//import androidx.lifecycle.ViewModelProvider;
-//import com.caverock.androidsvg.SVG;
-//import com.caverock.androidsvg.SVGParseException;
-//import org.w3c.dom.Document;
+//import androidx.lifecycle.LiveData;
+//import androidx.lifecycle.MutableLiveData;
+//
 //import java.io.File;
-//import java.io.InputStream;
-//import java.io.StringWriter;
+//import java.util.ArrayList;
 //import java.util.HashMap;
-//import java.util.HashSet;
-//import java.util.LinkedHashMap;
 //import java.util.List;
 //import java.util.Map;
-//import java.util.Set;
-//import java.util.concurrent.ExecutorService;
-//import java.util.concurrent.Executors;
-//import java.util.concurrent.Future;
-//import javax.xml.transform.Transformer;
-//import javax.xml.transform.TransformerFactory;
-//import javax.xml.transform.dom.DOMSource;
-//import javax.xml.transform.stream.StreamResult;
-//import dagger.hilt.android.AndroidEntryPoint;
-//import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
-//import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.DeviceInfo;
-//import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager;
-//import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgParsers;
-//import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
-//import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
+//import java.util.UUID;
 //
-//@AndroidEntryPoint
-//public class NetworkFragment extends Fragment {
+//import javax.inject.Inject;
+//import javax.inject.Singleton;
 //
-//    private static final String TAG = "NetworkFragment";
+//import no.nordicsemi.android.log.LogSession;
+//import no.nordicsemi.android.log.Logger;
+//import no.nordicsemi.android.swaromapmesh.ApplicationKey;
+//import no.nordicsemi.android.swaromapmesh.Group;
+//import no.nordicsemi.android.swaromapmesh.MeshManagerApi;
+//import no.nordicsemi.android.swaromapmesh.MeshManagerCallbacks;
+//import no.nordicsemi.android.swaromapmesh.MeshNetwork;
+//import no.nordicsemi.android.swaromapmesh.MeshProvisioningStatusCallbacks;
+//import no.nordicsemi.android.swaromapmesh.MeshStatusCallbacks;
+//import no.nordicsemi.android.swaromapmesh.NetworkKey;
+//import no.nordicsemi.android.swaromapmesh.Provisioner;
+//import no.nordicsemi.android.swaromapmesh.UnprovisionedBeacon;
+//import no.nordicsemi.android.swaromapmesh.models.SigModelParser;
+//import no.nordicsemi.android.swaromapmesh.opcodes.ProxyConfigMessageOpCodes;
+//import no.nordicsemi.android.swaromapmesh.provisionerstates.ProvisioningState;
+//import no.nordicsemi.android.swaromapmesh.provisionerstates.UnprovisionedMeshNode;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigAppKeyAdd;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigAppKeyStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigCompositionDataGet;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigDefaultTtlGet;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigDefaultTtlStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigModelAppBind;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigModelAppStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationSet;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.ConfigModelSubscriptionStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.ControlMessage;
+//import no.nordicsemi.android.swaromapmesh.transport.Element;
+//import no.nordicsemi.android.swaromapmesh.transport.GenericLevelStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.GenericOnOffStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
+//import no.nordicsemi.android.swaromapmesh.transport.MeshModel;
+//import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+//import no.nordicsemi.android.swaromapmesh.transport.ProxyConfigFilterStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.SceneRegisterStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.SceneStatus;
+//import no.nordicsemi.android.swaromapmesh.transport.VendorModelMessageStatus;
+//import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
+//import no.nordicsemi.android.swaromapmesh.ble.BleMeshManager;
+//import no.nordicsemi.android.swaromapmesh.ble.BleMeshManagerCallbacks;
+//import no.nordicsemi.android.swaromapmesh.utils.ProvisionerStates;
+//import no.nordicsemi.android.swaromapmesh.utils.Utils;
+//import no.nordicsemi.android.support.v18.scanner.BluetoothLeScannerCompat;
+//import no.nordicsemi.android.support.v18.scanner.ScanCallback;
+//import no.nordicsemi.android.support.v18.scanner.ScanFilter;
+//import no.nordicsemi.android.support.v18.scanner.ScanRecord;
+//import no.nordicsemi.android.support.v18.scanner.ScanResult;
+//import no.nordicsemi.android.support.v18.scanner.ScanSettings;
 //
-//    // ── Zoom constants ────────────────────────────────────────────────────
-//    private static final float MAX_ZOOM           = 10f;
-//    private static final float DOUBLE_TAP_ZOOM    = 2.5f;
-//    private static final float TAP_TOLERANCE      = 8f;
-//    private static final long  ANIMATION_DURATION = 280L;
-//    private static final int   FLING_DURATION     = 2000;
-//    private static final float TAP_MOVE_SLOP      = 10f;
-//    private static final long  TAP_MAX_DURATION   = 250;
+//@Singleton
+//public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshStatusCallbacks,
+//        MeshManagerCallbacks, BleMeshManagerCallbacks {
 //
-//    // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES
-//    //    Reason: NetworkFragment ab directly mesh_prefs nahi padhta.
-//    //    Provisioned check sirf ClientServerElementStore ke through hota hai. ─
+//    private static final String TAG      = NrfMeshRepository.class.getSimpleName();
+//    private static final String TAG_BIND = "AUTO_BIND";
+//    private static final int    ATTENTION_TIMER = 5;
 //
-//    // ── Area / zoom lock state ────────────────────────────────────────────
-//    private float  areaLockedMinZoom  = -1f;
-//    private String areaLockedId       = null;
-//    private String currentFocusAreaId = null;
-//    private String pendingFocusAreaId = null;
+//    static final String EXPORT_PATH = Environment.getExternalStorageDirectory() + File.separator +
+//            "Nordic Semiconductor" + File.separator + "nRF Mesh" + File.separator;
 //
-//    /** Cached union of all selection_layer bounds (= full floor plan rect). */
-//    private RectF floorPlanBounds = null;
+//    // ── SIG model IDs ─────────────────────────────────────────────────────────
+//    private static final int MODEL_GENERIC_ONOFF_SERVER = 0x1000;
+//    private static final int MODEL_GENERIC_ONOFF_CLIENT = 0x1001;
 //
-//    // ── UI ────────────────────────────────────────────────────────────────
-//    private FragmentNetworkBinding binding;
-//    private boolean         mAutoSetupInProgress = false;
-//    private SharedViewModel mViewModel;
+//    // ── Connection state ──────────────────────────────────────────────────────
+//    private final MutableLiveData<Boolean> mIsConnectedToProxy = new MutableLiveData<>();
+//    private MutableLiveData<Boolean>       mIsConnected;
+//    private final MutableLiveData<Void>    mOnDeviceReady   = new MutableLiveData<>();
+//    private final MutableLiveData<String>  mConnectionState = new MutableLiveData<>();
 //
-//    // ── Threading ─────────────────────────────────────────────────────────
-//    private final ExecutorService loadExecutor   = Executors.newSingleThreadExecutor();
-//    private final ExecutorService renderExecutor = Executors.newSingleThreadExecutor();
-//    private final Handler         mainHandler    = new Handler(Looper.getMainLooper());
-//    private Future<?> pendingRender;
+//    private final SingleLiveEvent<Boolean>               mIsReconnecting                = new SingleLiveEvent<>();
+//    private final MutableLiveData<UnprovisionedMeshNode> mUnprovisionedMeshNodeLiveData = new MutableLiveData<>();
+//    private final MutableLiveData<ProvisionedMeshNode>   mProvisionedMeshNodeLiveData   = new MutableLiveData<>();
+//    private final SingleLiveEvent<Integer>               mConnectedProxyAddress         = new SingleLiveEvent<>();
 //
-//    // ── Data ──────────────────────────────────────────────────────────────
-//    private final Map<String, DeviceInfo>   deviceMap             = new LinkedHashMap<>();
-//    private final Map<String, Set<String>>  iconToDeviceRelations = new HashMap<>();
-//    private String selectedDeviceId;
+//    private boolean mIsProvisioningComplete = false;
 //
-//    // ── Helper classes ────────────────────────────────────────────────────
-//    private final SvgParsers     svgParser    = new SvgParsers();
-//    private final SvgColorManager colorManager = new SvgColorManager();
+//    // ── Selected items ────────────────────────────────────────────────────────
+//    private final MutableLiveData<ProvisionedMeshNode> mExtendedMeshNode      = new MutableLiveData<>();
+//    private final MutableLiveData<Element>             mSelectedElement       = new MutableLiveData<>();
+//    private final MutableLiveData<MeshModel>           mSelectedModel         = new MutableLiveData<>();
+//    private final MutableLiveData<Provisioner>         mSelectedProvisioner   = new MutableLiveData<>();
+//    private final MutableLiveData<Group>               mSelectedGroupLiveData = new MutableLiveData<>();
 //
-//    // ── SVG state ─────────────────────────────────────────────────────────
-//    private SVG      currentSvg;
-//    private Document svgDocument;
+//    // ── Network / messaging ───────────────────────────────────────────────────
+//    private final MeshNetworkLiveData          mMeshNetworkLiveData = new MeshNetworkLiveData();
+//    private final SingleLiveEvent<String>      mNetworkImportState  = new SingleLiveEvent<>();
+//    private final SingleLiveEvent<MeshMessage> mMeshMessageLiveData = new SingleLiveEvent<>();
+//    private final MutableLiveData<List<ProvisionedMeshNode>> mProvisionedNodes  = new MutableLiveData<>();
+//    private final MutableLiveData<TransactionStatus>         mTransactionStatus = new SingleLiveEvent<>();
 //
-//    // ── Zoom & pan ────────────────────────────────────────────────────────
-//    private final Matrix  matrix       = new Matrix();
-//    private final float[] matrixValues = new float[9];
-//    private float   minZoom         = 1f;
-//    private float   lastTouchX, lastTouchY;
-//    private boolean isDragging      = false;
-//    private int     activePointerId = MotionEvent.INVALID_POINTER_ID;
+//    // ── Core objects ──────────────────────────────────────────────────────────
+//    private final MeshManagerApi mMeshManagerApi = null;
+//    private final BleMeshManager mBleMeshManager;
+//    private final Handler        mHandler;
 //
-//    // ── Gesture detectors ─────────────────────────────────────────────────
-//    private ScaleGestureDetector scaleDetector;
-//    private GestureDetector      gestureDetector;
-//    private OverScroller         scroller;
-//    private VelocityTracker      velocityTracker;
-//    private ValueAnimator        flingAnimator;
-//    private ValueAnimator        zoomAnimator;
+//    private UnprovisionedMeshNode      mUnprovisionedMeshNode;
+//    private ProvisionedMeshNode        mProvisionedMeshNode;
+//    private boolean                    mIsReconnectingFlag;
+//    private boolean                    mIsScanning;
+//    private boolean                    mSetupProvisionedNode;
+//    private ProvisioningStatusLiveData mProvisioningStateLiveData;
+//    private MeshNetwork                mMeshNetwork;
 //
-//    // ── Tap helpers ───────────────────────────────────────────────────────
-//    private float   tapDownX, tapDownY;
-//    private long    tapDownTime;
-//    private boolean hasMoved = false;
+//    // ── Provisioning state flags ──────────────────────────────────────────────
+//    private boolean mIsCompositionDataReceived;
+//    private boolean mIsDefaultTtlReceived;
+//    private boolean mIsAppKeyAddCompleted;
+//    private boolean mIsNetworkRetransmitSetCompleted;
 //
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  LIFECYCLE
-//    // ══════════════════════════════════════════════════════════════════════
+//    // ── Auto AppKey Bind state ────────────────────────────────────────────────
+//    private final List<int[]> mPendingBindOperations = new ArrayList<>();
+//    private int               mAutoBindIndex         = 0;
+//    private ProvisionedMeshNode mAutoBindNode        = null;
+//    private boolean           mIsBindingInProgress   = false;
 //
-//    @Nullable
-//    @Override
-//    public View onCreateView(@NonNull LayoutInflater inflater,
-//                             @Nullable ViewGroup container,
-//                             @Nullable Bundle savedInstanceState) {
-//        binding    = FragmentNetworkBinding.inflate(inflater, container, false);
-//        mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
-//        setupZoomAndPan();
-//        observeViewModel();
+//    // ── Pending reverse publication (server → client) ─────────────────────────
+//    // FIX: These store STEP1 context so STEP2 fires only after STEP1 ACK arrives.
+//    // No more blind postDelayed(1500ms) — STEP2 is ACK-driven.
+//    private int mPendingReverseServerUnicast     = -1;
+//    private int mPendingReverseServerElementAddr = -1;
+//    private int mPendingReverseClientElementAddr = -1;
+//    private int mPendingReverseAppKeyIndex       = -1;
 //
-////        showLoading(true);
-//        loadSvgFromAssets("office.svg");
+//    // ── Pending reverse publication timeout ───────────────────────────────────
+//    // Safety net: if CONFIG_MODEL_PUBLICATION_STATUS never arrives (BLE miss),
+//    // this fires after 15 sec and forces STEP2 anyway so setup always completes.
+//    private final Runnable mPendingReverseTimeout = () -> {
+//        if (mPendingReverseServerUnicast == -1) {
+//            // Already handled by ACK path — nothing to do
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//        Log.w(TAG, "⚠️ STEP1 ACK timeout (15s) — forcing STEP2 anyway");
+//        final int su  = mPendingReverseServerUnicast;
+//        final int se  = mPendingReverseServerElementAddr;
+//        final int ce  = mPendingReverseClientElementAddr;
+//        final int aki = mPendingReverseAppKeyIndex;
 //
-//        return binding.getRoot();
+//        // Clear before firing
+//        mPendingReverseServerUnicast     = -1;
+//        mPendingReverseServerElementAddr = -1;
+//        mPendingReverseClientElementAddr = -1;
+//        mPendingReverseAppKeyIndex       = -1;
+//
+//        try {
+//            mMeshManagerApi.createMeshPdu(
+//                    su,
+//                    new ConfigModelPublicationSet(
+//                            se, ce, aki, false, 5, 0, 0, 0, 0,
+//                            MODEL_GENERIC_ONOFF_SERVER
+//                    )
+//            );
+//            Log.d(TAG, "✅ STEP2 forced by timeout: server=0x"
+//                    + String.format("%04X", su)
+//                    + " serverElem=0x" + String.format("%04X", se)
+//                    + " → clientElem=0x" + String.format("%04X", ce));
+//        } catch (Exception e) {
+//            Log.e(TAG, "❌ Timeout STEP2 failed: " + e.getMessage());
+//        }
+//        mIsAutoSetupInProgress.postValue(false);
+//    };
+//
+//    // ── Import callback ────────────────────────────────────────────────────────
+//    private Runnable mOnNetworkImportedCallback = null;
+//
+//    // ── Runnables ─────────────────────────────────────────────────────────────
+//    private final Runnable mReconnectRunnable = this::startScan;
+//    private final Runnable mScannerTimeout   = () -> {
+//        stopScan();
+//        mIsReconnecting.postValue(false);
+//    };
+//
+//    // ── Auto setup progress ────────────────────────────────────────────────────
+//    private final MutableLiveData<Boolean> mIsAutoSetupInProgress = new MutableLiveData<>();
+//
+//    // =========================================================================
+//    // Constructor
+//    // =========================================================================
+//    @Inject
+//    public NrfMeshRepository(final MeshManagerApi meshManagerApi,
+//                             final BleMeshManager bleMeshManager) {
+//        mMeshManagerApi = meshManagerApi;
+//        mMeshManagerApi.setMeshManagerCallbacks(this);
+//        mMeshManagerApi.setProvisioningStatusCallbacks(this);
+//        mMeshManagerApi.setMeshStatusCallbacks(this);
+//        mMeshManagerApi.loadMeshNetwork();
+//        mBleMeshManager = bleMeshManager;
+//        mBleMeshManager.setGattCallbacks(this);
+//        mHandler = new Handler(Looper.getMainLooper());
 //    }
 //
-//    private void observeViewModel() {
+//    public void setOnNetworkImportedCallback(@Nullable Runnable callback) {
+//        mOnNetworkImportedCallback = callback;
+//    }
 //
-//        mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
-//            if (binding == null) return;
-//            mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
-//            if (mAutoSetupInProgress) {
-//                binding.autoSetupOverlay.setVisibility(View.VISIBLE);
-//                binding.progressBar.setVisibility(View.GONE);
-//                binding.svgView.setOnTouchListener(null);
+//    // =========================================================================
+//    // Getters / Setters
+//    // =========================================================================
+//    LiveData<Void>    isDeviceReady()      { return mOnDeviceReady; }
+//    LiveData<String>  getConnectionState() { return mConnectionState; }
+//    LiveData<Boolean> isConnected()        { return mIsConnected; }
+//    LiveData<Boolean> isConnectedToProxy() { return mIsConnectedToProxy; }
+//    LiveData<Boolean> isReconnecting()     { return mIsReconnecting; }
+//
+//    boolean isProvisioningComplete()          { return mIsProvisioningComplete; }
+//    boolean isCompositionDataStatusReceived() { return mIsCompositionDataReceived; }
+//    boolean isDefaultTtlReceived()            { return mIsDefaultTtlReceived; }
+//    boolean isAppKeyAddCompleted()            { return mIsAppKeyAddCompleted; }
+//    boolean isNetworkRetransmitSetCompleted() { return mIsNetworkRetransmitSetCompleted; }
+//
+//    final MeshNetworkLiveData getMeshNetworkLiveData()  { return mMeshNetworkLiveData; }
+//    LiveData<List<ProvisionedMeshNode>> getNodes()      { return mProvisionedNodes; }
+//    LiveData<String>  getNetworkLoadState()             { return mNetworkImportState; }
+//    ProvisioningStatusLiveData getProvisioningState()   { return mProvisioningStateLiveData; }
+//    LiveData<TransactionStatus> getTransactionStatus()  { return mTransactionStatus; }
+//    MeshManagerApi getMeshManagerApi()                  { return mMeshManagerApi; }
+//    BleMeshManager getBleMeshManager()                  { return mBleMeshManager; }
+//    LiveData<MeshMessage> getMeshMessageLiveData()      { return mMeshMessageLiveData; }
+//    LiveData<Group>   getSelectedGroup()                { return mSelectedGroupLiveData; }
+//    LiveData<UnprovisionedMeshNode> getUnprovisionedMeshNode() { return mUnprovisionedMeshNodeLiveData; }
+//    LiveData<Integer> getConnectedProxyAddress()        { return mConnectedProxyAddress; }
+//    LiveData<ProvisionedMeshNode> getSelectedMeshNode() { return mExtendedMeshNode; }
+//    LiveData<Element>    getSelectedElement()           { return mSelectedElement; }
+//    LiveData<Provisioner> getSelectedProvisioner()      { return mSelectedProvisioner; }
+//    LiveData<MeshModel>  getSelectedModel()             { return mSelectedModel; }
+//    LiveData<Boolean> isAutoSetupInProgress()           { return mIsAutoSetupInProgress; }
+//
+//    void clearTransactionStatus() {
+//        if (mTransactionStatus.getValue() != null) mTransactionStatus.postValue(null);
+//    }
+//
+//    void setSelectedMeshNode(final ProvisionedMeshNode node) {
+//        mProvisionedMeshNode = node;
+//        mExtendedMeshNode.postValue(node);
+//    }
+//
+//    void setSelectedElement(final Element element)  { mSelectedElement.postValue(element); }
+//    void setSelectedModel(final MeshModel model)    { mSelectedModel.postValue(model); }
+//    void setSelectedProvisioner(@NonNull final Provisioner p) { mSelectedProvisioner.postValue(p); }
+//
+//    void setSelectedGroup(final int address) {
+//        final Group group = mMeshNetwork.getGroup(address);
+//        if (group != null) mSelectedGroupLiveData.postValue(group);
+//    }
+//
+//    // =========================================================================
+//    // ScannerActivity reconnect helpers
+//    // =========================================================================
+//    public ProvisionedMeshNode getLastProvisionedNode() { return mProvisionedMeshNode; }
+//
+//    public void markSetupRequired(int nodeUnicastAddress) {
+//        if (mMeshNetwork == null) {
+//            Log.e(TAG, "markSetupRequired: mMeshNetwork is null — abort");
+//            return;
+//        }
+//        final ProvisionedMeshNode node = mMeshNetwork.getNode(nodeUnicastAddress);
+//        if (node == null) {
+//            Log.e(TAG, "markSetupRequired: node not found for 0x"
+//                    + Integer.toHexString(nodeUnicastAddress));
+//            if (mProvisionedMeshNode != null
+//                    && mProvisionedMeshNode.getUnicastAddress() == nodeUnicastAddress) {
+//                Log.d(TAG, "markSetupRequired: using mProvisionedMeshNode fallback");
 //            } else {
-//                binding.autoSetupOverlay.setVisibility(View.GONE);
-//                binding.svgView.setOnTouchListener(this::handleTouch);
-//                if (svgDocument != null && !deviceMap.isEmpty()) {
-//                    selectedDeviceId = null;
-//                    refreshColors();
-//                    reRenderSvg();
-//                }
+//                Log.e(TAG, "markSetupRequired: fallback also failed — abort");
+//                return;
 //            }
-//        });
+//        } else {
+//            mProvisionedMeshNode = node;
+//            mProvisionedMeshNodeLiveData.postValue(node);
+//        }
+//        mSetupProvisionedNode            = true;
+//        mIsCompositionDataReceived       = false;
+//        mIsDefaultTtlReceived            = false;
+//        mIsAppKeyAddCompleted            = false;
+//        mIsNetworkRetransmitSetCompleted = false;
+//        Log.d(TAG, "markSetupRequired ✅ node=0x" + Integer.toHexString(nodeUnicastAddress));
+//    }
 //
-//        mViewModel.getFocusAreaId().observe(getViewLifecycleOwner(), areaId -> {
-//            if (areaId == null || areaId.isEmpty()) return;
-//            pendingFocusAreaId = areaId;
-//            mViewModel.setFocusAreaId(null);
-//            if (svgDocument != null && !svgParser.areaMap.isEmpty()) {
-//                zoomToArea(areaId);
-//                pendingFocusAreaId = null;
+//    // =========================================================================
+//    // Connection management
+//    // =========================================================================
+//    void resetMeshNetwork() {
+//        disconnect();
+//        mMeshManagerApi.resetMeshNetwork();
+//    }
+//
+//    void connect(final Context context, final ExtendedBluetoothDevice device,
+//                 final boolean connectToNetwork) {
+//        mMeshNetworkLiveData.setNodeName(device.getName());
+//        mIsProvisioningComplete          = false;
+//        mIsCompositionDataReceived       = false;
+//        mIsDefaultTtlReceived            = false;
+//        mIsAppKeyAddCompleted            = false;
+//        mIsNetworkRetransmitSetCompleted = false;
+//        final LogSession logSession = Logger.newSession(context, null,
+//                device.getAddress(), device.getName());
+//        mBleMeshManager.setLogger(logSession);
+//        initIsConnectedLiveData(connectToNetwork);
+//        mConnectionState.postValue("Connecting....");
+//        mBleMeshManager.connect(device.getDevice()).retry(3, 200).enqueue();
+//    }
+//
+//    private void connectToProxy(final ExtendedBluetoothDevice device) {
+//        initIsConnectedLiveData(true);
+//        mConnectionState.postValue("Connecting....");
+//        mBleMeshManager.connect(device.getDevice()).retry(3, 200).enqueue();
+//    }
+//
+//    private void initIsConnectedLiveData(final boolean connectToNetwork) {
+//        mIsConnected = connectToNetwork ? new SingleLiveEvent<>() : new MutableLiveData<>();
+//    }
+//
+//    void disconnect() {
+//        clearProvisioningLiveData();
+//        mIsProvisioningComplete = false;
+//        mBleMeshManager.disconnect().enqueue();
+//    }
+//
+//    void clearProvisioningLiveData() {
+//        stopScan();
+//        mHandler.removeCallbacks(mReconnectRunnable);
+//        mSetupProvisionedNode = false;
+//        mIsReconnectingFlag   = false;
+//        mUnprovisionedMeshNodeLiveData.setValue(null);
+//        mProvisionedMeshNodeLiveData.setValue(null);
+//    }
+//
+//    public void identifyNode(final ExtendedBluetoothDevice device) {
+//        final UnprovisionedBeacon beacon = (UnprovisionedBeacon) device.getBeacon();
+//        if (beacon != null) {
+//            mMeshManagerApi.identifyNode(beacon.getUuid(), ATTENTION_TIMER);
+//        } else {
+//            final byte[] serviceData = Utils.getServiceData(
+//                    device.getScanResult(), BleMeshManager.MESH_PROVISIONING_UUID);
+//            if (serviceData != null) {
+//                final UUID uuid = mMeshManagerApi.getDeviceUuid(serviceData);
+//                mMeshManagerApi.identifyNode(uuid, ATTENTION_TIMER);
 //            }
-//        });
+//        }
+//    }
 //
-//        // ✅ provisionedDeviceIds LiveData — Store se sync hoti hai (normalized keys)
-//        // refreshColors() mein getProvisionedSet() call hota hai jo Store se normalized
-//        // Set<String> return karta hai — case mismatch bug permanently khatam.
-//        mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), ids -> {
-//            if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
-//            if (mAutoSetupInProgress) return;
-//            selectedDeviceId = null;
-//            refreshColors();
-//            reRenderSvg();
-//        });
+//    private void clearExtendedMeshNode() { mExtendedMeshNode.postValue(null); }
+//
+//    // =========================================================================
+//    // BleMeshManagerCallbacks
+//    // =========================================================================
+//    @Override
+//    public void onDataReceived(final BluetoothDevice bluetoothDevice,
+//                               final int mtu, final byte[] pdu) {
+//        mMeshManagerApi.handleNotifications(mtu, pdu);
 //    }
 //
 //    @Override
-//    public void onResume() {
-//        super.onResume();
-//        if (mViewModel != null) {
-//            mAutoSetupInProgress = Boolean.TRUE.equals(
-//                    mViewModel.isAutoSetupInProgress().getValue());
-//            if (binding != null) {
-//                if (mAutoSetupInProgress) {
-//                    binding.autoSetupOverlay.setVisibility(View.VISIBLE);
-//                    binding.svgView.setOnTouchListener(null);
+//    public void onDataSent(final BluetoothDevice device, final int mtu, final byte[] pdu) {
+//        mMeshManagerApi.handleWriteCallbacks(mtu, pdu);
+//    }
+//
+//    @Override
+//    public void onDeviceConnecting(@NonNull final BluetoothDevice device) {
+//        mConnectionState.postValue("Connecting....");
+//    }
+//
+//    @Override
+//    public void onDeviceConnected(@NonNull final BluetoothDevice device) {
+//        mIsConnected.postValue(true);
+//        mConnectionState.postValue("Discovering services....");
+//        mIsConnectedToProxy.postValue(true);
+//    }
+//
+//    @Override
+//    public void onDeviceDisconnecting(@NonNull final BluetoothDevice device) {
+//        mConnectionState.postValue(mIsReconnectingFlag ? "Reconnecting..." : "Disconnecting...");
+//    }
+//
+//    @Override
+//    public void onDeviceDisconnected(@NonNull final BluetoothDevice device) {
+//        mConnectionState.postValue("");
+//        if (mIsReconnectingFlag) {
+//            mIsReconnectingFlag = false;
+//            mIsReconnecting.postValue(false);
+//            mIsConnected.postValue(false);
+//            mIsConnectedToProxy.postValue(false);
+//        } else {
+//            mIsConnected.postValue(false);
+//            mIsConnectedToProxy.postValue(false);
+//            if (mConnectedProxyAddress.getValue() != null) {
+//                final MeshNetwork network = mMeshManagerApi.getMeshNetwork();
+//                if (network != null) network.setProxyFilter(null);
+//            }
+//        }
+//        mSetupProvisionedNode = false;
+//        mConnectedProxyAddress.postValue(null);
+//        mIsBindingInProgress  = false;
+//
+//        // FIX: Clear pending reverse pub on disconnect to avoid stale state
+//        mHandler.removeCallbacks(mPendingReverseTimeout);
+//        mPendingReverseServerUnicast     = -1;
+//        mPendingReverseServerElementAddr = -1;
+//        mPendingReverseClientElementAddr = -1;
+//        mPendingReverseAppKeyIndex       = -1;
+//    }
+//
+//    @Override public void onLinkLossOccurred(@NonNull final BluetoothDevice device) {
+//        mIsConnected.postValue(false);
+//    }
+//
+//    @Override public void onServicesDiscovered(@NonNull final BluetoothDevice device,
+//                                               final boolean optionalServicesFound) {
+//        mConnectionState.postValue("Initializing...");
+//    }
+//
+//    @Override
+//    public void onDeviceReady(@NonNull final BluetoothDevice device) {
+//        mOnDeviceReady.postValue(null);
+//        if (mBleMeshManager.isProvisioningComplete()) {
+//            if (mSetupProvisionedNode) {
+//                if (mMeshNetwork.getSelectedProvisioner().getProvisionerAddress() != null) {
+//                    mHandler.postDelayed(() -> {
+//                        final ProvisionedMeshNode node = mProvisionedMeshNodeLiveData.getValue();
+//                        if (node != null) {
+//                            mMeshManagerApi.createMeshPdu(node.getUnicastAddress(),
+//                                    new ConfigCompositionDataGet());
+//                        } else {
+//                            Log.e(TAG, "onDeviceReady: mProvisionedMeshNodeLiveData is null");
+//                        }
+//                    }, 2000);
 //                } else {
-//                    binding.svgView.setOnTouchListener(this::handleTouch);
+//                    mSetupProvisionedNode = false;
+//                    mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                            ProvisionerStates.PROVISIONER_UNASSIGNED);
+//                    clearExtendedMeshNode();
 //                }
 //            }
+//            mIsConnectedToProxy.postValue(true);
 //        }
-//        if (svgDocument == null || deviceMap.isEmpty() || mAutoSetupInProgress) return;
-//        selectedDeviceId = null;
-//        refreshColors();
-//        reRenderSvg();
+//    }
+//
+//    @Override public void onBondingRequired(@NonNull final BluetoothDevice device) {}
+//    @Override public void onBonded(@NonNull final BluetoothDevice device) {}
+//    @Override public void onBondingFailed(@NonNull final BluetoothDevice device) {}
+//
+//    @Override
+//    public void onError(final BluetoothDevice device,
+//                        @NonNull final String message, final int errorCode) {
+//        Log.e(TAG, message + " (code: " + errorCode + "), device: " + device.getAddress());
+//        mConnectionState.postValue(message);
+//    }
+//
+//    @Override public void onDeviceNotSupported(@NonNull final BluetoothDevice device) {}
+//
+//    // =========================================================================
+//    // MeshManagerCallbacks
+//    // =========================================================================
+//    @Override public void onNetworkLoaded(final MeshNetwork meshNetwork) {
+//        loadNetwork(meshNetwork);
 //    }
 //
 //    @Override
-//    public void onDestroyView() {
-//        super.onDestroyView();
-//        if (flingAnimator   != null) flingAnimator.cancel();
-//        if (zoomAnimator    != null) zoomAnimator.cancel();
-//        if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
-//        if (pendingRender   != null) pendingRender.cancel(true);
-//        loadExecutor.shutdownNow();
-//        renderExecutor.shutdownNow();
-//        binding = null;
+//    public void onNetworkUpdated(final MeshNetwork meshNetwork) {
+//        loadNetwork(meshNetwork);
+//        updateSelectedGroup();
 //    }
 //
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  BACK PRESS
-//    // ══════════════════════════════════════════════════════════════════════
+//    @Override public void onNetworkLoadFailed(final String error)   { mNetworkImportState.postValue(error); }
+//    @Override public void onNetworkImportFailed(final String error) { mNetworkImportState.postValue(error); }
 //
-//    public boolean handleBackPress() {
-//        if (areaLockedId != null) {
-//            areaLockedId      = null;
-//            areaLockedMinZoom = -1f;
-//            currentFocusAreaId = null;
-//            colorManager.restoreAllAreas(
-//                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-//            refreshColors();
-//            reRenderSvg();
-//            binding.svgView.post(() -> fitFloorPlanToView(true));
-//            return true;
+//    @Override
+//    public void onNetworkImported(final MeshNetwork meshNetwork) {
+//        loadNetwork(meshNetwork);
+//        if (mOnNetworkImportedCallback != null) {
+//            mHandler.post(mOnNetworkImportedCallback);
+//            Log.d(TAG, "✅ onNetworkImported: rebuildProvisionedFromMesh callback fired");
 //        }
-//        if (currentFocusAreaId != null) {
-//            currentFocusAreaId = null;
-//            colorManager.restoreAllAreas(
-//                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-//            refreshColors();
-//            reRenderSvg();
-//            return true;
+//        mNetworkImportState.postValue(meshNetwork.getMeshName()
+//                + " has been successfully imported.\n"
+//                + "In order to start sending messages to this network, please change the "
+//                + "provisioner address. Using the same provisioner address will cause messages "
+//                + "to be discarded due to the usage of incorrect sequence numbers for this "
+//                + "address. However if the network does not contain any nodes you do not need "
+//                + "to change the address");
+//    }
+//
+//    @Override public void sendProvisioningPdu(final UnprovisionedMeshNode meshNode,
+//                                              final byte[] pdu) {
+//        mBleMeshManager.sendPdu(pdu);
+//    }
+//
+//    @Override public void onMeshPduCreated(final byte[] pdu) { mBleMeshManager.sendPdu(pdu); }
+//    @Override public int getMtu() { return mBleMeshManager.getMaximumPacketSize(); }
+//
+//    // =========================================================================
+//    // MeshProvisioningStatusCallbacks
+//    // =========================================================================
+//    @Override
+//    public void onProvisioningStateChanged(final UnprovisionedMeshNode meshNode,
+//                                           final ProvisioningState.States state,
+//                                           final byte[] data) {
+//        mUnprovisionedMeshNode = meshNode;
+//        mUnprovisionedMeshNodeLiveData.postValue(meshNode);
+//        if (state == ProvisioningState.States.PROVISIONING_INVITE) {
+//            mProvisioningStateLiveData = new ProvisioningStatusLiveData();
+//        } else if (state == ProvisioningState.States.PROVISIONING_FAILED) {
+//            mIsProvisioningComplete = false;
 //        }
-//        if (selectedDeviceId != null) {
-//            deselectCurrentDevice();
+//        mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                ProvisionerStates.fromStatusCode(state.getState()));
+//    }
+//
+//    @Override
+//    public void onProvisioningFailed(final UnprovisionedMeshNode meshNode,
+//                                     final ProvisioningState.States state,
+//                                     final byte[] data) {
+//        mUnprovisionedMeshNode = meshNode;
+//        mUnprovisionedMeshNodeLiveData.postValue(meshNode);
+//        if (state == ProvisioningState.States.PROVISIONING_FAILED) {
+//            mIsProvisioningComplete = false;
+//        }
+//        mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                ProvisionerStates.fromStatusCode(state.getState()));
+//    }
+//
+//    @Override
+//    public void onProvisioningCompleted(final ProvisionedMeshNode meshNode,
+//                                        final ProvisioningState.States state,
+//                                        final byte[] data) {
+//        mProvisionedMeshNode = meshNode;
+//        mUnprovisionedMeshNodeLiveData.postValue(null);
+//        mProvisionedMeshNodeLiveData.postValue(meshNode);
+//        if (state == ProvisioningState.States.PROVISIONING_COMPLETE) {
+//            onProvisioningCompleted(meshNode);
+//        }
+//        mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                ProvisionerStates.fromStatusCode(state.getState()));
+//    }
+//
+//    private void onProvisioningCompleted(final ProvisionedMeshNode node) {
+//        mIsProvisioningComplete = true;
+//        mProvisionedMeshNode    = node;
+//        mIsAutoSetupInProgress.postValue(true);
+//        mIsReconnecting.postValue(true);
+//        mBleMeshManager.disconnect().enqueue();
+//        loadNodes();
+//        mHandler.post(() -> mConnectionState.postValue("Scanning for provisioned node"));
+//        mHandler.postDelayed(mReconnectRunnable, 1000);
+//    }
+//
+//    private void loadNodes() {
+//        final List<ProvisionedMeshNode> nodes = new ArrayList<>();
+//        final String provisionerUuid = mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
+//        for (final ProvisionedMeshNode node : mMeshNetwork.getNodes()) {
+//            if (!node.getUuid().equalsIgnoreCase(provisionerUuid)) {
+//                nodes.add(node);
+//            }
+//        }
+//        mProvisionedNodes.postValue(nodes);
+//    }
+//
+//    // =========================================================================
+//    // MeshStatusCallbacks
+//    // =========================================================================
+//    @Override
+//    public void onTransactionFailed(final int dst, final boolean hasIncompleteTimerExpired) {
+//        mProvisionedMeshNode = mMeshNetwork.getNode(dst);
+//        mTransactionStatus.postValue(new TransactionStatus(dst, hasIncompleteTimerExpired));
+//    }
+//
+//    @Override
+//    public void onUnknownPduReceived(final int src, final byte[] accessPayload) {
+//        final ProvisionedMeshNode node = mMeshNetwork.getNode(src);
+//        if (node != null) updateNode(node);
+//    }
+//
+//    @Override
+//    public void onBlockAcknowledgementProcessed(final int dst,
+//                                                @NonNull final ControlMessage message) {
+//        final ProvisionedMeshNode node = mMeshNetwork.getNode(dst);
+//        if (node != null) {
+//            mProvisionedMeshNode = node;
+//            if (mSetupProvisionedNode) {
+//                mProvisionedMeshNodeLiveData.postValue(mProvisionedMeshNode);
+//                mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                        ProvisionerStates.SENDING_BLOCK_ACKNOWLEDGEMENT);
+//            }
+//        }
+//    }
+//
+//    @Override
+//    public void onBlockAcknowledgementReceived(final int src,
+//                                               @NonNull final ControlMessage message) {
+//        final ProvisionedMeshNode node = mMeshNetwork.getNode(src);
+//        if (node != null) {
+//            mProvisionedMeshNode = node;
+//            if (mSetupProvisionedNode) {
+//                mProvisionedMeshNodeLiveData.postValue(node);
+//                mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                        ProvisionerStates.BLOCK_ACKNOWLEDGEMENT_RECEIVED);
+//            }
+//        }
+//    }
+//
+//    @Override public void onHeartbeatMessageReceived(int src,
+//                                                     @NonNull ControlMessage message) {}
+//
+//    @Override
+//    public void onMeshMessageProcessed(final int dst, @NonNull final MeshMessage meshMessage) {
+//        final ProvisionedMeshNode node = mMeshNetwork.getNode(dst);
+//        if (node != null) {
+//            mProvisionedMeshNode = node;
+//            if (mSetupProvisionedNode) {
+//                if (meshMessage instanceof ConfigCompositionDataGet) {
+//                    mProvisionedMeshNodeLiveData.postValue(node);
+//                    mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                            ProvisionerStates.COMPOSITION_DATA_GET_SENT);
+//                } else if (meshMessage instanceof ConfigDefaultTtlGet) {
+//                    mProvisionedMeshNodeLiveData.postValue(node);
+//                    mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                            ProvisionerStates.SENDING_DEFAULT_TTL_GET);
+//                } else if (meshMessage instanceof ConfigAppKeyAdd) {
+//                    mProvisionedMeshNodeLiveData.postValue(node);
+//                    mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                            ProvisionerStates.SENDING_APP_KEY_ADD);
+//                }
+//            }
+//        }
+//    }
+//
+//    // =========================================================================
+//    // onMeshMessageReceived — main dispatcher
+//    // =========================================================================
+//    @Override
+//    public void onMeshMessageReceived(final int src, @NonNull final MeshMessage meshMessage) {
+//        final ProvisionedMeshNode node = mMeshNetwork.getNode(src);
+//        if (node != null) {
+//
+//            if (meshMessage.getOpCode() == ProxyConfigMessageOpCodes.FILTER_STATUS) {
+//                mProvisionedMeshNode = node;
+//                setSelectedMeshNode(node);
+//                final ProxyConfigFilterStatus status = (ProxyConfigFilterStatus) meshMessage;
+//                mConnectedProxyAddress.postValue(status.getSrc());
+//                mMeshMessageLiveData.postValue(status);
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_COMPOSITION_DATA_STATUS) {
+//                if (mSetupProvisionedNode) {
+//                    mIsCompositionDataReceived = true;
+//                    mProvisionedMeshNodeLiveData.postValue(node);
+//                    mConnectedProxyAddress.postValue(node.getUnicastAddress());
+//                    mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                            ProvisionerStates.COMPOSITION_DATA_STATUS_RECEIVED);
+//                    mHandler.postDelayed(() ->
+//                            mMeshManagerApi.createMeshPdu(node.getUnicastAddress(),
+//                                    new ConfigDefaultTtlGet()), 500);
+//                } else {
+//                    updateNode(node);
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_DEFAULT_TTL_STATUS) {
+//                final ConfigDefaultTtlStatus status = (ConfigDefaultTtlStatus) meshMessage;
+//                if (mSetupProvisionedNode) {
+//                    mIsDefaultTtlReceived = true;
+//                    if (mMeshNetworkLiveData.getAppKeys().isEmpty()) mSetupProvisionedNode = false;
+//                    mProvisionedMeshNodeLiveData.postValue(node);
+//                    mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                            ProvisionerStates.DEFAULT_TTL_STATUS_RECEIVED);
+//                    if (!mMeshNetworkLiveData.getAppKeys().isEmpty()) {
+//                        final ApplicationKey appKey = mMeshNetworkLiveData.getSelectedAppKey();
+//                        if (appKey != null) {
+//                            mHandler.postDelayed(() -> {
+//                                final NetworkKey netKey =
+//                                        mMeshNetwork.getNetKeys().get(appKey.getBoundNetKeyIndex());
+//                                mMeshManagerApi.createMeshPdu(node.getUnicastAddress(),
+//                                        new ConfigAppKeyAdd(netKey, appKey));
+//                            }, 1500);
+//                        } else {
+//                            mSetupProvisionedNode = false;
+//                            mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                                    ProvisionerStates.APP_KEY_STATUS_RECEIVED);
+//                        }
+//                    }
+//                } else {
+//                    updateNode(node);
+//                    mMeshMessageLiveData.postValue(status);
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_NETWORK_TRANSMIT_STATUS) {
+//                updateNode(node);
+//                mMeshMessageLiveData.postValue(meshMessage);
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_APPKEY_STATUS) {
+//                final ConfigAppKeyStatus status = (ConfigAppKeyStatus) meshMessage;
+//                if (status.isSuccessful()) {
+//                    mIsAppKeyAddCompleted = true;
+//                    mSetupProvisionedNode = false;
+//                    mProvisionedMeshNodeLiveData.postValue(node);
+//                    if (mProvisioningStateLiveData != null) {
+//                        mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                                ProvisionerStates.APP_KEY_STATUS_RECEIVED);
+//                    }
+//                    Log.d(TAG_BIND, "✅ AppKey SUCCESS → startAutoAppKeyBind node=0x"
+//                            + String.format("%04X", node.getUnicastAddress()));
+//                    startAutoAppKeyBind(node);
+//                } else {
+//                    mSetupProvisionedNode = false;
+//                    if (mProvisioningStateLiveData != null) {
+//                        mProvisioningStateLiveData.onMeshNodeStateUpdated(
+//                                ProvisionerStates.APP_KEY_STATUS_RECEIVED);
+//                    }
+//                    Log.w(TAG_BIND, "⚠️ CONFIG_APPKEY_STATUS FAILED statusCode="
+//                            + status.getStatusCode());
+//                    updateNode(node);
+//                    mMeshMessageLiveData.postValue(status);
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_MODEL_APP_STATUS) {
+//                final ConfigModelAppStatus status = (ConfigModelAppStatus) meshMessage;
+//                updateNode(node);
+//                if (node.getElements().containsKey(status.getElementAddress())) {
+//                    final Element element = node.getElements().get(status.getElementAddress());
+//                    if (element != null) {
+//                        mSelectedElement.postValue(element);
+//                        mSelectedModel.postValue(
+//                                element.getMeshModels().get(status.getModelIdentifier()));
+//                    }
+//                }
+//                if (mAutoBindNode != null
+//                        && mAutoBindNode.getUnicastAddress() == node.getUnicastAddress()) {
+//                    mIsBindingInProgress = false;
+//                    mAutoBindIndex++;
+//                    sendNextAutoBind();
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_MODEL_PUBLICATION_STATUS) {
+//                if (updateNode(node)) {
+//                    final ConfigModelPublicationStatus status =
+//                            (ConfigModelPublicationStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getElementAddress())) {
+//                        final Element element = node.getElements().get(status.getElementAddress());
+//                        mSelectedElement.postValue(element);
+//                        mSelectedModel.postValue(
+//                                element.getMeshModels().get(status.getModelIdentifier()));
+//                    }
+//
+//                    // ── FIX: ACK-driven STEP2 ─────────────────────────────────────────────
+//                    // STEP2 (server→client) fires ONLY after STEP1's ACK arrives here.
+//                    // Guard: elementAddress must match mPendingReverseClientElementAddr so
+//                    // unrelated publication status messages don't accidentally trigger STEP2.
+//                    if (mPendingReverseServerUnicast != -1
+//                            && status.getElementAddress() == mPendingReverseClientElementAddr) {
+//
+//                        // Cancel timeout — ACK arrived in time
+//                        mHandler.removeCallbacks(mPendingReverseTimeout);
+//
+//                        final int serverUnicast     = mPendingReverseServerUnicast;
+//                        final int serverElementAddr = mPendingReverseServerElementAddr;
+//                        final int clientElementAddr = mPendingReverseClientElementAddr;
+//                        final int appKeyIndex       = mPendingReverseAppKeyIndex;
+//
+//                        // Clear BEFORE async op — prevents double-fire
+//                        mPendingReverseServerUnicast     = -1;
+//                        mPendingReverseServerElementAddr = -1;
+//                        mPendingReverseClientElementAddr = -1;
+//                        mPendingReverseAppKeyIndex       = -1;
+//
+//                        mHandler.postDelayed(() -> {
+//                            try {
+//                                Log.d(TAG, "✅ STEP2 (server→client) triggered by STEP1 ACK:"
+//                                        + " server=0x"       + String.format("%04X", serverUnicast)
+//                                        + " serverElem=0x"   + String.format("%04X", serverElementAddr)
+//                                        + " → clientElem=0x" + String.format("%04X", clientElementAddr));
+//                                mMeshManagerApi.createMeshPdu(
+//                                        serverUnicast,
+//                                        new ConfigModelPublicationSet(
+//                                                serverElementAddr,
+//                                                clientElementAddr,
+//                                                appKeyIndex,
+//                                                false, 5, 0, 0, 0, 0,
+//                                                MODEL_GENERIC_ONOFF_SERVER
+//                                        )
+//                                );
+//                            } catch (Exception e) {
+//                                Log.e(TAG, "❌ STEP2 reverse publication failed: " + e.getMessage());
+//                            }
+//                            // FIX: mIsAutoSetupInProgress = false here — AFTER STEP2 is sent
+//                            mIsAutoSetupInProgress.postValue(false);
+//                        }, 500); // 500ms breathing room for BLE stack
+//                    }
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_MODEL_SUBSCRIPTION_STATUS) {
+//                if (updateNode(node)) {
+//                    final ConfigModelSubscriptionStatus status =
+//                            (ConfigModelSubscriptionStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getElementAddress())) {
+//                        final Element element = node.getElements().get(status.getElementAddress());
+//                        mSelectedElement.postValue(element);
+//                        mSelectedModel.postValue(
+//                                element.getMeshModels().get(status.getModelIdentifier()));
+//                    }
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_NODE_RESET_STATUS) {
+//                mBleMeshManager.setClearCacheRequired();
+//                mExtendedMeshNode.postValue(null);
+//                loadNodes();
+//                mMeshMessageLiveData.postValue(meshMessage);
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_RELAY_STATUS) {
+//                if (updateNode(node)) mMeshMessageLiveData.postValue(meshMessage);
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_HEARTBEAT_PUBLICATION_STATUS) {
+//                if (updateNode(node)) {
+//                    final Element element = node.getElements().get(meshMessage.getSrc());
+//                    if (element != null)
+//                        mSelectedModel.postValue(element.getMeshModels()
+//                                .get((int) SigModelParser.CONFIGURATION_SERVER));
+//                    mMeshMessageLiveData.postValue(meshMessage);
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_HEARTBEAT_SUBSCRIPTION_STATUS) {
+//                if (updateNode(node)) {
+//                    final Element element = node.getElements().get(meshMessage.getSrc());
+//                    if (element != null)
+//                        mSelectedModel.postValue(element.getMeshModels()
+//                                .get((int) SigModelParser.CONFIGURATION_SERVER));
+//                    mMeshMessageLiveData.postValue(meshMessage);
+//                }
+//
+//            } else if (meshMessage.getOpCode() == CONFIG_GATT_PROXY_STATUS) {
+//                if (updateNode(node)) mMeshMessageLiveData.postValue(meshMessage);
+//
+//            } else if (meshMessage.getOpCode() == GENERIC_ON_OFF_STATUS) {
+//                if (updateNode(node)) {
+//                    final GenericOnOffStatus status = (GenericOnOffStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getSrcAddress())) {
+//                        final Element element = node.getElements().get(status.getSrcAddress());
+//                        mSelectedElement.postValue(element);
+//                        mSelectedModel.postValue(element.getMeshModels()
+//                                .get((int) SigModelParser.GENERIC_ON_OFF_SERVER));
+//                    }
+//                }
+//
+//            } else if (meshMessage.getOpCode() == GENERIC_LEVEL_STATUS) {
+//                if (updateNode(node)) {
+//                    final GenericLevelStatus status = (GenericLevelStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getSrcAddress())) {
+//                        final Element element = node.getElements().get(status.getSrcAddress());
+//                        mSelectedElement.postValue(element);
+//                        mSelectedModel.postValue(element.getMeshModels()
+//                                .get((int) SigModelParser.GENERIC_LEVEL_SERVER));
+//                    }
+//                }
+//
+//            } else if (meshMessage.getOpCode() == SCENE_STATUS) {
+//                if (updateNode(node)) {
+//                    final SceneStatus status = (SceneStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getSrcAddress()))
+//                        mSelectedElement.postValue(
+//                                node.getElements().get(status.getSrcAddress()));
+//                }
+//
+//            } else if (meshMessage.getOpCode() == SCENE_REGISTER_STATUS) {
+//                if (updateNode(node)) {
+//                    final SceneRegisterStatus status = (SceneRegisterStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getSrcAddress()))
+//                        mSelectedElement.postValue(
+//                                node.getElements().get(status.getSrcAddress()));
+//                }
+//
+//            } else if (meshMessage instanceof VendorModelMessageStatus) {
+//                if (updateNode(node)) {
+//                    final VendorModelMessageStatus status = (VendorModelMessageStatus) meshMessage;
+//                    if (node.getElements().containsKey(status.getSrcAddress())) {
+//                        final Element element = node.getElements().get(status.getSrcAddress());
+//                        mSelectedElement.postValue(element);
+//                        mSelectedModel.postValue(
+//                                element.getMeshModels().get(status.getModelIdentifier()));
+//                    }
+//                }
+//            }
+//        }
+//
+//        if (mMeshMessageLiveData.hasActiveObservers())
+//            mMeshMessageLiveData.postValue(meshMessage);
+//        if (mMeshManagerApi.getMeshNetwork() != null)
+//            mMeshNetworkLiveData.refresh(mMeshManagerApi.getMeshNetwork());
+//    }
+//
+//    @Override
+//    public void onMessageDecryptionFailed(final String meshLayer, final String errorMessage) {
+//        Log.e(TAG, "Decryption failed in " + meshLayer + " : " + errorMessage);
+//    }
+//
+//    // =========================================================================
+//    // Internal helpers
+//    // =========================================================================
+//    private void loadNetwork(final MeshNetwork meshNetwork) {
+//        mMeshNetwork = meshNetwork;
+//        if (mMeshNetwork != null) {
+//            if (!mMeshNetwork.isProvisionerSelected()) {
+//                final Provisioner provisioner = meshNetwork.getProvisioners().get(0);
+//                provisioner.setLastSelected(true);
+//                mMeshNetwork.selectProvisioner(provisioner);
+//            }
+//            mMeshNetworkLiveData.loadNetworkInformation(meshNetwork);
+//            loadNodes();
+//            final ProvisionedMeshNode node = getSelectedMeshNode().getValue();
+//            if (node != null)
+//                mExtendedMeshNode.postValue(mMeshNetwork.getNode(node.getUuid()));
+//        }
+//    }
+//
+//    private boolean updateNode(@NonNull final ProvisionedMeshNode node) {
+//        if (mProvisionedMeshNode != null
+//                && mProvisionedMeshNode.getUnicastAddress() == node.getUnicastAddress()) {
+//            mProvisionedMeshNode = node;
+//            mExtendedMeshNode.postValue(node);
 //            return true;
 //        }
 //        return false;
 //    }
 //
-//    public boolean isAreaZoomed() { return areaLockedId != null; }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  SVG LOADING
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void loadSvgFromAssets(String assetFileName) {
-//        showLoading(true);
-//        loadExecutor.execute(() -> {
-//            try {
-//                String[] assets = requireContext().getAssets().list("");
-//                boolean  found  = false;
-//                if (assets != null)
-//                    for (String a : assets)
-//                        if (a.equals(assetFileName)) { found = true; break; }
-//
-//                if (!found) {
-//                    mainHandler.post(() -> {
-//                        showLoading(false);
-//                        showPlaceholder(true);
-//                        Toast.makeText(requireContext(),
-//                                "SVG not found: " + assetFileName, Toast.LENGTH_LONG).show();
-//                    });
-//                    return;
-//                }
-//
-//                InputStream is1 = requireContext().getAssets().open(assetFileName);
-//                Document    doc = svgParser.parseDocument(is1);
-//                is1.close();
-//
-//                InputStream is2 = requireContext().getAssets().open(assetFileName);
-//                SVG         svg = SVG.getFromInputStream(is2);
-//                is2.close();
-//
-//                if (doc != null) svgParser.parseViewBox(doc);
-//                Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
-//                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
-//                svgParser.parseSelectionLayer(doc);
-//                floorPlanBounds = null;
-//
-//                mainHandler.post(() -> onSvgLoaded(svg, doc, devices, relations));
-//            } catch (SVGParseException e) {
-//                Log.e(TAG, "SVG parse error", e);
-//                mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
-//            } catch (Exception e) {
-//                Log.e(TAG, "Error loading SVG from assets", e);
-//                mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
-//            }
-//        });
+//    private void updateSelectedGroup() {
+//        final Group selectedGroup = mSelectedGroupLiveData.getValue();
+//        if (selectedGroup != null)
+//            mSelectedGroupLiveData.postValue(
+//                    mMeshNetwork.getGroup(selectedGroup.getAddress()));
 //    }
 //
-//    private void loadSvgFromUri(Uri uri) {
-//        showLoading(true);
-//        loadExecutor.execute(() -> {
-//            try {
-//                String      uriStr = uri.toString();
-//                InputStream is1, is2;
-//                if (uriStr.startsWith("file://")) {
-//                    File f = new File(uri.getPath());
-//                    is1 = new java.io.FileInputStream(f);
-//                    is2 = new java.io.FileInputStream(f);
+//    // =========================================================================
+//    // BLE Scanner
+//    // =========================================================================
+//    private void startScan() {
+//        if (mIsScanning) return;
+//        mIsScanning = true;
+//        final ScanSettings settings = new ScanSettings.Builder()
+//                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+//                .setReportDelay(0)
+//                .setUseHardwareFilteringIfSupported(false)
+//                .build();
+//        final List<ScanFilter> filters = new ArrayList<>();
+//        filters.add(new ScanFilter.Builder()
+//                .setServiceUuid(new ParcelUuid(MESH_PROXY_UUID)).build());
+//        BluetoothLeScannerCompat.getScanner().startScan(filters, settings, scanCallback);
+//        mHandler.postDelayed(mScannerTimeout, 20000);
+//    }
+//
+//    private void stopScan() {
+//        mHandler.removeCallbacks(mScannerTimeout);
+//        BluetoothLeScannerCompat.getScanner().stopScan(scanCallback);
+//        mIsScanning = false;
+//    }
+//
+//    private final ScanCallback scanCallback = new ScanCallback() {
+//        @Override
+//        public void onScanResult(final int callbackType, final ScanResult result) {
+//            final ScanRecord scanRecord = result.getScanRecord();
+//            if (scanRecord != null) {
+//                final byte[] serviceData = Utils.getServiceData(result, MESH_PROXY_UUID);
+//                if (serviceData != null
+//                        && mMeshManagerApi.isAdvertisedWithNodeIdentity(serviceData)) {
+//                    final ProvisionedMeshNode node = mProvisionedMeshNode;
+//                    if (mMeshManagerApi.nodeIdentityMatches(node, serviceData)) {
+//                        stopScan();
+//                        mConnectionState.postValue("Provisioned node found");
+//                        onProvisionedDeviceFound(node, new ExtendedBluetoothDevice(result));
+//                    }
+//                }
+//            }
+//        }
+//    };
+//
+//    private void onProvisionedDeviceFound(final ProvisionedMeshNode node,
+//                                          final ExtendedBluetoothDevice device) {
+//        mSetupProvisionedNode = true;
+//        mProvisionedMeshNode  = node;
+//        mIsReconnectingFlag   = true;
+//        mHandler.postDelayed(() -> connectToProxy(device), 2000);
+//    }
+//
+//    // =========================================================================
+//    // setPendingReversePublication
+//    // FIX: Arms a 15-second timeout safety net alongside storing the pending
+//    // reverse pub context. If the STEP1 ACK never arrives (BLE miss), the
+//    // timeout fires STEP2 anyway so setup always completes and progressbar stops.
+//    // =========================================================================
+//    public void setPendingReversePublication(int serverUnicast, int serverElementAddr,
+//                                             int clientElementAddr, int appKeyIndex) {
+//        mPendingReverseServerUnicast     = serverUnicast;
+//        mPendingReverseServerElementAddr = serverElementAddr;
+//        mPendingReverseClientElementAddr = clientElementAddr;
+//        mPendingReverseAppKeyIndex       = appKeyIndex;
+//
+//        // Arm safety timeout — 15 sec
+//        mHandler.removeCallbacks(mPendingReverseTimeout);
+//        mHandler.postDelayed(mPendingReverseTimeout, 15000);
+//
+//        Log.d(TAG, "setPendingReversePublication + timeout armed:"
+//                + " server=0x"      + String.format("%04X", serverUnicast)
+//                + " serverElem=0x"  + String.format("%04X", serverElementAddr)
+//                + " clientElem=0x"  + String.format("%04X", clientElementAddr));
+//    }
+//
+//    // =========================================================================
+//    // AUTO APP KEY BIND
+//    // =========================================================================
+//    private void startAutoAppKeyBind(@NonNull final ProvisionedMeshNode node) {
+//        mIsAutoSetupInProgress.postValue(true);
+//        final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
+//        if (appKeys == null || appKeys.isEmpty()) {
+//            Log.w(TAG_BIND, "startAutoAppKeyBind: No AppKey — skip.");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//        final int appKeyIndex = appKeys.get(0).getKeyIndex();
+//
+//        mPendingBindOperations.clear();
+//        mAutoBindIndex       = 0;
+//        mAutoBindNode        = node;
+//        mIsBindingInProgress = false;
+//
+//        final String rawName     = normalizeId(node.getNodeName());
+//        final String resolvedKey = resolveServerKeyByNodeName(rawName);
+//        final String storeKey    = (resolvedKey != null) ? resolvedKey : rawName;
+//
+//        Log.d(TAG_BIND, "START AUTO BIND: nodeName='" + node.getNodeName()
+//                + "' rawName='" + rawName
+//                + "' resolvedKey='" + resolvedKey
+//                + "' storeKey='" + storeKey
+//                + "' unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+//
+//        boolean isServerNode         = false;
+//        boolean isClientNode         = false;
+//        int     serverElementAddress = -1;
+//
+//        for (Element element : node.getElements().values()) {
+//            final int elementAddress = element.getElementAddress();
+//            for (MeshModel model : element.getMeshModels().values()) {
+//                final int modelId = model.getModelId();
+//                if (modelId == MODEL_GENERIC_ONOFF_SERVER) {
+//                    if (!isServerNode) {
+//                        isServerNode         = true;
+//                        serverElementAddress = elementAddress;
+//                    }
+//                    mPendingBindOperations.add(new int[]{elementAddress, modelId, appKeyIndex});
+//                } else if (modelId == MODEL_GENERIC_ONOFF_CLIENT) {
+//                    isClientNode = true;
+//                    mPendingBindOperations.add(new int[]{elementAddress, modelId, appKeyIndex});
 //                } else {
-//                    is1 = requireContext().getContentResolver().openInputStream(uri);
-//                    is2 = requireContext().getContentResolver().openInputStream(uri);
-//                }
-//                if (is1 == null || is2 == null) {
-//                    mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
-//                    return;
-//                }
-//                SVG      svg = SVG.getFromInputStream(is1); is1.close();
-//                Document doc = svgParser.parseDocument(is2); is2.close();
-//
-//                if (doc != null) svgParser.parseViewBox(doc);
-//                Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
-//                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
-//                svgParser.parseSelectionLayer(doc);
-//                floorPlanBounds = null;
-//
-//                mainHandler.post(() -> onSvgLoaded(svg, doc, devices, relations));
-//            } catch (Exception e) {
-//                Log.e(TAG, "Error loading SVG from URI", e);
-//                mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
-//            }
-//        });
-//    }
-//
-//    private void onSvgLoaded(SVG svg, Document document,
-//                             Map<String, DeviceInfo>  devices,
-//                             Map<String, Set<String>> relations) {
-//        currentSvg  = svg;
-//        svgDocument = document;
-//        deviceMap.clear();
-//        deviceMap.putAll(devices);
-//        iconToDeviceRelations.clear();
-//        iconToDeviceRelations.putAll(relations);
-//
-//        colorManager.init(document, svgParser, deviceMap);
-//        refreshColors();
-//        renderSvg(svg, true);
-//        showLoading(false);
-//    }
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  COLOR REFRESH
-//    // ══════════════════════════════════════════════════════════════════════
-//    private void refreshColors() {
-//        colorManager.refreshAllColors(
-//                deviceMap,
-//                getProvisionedSet(),
-//                selectedDeviceId,
-//                iconToDeviceRelations,
-//                currentFocusAreaId
-//        );
-//    }
-//
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  AREA ZOOM
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void zoomToArea(String areaId) {
-//        RectF areaBounds = svgParser.selectionLayerBounds.get(areaId);
-//        if (areaBounds == null) {
-//            List<String> iconIds = svgParser.areaMap.get(areaId);
-//            if (iconIds == null || iconIds.isEmpty()) return;
-//            for (String iconId : iconIds) {
-//                DeviceInfo info = deviceMap.get(iconId);
-//                if (info != null && info.bounds != null) {
-//                    if (areaBounds == null) areaBounds = new RectF(info.bounds);
-//                    else areaBounds.union(info.bounds);
+//                    mPendingBindOperations.add(new int[]{elementAddress, modelId, appKeyIndex});
 //                }
 //            }
-//            if (areaBounds == null) return;
 //        }
 //
-//        Log.d(TAG, "zoomToArea '" + areaId + "' → " + areaBounds);
-//        currentFocusAreaId = areaId;
-//
-//        colorManager.dimOtherAreas(
-//                areaId, svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-//        refreshColors();
-//        reRenderSvg();
-//
-//        final RectF finalBounds = new RectF(areaBounds);
-//        mainHandler.postDelayed(() -> {
-//            if (binding == null) return;
-//            Runnable doZoom = () -> {
-//                float vW = binding.svgView.getWidth();
-//                float vH = binding.svgView.getHeight();
-//                if (vW <= 0 || vH <= 0) {
-//                    mainHandler.postDelayed(() -> zoomToArea(areaId), 150);
-//                    return;
-//                }
-//                float padding     = 28f;
-//                RectF padded      = new RectF(finalBounds);
-//                padded.inset(-padding, -padding);
-//
-//                float scaleX      = vW / padded.width();
-//                float scaleY      = vH / padded.height();
-//                float targetScale = Math.min(MAX_ZOOM,
-//                        Math.max(minZoom, Math.min(scaleX, scaleY)));
-//
-//                areaLockedId      = areaId;
-//                areaLockedMinZoom = targetScale;
-//
-//                float cx     = padded.centerX() - svgParser.vbX;
-//                float cy     = padded.centerY() - svgParser.vbY;
-//                float transX = vW / 2f - cx * targetScale;
-//                float transY = vH / 2f - cy * targetScale;
-//
-//                animateToMatrix(targetScale, transX, transY);
-//            };
-//
-//            if (binding.svgView.getDrawable() != null)
-//                binding.svgView.post(doZoom);
-//            else
-//                mainHandler.postDelayed(() -> binding.svgView.post(doZoom), 200);
-//        }, 300);
-//    }
-//
-//    private void exitAreaZoom() {
-//        areaLockedId      = null;
-//        areaLockedMinZoom = -1f;
-//        colorManager.restoreAllAreas(
-//                svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-//        if (currentFocusAreaId != null) refreshColors();
-//        else                            refreshColors();
-//
-//        reRenderSvg();
-//        binding.svgView.post(() -> fitFloorPlanToView(true));
-//    }
-//
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  PROVISIONED HELPERS  ← CORE FIX
-//    //
-//
-//    private boolean isProvisioned(String deviceId) {
-//        return ClientServerElementStore.isProvisioned(deviceId);
-//    }
-//
-//    private Set<String> getProvisionedSet() {
-//        return ClientServerElementStore.getProvisionedKeys();
-//    }
-//
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  FLOOR PLAN FIT
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//
-//
-//    private void fitFloorPlanToView(boolean animate) {
-//        if (binding == null || binding.svgView.getDrawable() == null) return;
-//        float vW = binding.svgView.getWidth();
-//        float vH = binding.svgView.getHeight();
-//        if (vW <= 0 || vH <= 0) return;
-//
-//        RectF fp = getFloorPlanBounds();
-//        if (fp == null || fp.isEmpty()) {
-//            float dW    = binding.svgView.getDrawable().getIntrinsicWidth();
-//            float dH    = binding.svgView.getDrawable().getIntrinsicHeight();
-//            float scale = Math.min(vW / dW, vH / dH);
-//            minZoom = scale;
-//            if (animate)
-//                animateToMatrix(scale, (vW - dW * scale) / 2f, (vH - dH * scale) / 2f);
-//            else {
-//                matrix.reset();
-//                matrix.postScale(scale, scale);
-//                matrix.postTranslate((vW - dW * scale) / 2f, (vH - dH * scale) / 2f);
-//                clampMatrix();
-//                binding.svgView.setImageMatrix(matrix);
-//            }
-//            return;
-//        }
-//
-//        float padding = 16f;
-//        RectF padded  = new RectF(fp);
-//        padded.inset(-padding, -padding);
-//
-//        float scale  = Math.min(vW / padded.width(), vH / padded.height());
-//        float cx     = padded.centerX() - svgParser.vbX;
-//        float cy     = padded.centerY() - svgParser.vbY;
-//        float transX = vW / 2f - cx * scale;
-//        float transY = vH / 2f - cy * scale;
-//        minZoom      = scale;
-//
-//        if (animate) animateToMatrix(scale, transX, transY);
-//        else {
-//            matrix.reset();
-//            matrix.postScale(scale, scale);
-//            matrix.postTranslate(transX, transY);
-//            clampMatrix();
-//            binding.svgView.setImageMatrix(matrix);
-//        }
-//    }
-//
-//    private RectF getFloorPlanBounds() {
-//        if (floorPlanBounds != null) return floorPlanBounds;
-//        if (svgParser.selectionLayerBounds.isEmpty()) return null;
-//        RectF union = null;
-//        for (RectF r : svgParser.selectionLayerBounds.values()) {
-//            if (union == null) union = new RectF(r);
-//            else union.union(r);
-//        }
-//        floorPlanBounds = union;
-//        return floorPlanBounds;
-//    }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  SVG RENDERING
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void renderSvg(SVG svg, boolean applyDomChanges) {
-//        try {
-//            int rW = Math.max(1, (int) svgParser.vbW);
-//            int rH = Math.max(1, (int) svgParser.vbH);
-//            Picture         picture  = svg.renderToPicture(rW, rH);
-//            PictureDrawable drawable = new PictureDrawable(picture);
-//            binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-//            binding.svgView.setImageDrawable(drawable);
-//            binding.svgView.setVisibility(View.VISIBLE);
-//            binding.svgPlaceholder.setVisibility(View.GONE);
-//            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
-//
-//            binding.svgView.post(() -> {
-//                fitFloorPlanToView(false);
-//                binding.svgView.invalidate();
-//                if (applyDomChanges) reRenderSvg();
-//                if (pendingFocusAreaId != null) {
-//                    final String focusId = pendingFocusAreaId;
-//                    pendingFocusAreaId = null;
-//                    mainHandler.postDelayed(() -> zoomToArea(focusId), 400);
-//                }
-//            });
-//        } catch (Exception e) {
-//            Log.e(TAG, "Error rendering SVG", e);
-//            showPlaceholder(true);
-//        }
-//    }
-//
-//    private void reRenderSvg() {
-//        if (svgDocument == null) return;
-//        if (pendingRender != null && !pendingRender.isDone()) pendingRender.cancel(true);
-//
-//        final float[] snap = new float[9];
-//        matrix.getValues(snap);
-//        final Matrix frozenMatrix = new Matrix();
-//        frozenMatrix.setValues(snap);
-//
-//        pendingRender = renderExecutor.submit(() -> {
-//            try {
-//                String svgStr = documentToString(svgDocument);
-//                if (svgStr.isEmpty()) return;
-//                SVG     svg     = SVG.getFromString(svgStr);
-//                int     rW      = Math.max(1, (int) svgParser.vbW);
-//                int     rH      = Math.max(1, (int) svgParser.vbH);
-//                Picture picture = svg.renderToPicture(rW, rH);
-//                PictureDrawable drawable = new PictureDrawable(picture);
-//                mainHandler.post(() -> {
-//                    if (binding == null) return;
-//                    binding.svgView.setImageDrawable(drawable);
-//                    binding.svgView.setImageMatrix(frozenMatrix);
-//                    binding.svgView.invalidate();
-//                });
-//            } catch (Exception e) {
-//                Log.e(TAG, "reRenderSvg error", e);
-//            }
-//        });
-//    }
-//
-//    private String documentToString(Document doc) {
-//        if (doc == null) return "";
-//        try {
-//            Transformer  t  = TransformerFactory.newInstance().newTransformer();
-//            StringWriter sw = new StringWriter();
-//            t.transform(new DOMSource(doc), new StreamResult(sw));
-//            return sw.toString();
-//        } catch (Exception e) {
-//            Log.e(TAG, "documentToString error", e);
-//            return "";
-//        }
-//    }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  UI STATE
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void showPlaceholder(boolean show) {
-//        if (binding == null) return;
-//        if (show) {
-//            binding.svgPlaceholder.setVisibility(View.VISIBLE);
-//            binding.svgView.setVisibility(View.GONE);
-//            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
-//        } else {
-//            binding.svgPlaceholder.setVisibility(View.GONE);
-//            binding.svgView.setVisibility(View.VISIBLE);
-//        }
-//    }
-//
-//    private void showLoading(boolean show) {
-//        if (binding == null) return;
-//        if (show) {
-//            binding.progressBar.setVisibility(View.VISIBLE);
-//            binding.svgPlaceholder.setVisibility(View.GONE);
-//            binding.svgView.setVisibility(View.GONE);
-//        } else {
-//            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
-//        }
-//    }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  TOUCH HANDLING
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void setupZoomAndPan() {
-//        binding.svgView.setScaleType(ImageView.ScaleType.MATRIX);
-//        scroller = new OverScroller(requireContext(), new DecelerateInterpolator(2.5f));
-//
-//        scaleDetector = new ScaleGestureDetector(requireContext(),
-//                new ScaleGestureDetector.SimpleOnScaleGestureListener() {
-//                    @Override
-//                    public boolean onScale(ScaleGestureDetector d) {
-//                        float cur  = getScale();
-//                        float next = Math.max(minZoom,
-//                                Math.min(MAX_ZOOM, cur * d.getScaleFactor()));
-//                        matrix.postScale(next / cur, next / cur,
-//                                d.getFocusX(), d.getFocusY());
-//                        clampMatrix();
-//                        binding.svgView.setImageMatrix(matrix);
-//                        return true;
-//                    }
-//                });
-//
-//        gestureDetector = new GestureDetector(requireContext(),
-//                new GestureDetector.SimpleOnGestureListener() {
-//                    @Override
-//                    public boolean onDoubleTap(MotionEvent e) {
-//                        hasMoved = true;
-//                        if (areaLockedId != null) {
-//                            exitAreaZoom();
-//                        } else {
-//                            float target = getScale() > minZoom + 0.5f
-//                                    ? minZoom : DOUBLE_TAP_ZOOM;
-//                            animateZoomTo(target, e.getX(), e.getY());
-//                        }
-//                        return true;
-//                    }
-//
-//                    @Override
-//                    public boolean onFling(MotionEvent e1, MotionEvent e2,
-//                                           float vx, float vy) {
-//                        startFling(vx, vy);
-//                        return true;
-//                    }
-//                });
-//
-//        binding.svgView.setOnTouchListener(this::handleTouch);
-//    }
-//
-//    private boolean handleTouch(View v, MotionEvent event) {
-//        if (velocityTracker == null) velocityTracker = VelocityTracker.obtain();
-//        velocityTracker.addMovement(event);
-//        gestureDetector.onTouchEvent(event);
-//        scaleDetector.onTouchEvent(event);
-//
-//        switch (event.getActionMasked()) {
-//            case MotionEvent.ACTION_DOWN:
-//                if (flingAnimator != null) flingAnimator.cancel();
-//                if (zoomAnimator  != null) zoomAnimator.cancel();
-//                scroller.forceFinished(true);
-//                activePointerId = event.getPointerId(0);
-//                lastTouchX  = event.getX();
-//                lastTouchY  = event.getY();
-//                isDragging  = true;
-//                tapDownX    = event.getX();
-//                tapDownY    = event.getY();
-//                tapDownTime = event.getEventTime();
-//                hasMoved    = false;
-//                break;
-//
-//            case MotionEvent.ACTION_POINTER_DOWN:
-//                isDragging = false;
-//                hasMoved   = true;
-//                break;
-//
-//            case MotionEvent.ACTION_MOVE:
-//                if (!scaleDetector.isInProgress()) {
-//                    int idx = event.findPointerIndex(activePointerId);
-//                    if (idx == -1) { activePointerId = event.getPointerId(0); break; }
-//                    float dx  = event.getX(idx) - lastTouchX;
-//                    float dy  = event.getY(idx) - lastTouchY;
-//                    float tdx = event.getX(idx) - tapDownX;
-//                    float tdy = event.getY(idx) - tapDownY;
-//                    if (Math.sqrt(tdx * tdx + tdy * tdy) > TAP_MOVE_SLOP) hasMoved = true;
-//                    if (isDragging && (Math.abs(dx) > 0.5f || Math.abs(dy) > 0.5f)) {
-//                        matrix.postTranslate(dx, dy);
-//                        clampMatrix();
-//                        binding.svgView.setImageMatrix(matrix);
-//                    }
-//                    lastTouchX = event.getX(idx);
-//                    lastTouchY = event.getY(idx);
-//                }
-//                break;
-//
-//            case MotionEvent.ACTION_UP:
-//                if (!hasMoved && !scaleDetector.isInProgress()
-//                        && (event.getEventTime() - tapDownTime) < TAP_MAX_DURATION)
-//                    handleSvgTap(tapDownX, tapDownY);
-//                activePointerId = MotionEvent.INVALID_POINTER_ID;
-//                isDragging      = false;
-//                hasMoved        = false;
-//                if (velocityTracker != null) {
-//                    velocityTracker.recycle();
-//                    velocityTracker = null;
-//                }
-//                break;
-//
-//            case MotionEvent.ACTION_CANCEL:
-//                activePointerId = MotionEvent.INVALID_POINTER_ID;
-//                isDragging      = false;
-//                hasMoved        = true;
-//                if (velocityTracker != null) {
-//                    velocityTracker.recycle();
-//                    velocityTracker = null;
-//                }
-//                break;
-//
-//            case MotionEvent.ACTION_POINTER_UP:
-//                int pi  = event.getActionIndex();
-//                int pid = event.getPointerId(pi);
-//                if (pid == activePointerId) {
-//                    int ni = (pi == 0) ? 1 : 0;
-//                    activePointerId = event.getPointerId(ni);
-//                    lastTouchX = event.getX(ni);
-//                    lastTouchY = event.getY(ni);
-//                }
-//                break;
-//        }
-//        return true;
-//    }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  TAP / HIT TEST
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void handleSvgTap(float touchX, float touchY) {
-//        if (svgDocument == null || deviceMap.isEmpty()) return;
-//        float[]  c     = touchToSvgCoords(touchX, touchY);
-//        String   hitId = findDeviceAt(c[0], c[1]);
-//
-//        if (hitId != null) {
-//            if (currentFocusAreaId != null) {
-//                DeviceInfo info = deviceMap.get(hitId);
-//                if (info == null || !currentFocusAreaId.equals(info.areaId)) return;
-//            }
-//            onDeviceTapped(hitId);
-//        } else {
-//            deselectCurrentDevice();
-//        }
-//    }
-//
-//    private float[] touchToSvgCoords(float touchX, float touchY) {
-//        Matrix inverse = new Matrix();
-//        if (!matrix.invert(inverse)) return new float[]{touchX, touchY};
-//        float[] pt = {touchX, touchY};
-//        inverse.mapPoints(pt);
-//        return new float[]{svgParser.vbX + pt[0], svgParser.vbY + pt[1]};
-//    }
-//
-//    private String findDeviceAt(float svgX, float svgY) {
-//        String bestId       = null;
-//        float  smallestArea = Float.MAX_VALUE;
-//        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-//            RectF bounds   = entry.getValue().bounds;
-//            RectF expanded = new RectF(bounds);
-//            float inset    = (bounds.width() < 20 || bounds.height() < 20)
-//                    ? -Math.max(TAP_TOLERANCE, 15f) : -TAP_TOLERANCE;
-//            expanded.inset(inset, inset);
-//            if (expanded.contains(svgX, svgY)) {
-//                float area = bounds.width() * bounds.height();
-//                if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
-//            }
-//        }
-//        return bestId;
-//    }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  DEVICE TAP  ← CORE FIX
-//    //
-//    //  Pehle: provisioned.contains(deviceId) → case-sensitive exact match → FAIL
-//    //  Ab:    isProvisioned(deviceId) → Store.normalize() → reliable ✅
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private void onDeviceTapped(String deviceId) {
-//        DeviceInfo device = deviceMap.get(deviceId);
-//
-//        deselectCurrentDevice();
-//        selectedDeviceId = deviceId;
-//
-//        if (device != null && device.element != null) {
-//            colorManager.applyColorToIconGroup(
-//                    device.element,
-//                    isProvisioned(deviceId)
-//                            ? SvgColorManager.COLOR_TRANSPARENT
-//                            : SvgColorManager.COLOR_SELECTED);
-//        }
-//        reRenderSvg();
-//
-//        SharedPreferences prefs = requireContext()
-//                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-//        Uri    svgUri       = mViewModel.getSvgUri().getValue();
-//        String svgUriString = svgUri != null ? svgUri.toString() : "";
-//        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
-//
-//        String      displayName     = extractPureDeviceName(deviceId);
-//        Set<String> relatedDevices  = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
-//        String      relationDevName = relatedDevices.isEmpty()
-//                ? null : relatedDevices.iterator().next();
-//
-//        // ✅ isProvisioned() — Store ke through, normalize() use karta hai
-//        // "Casting:Relay Node1" → normalize → "casting:relay node1" → unicast check → true/false
-//        if (isProvisioned(deviceId)) {
-//            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-//            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
-//            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-//            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-//            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
-//                    device != null ? device.elementId : null);
-//            intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
-//            intent.putExtra("svg_name", svgName);
-//            startActivity(intent);
-//            return;
-//        }
-//
-//        Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
-//                device != null ? device.elementId : null);
-//        startActivity(intent);
-//    }
-//
-//    private String extractPureDeviceName(String fullDeviceId) {
-//        if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
-//        String name = fullDeviceId;
-//        int ci = name.lastIndexOf(":");
-//        if (ci != -1) name = name.substring(ci + 1).trim();
-//        name = name.replaceAll("\\s*\\d+$", "")
-//                .replaceAll("\\d+$", "")
-//                .replaceAll("\\s+", " ")
-//                .trim();
-//        return name.isEmpty()
-//                ? (fullDeviceId.contains(":")
-//                ? fullDeviceId.substring(fullDeviceId.indexOf(":") + 1).trim()
-//                : fullDeviceId)
-//                : name;
-//    }
-//
-//    private void deselectCurrentDevice() {
-//        if (selectedDeviceId == null) return;
-//        DeviceInfo device = deviceMap.get(selectedDeviceId);
-//        // ✅ isProvisioned() — Store ke through
-//        if (device != null && !isProvisioned(selectedDeviceId)) {
-//            colorManager.restoreIconGroupColor(device.element);
-//            reRenderSvg();
-//        }
-//        selectedDeviceId = null;
-//    }
-//
-//    // ══════════════════════════════════════════════════════════════════════
-//    //  ZOOM & PAN HELPERS
-//    // ══════════════════════════════════════════════════════════════════════
-//
-//    private float getScale() {
-//        matrix.getValues(matrixValues);
-//        return matrixValues[Matrix.MSCALE_X];
-//    }
-//
-//    private void clampMatrix() {
-//        if (binding == null || binding.svgView.getDrawable() == null) return;
-//        matrix.getValues(matrixValues);
-//
-//        float effectiveMin = (areaLockedMinZoom > 0) ? areaLockedMinZoom : minZoom;
-//        float scale = Math.max(effectiveMin,
-//                Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
-//        float vW = binding.svgView.getWidth();
-//        float vH = binding.svgView.getHeight();
-//
-//        RectF boundary = areaLockedId != null
-//                ? svgParser.selectionLayerBounds.get(areaLockedId)
-//                : getFloorPlanBounds();
-//
-//        float minTX, maxTX, minTY, maxTY;
-//
-//        if (boundary != null) {
-//            float bL = (boundary.left   - svgParser.vbX) * scale;
-//            float bT = (boundary.top    - svgParser.vbY) * scale;
-//            float bR = (boundary.right  - svgParser.vbX) * scale;
-//            float bB = (boundary.bottom - svgParser.vbY) * scale;
-//            float bW = bR - bL, bH = bB - bT;
-//
-//            if (bW >= vW) { minTX = vW - bR; maxTX = -bL; }
-//            else          { float cx = vW / 2f - (bL + bW / 2f); minTX = maxTX = cx; }
-//
-//            if (bH >= vH) { minTY = vH - bB; maxTY = -bT; }
-//            else          { float cy = vH / 2f - (bT + bH / 2f); minTY = maxTY = cy; }
-//        } else {
-//            float dW = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
-//            float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
-//            minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0f, vW - dW);
-//            maxTX = (dW < vW) ? (vW - dW) / 2f : 0f;
-//            minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0f, vH - dH);
-//            maxTY = (dH < vH) ? (vH - dH) / 2f : 0f;
-//        }
-//
-//        matrixValues[Matrix.MSCALE_X] = scale;
-//        matrixValues[Matrix.MSCALE_Y] = scale;
-//        matrixValues[Matrix.MTRANS_X] = Math.max(minTX,
-//                Math.min(maxTX, matrixValues[Matrix.MTRANS_X]));
-//        matrixValues[Matrix.MTRANS_Y] = Math.max(minTY,
-//                Math.min(maxTY, matrixValues[Matrix.MTRANS_Y]));
-//        matrix.setValues(matrixValues);
-//    }
-//
-//    private void animateToMatrix(float targetScale, float targetTX, float targetTY) {
-//        matrix.getValues(matrixValues);
-//        float startScale = matrixValues[Matrix.MSCALE_X];
-//        float startTX    = matrixValues[Matrix.MTRANS_X];
-//        float startTY    = matrixValues[Matrix.MTRANS_Y];
-//
-//        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
-//        animator.setDuration(ANIMATION_DURATION);
-//        animator.setInterpolator(new DecelerateInterpolator(2f));
-//        animator.addUpdateListener(anim -> {
-//            if (binding == null) return;
-//            float t = (float) anim.getAnimatedValue();
-//            matrixValues[Matrix.MSCALE_X] = startScale + (targetScale - startScale) * t;
-//            matrixValues[Matrix.MSCALE_Y] = startScale + (targetScale - startScale) * t;
-//            matrixValues[Matrix.MTRANS_X] = startTX    + (targetTX    - startTX)    * t;
-//            matrixValues[Matrix.MTRANS_Y] = startTY    + (targetTY    - startTY)    * t;
-//            matrix.setValues(matrixValues);
-//            clampMatrix();
-//            binding.svgView.setImageMatrix(matrix);
-//        });
-//        animator.start();
-//    }
-//
-//    private void animateZoomTo(float targetScale, float pivotX, float pivotY) {
-//        if (zoomAnimator != null) zoomAnimator.cancel();
-//        float start = getScale();
-//        zoomAnimator = ValueAnimator.ofFloat(start, targetScale);
-//        zoomAnimator.setDuration(ANIMATION_DURATION);
-//        zoomAnimator.setInterpolator(new DecelerateInterpolator(2f));
-//        zoomAnimator.addUpdateListener(anim -> {
-//            if (binding == null) return;
-//            float val = (float) anim.getAnimatedValue();
-//            matrix.postScale(val / getScale(), val / getScale(), pivotX, pivotY);
-//            clampMatrix();
-//            binding.svgView.setImageMatrix(matrix);
-//        });
-//        zoomAnimator.start();
-//    }
-//
-//    private void startFling(float velocityX, float velocityY) {
-//        if (binding == null || binding.svgView.getDrawable() == null) return;
-//        matrix.getValues(matrixValues);
-//        float scale = matrixValues[Matrix.MSCALE_X];
-//        float dW    = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
-//        float dH    = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
-//        float vW    = binding.svgView.getWidth();
-//        float vH    = binding.svgView.getHeight();
-//        int startX  = (int) matrixValues[Matrix.MTRANS_X];
-//        int startY  = (int) matrixValues[Matrix.MTRANS_Y];
-//        int minX    = (dW < vW) ? (int) ((vW - dW) / 2f) : (int) (vW - dW);
-//        int maxX    = (dW < vW) ? (int) ((vW - dW) / 2f) : 0;
-//        int minY    = (dH < vH) ? (int) ((vH - dH) / 2f) : (int) (vH - dH);
-//        int maxY    = (dH < vH) ? (int) ((vH - dH) / 2f) : 0;
-//
-//        scroller.fling(startX, startY, (int) velocityX, (int) velocityY,
-//                minX, maxX, minY, maxY, 0, 0);
-//
-//        if (flingAnimator != null) flingAnimator.cancel();
-//        flingAnimator = ValueAnimator.ofFloat(0f, 1f);
-//        flingAnimator.setDuration(FLING_DURATION);
-//        flingAnimator.addUpdateListener(anim -> {
-//            if (binding == null) { anim.cancel(); return; }
-//            if (scroller.computeScrollOffset()) {
-//                matrix.getValues(matrixValues);
-//                matrixValues[Matrix.MTRANS_X] = scroller.getCurrX();
-//                matrixValues[Matrix.MTRANS_Y] = scroller.getCurrY();
-//                matrix.setValues(matrixValues);
-//                clampMatrix();
-//                binding.svgView.setImageMatrix(matrix);
+//        if (isServerNode && storeKey != null && !storeKey.isEmpty()) {
+//            if (serverElementAddress == -1) {
+//                Log.e(TAG_BIND, "❌ serverElementAddress not found — save skip");
 //            } else {
-//                anim.cancel();
+//                int existing = ClientServerElementStore.getServerUnicastAddress(storeKey);
+//                if (existing == -1) {
+//                    ClientServerElementStore.saveCompleteServerInfo(
+//                            storeKey,
+//                            node.getUnicastAddress(),
+//                            0,
+//                            serverElementAddress
+//                    );
+//                    Log.d(TAG_BIND, "✅ Server saved first time under key='" + storeKey + "'");
+//                } else {
+//                    ClientServerElementStore.saveServerUnicastAddress(
+//                            storeKey, node.getUnicastAddress());
+//                    ClientServerElementStore.saveServerPrimaryElementAddress(
+//                            storeKey, serverElementAddress);
+//                    Log.d(TAG_BIND, "✅ Server updated: key='" + storeKey
+//                            + "' unicast=0x" + String.format("%04X", node.getUnicastAddress())
+//                            + " elementAddr=0x" + String.format("%04X", serverElementAddress));
+//                }
+//
+//                int existingSvgId = ClientServerElementStore.getServerSvgElementId(storeKey);
+//                if (existingSvgId == -1) {
+//                    Log.w(TAG_BIND, "⚠️ svgId not yet set for key='" + storeKey + "'");
+//                } else {
+//                    Log.d(TAG_BIND, "✅ svgId=" + existingSvgId
+//                            + " ready for key='" + storeKey + "'");
+//                }
 //            }
-//        });
-//        flingAnimator.start();
+//            String mac = node.getMacAddress();
+//            if (mac != null && !mac.isEmpty()) {
+//                ClientServerElementStore.saveServerMacAddress(storeKey, mac);
+//                Log.d(TAG_BIND, "✅ MAC saved: key='" + storeKey + "' mac=" + mac);
+//            }
+//        }
+//
+//        if (isClientNode && rawName != null && !rawName.isEmpty()) {
+//            int existingClientUnicast =
+//                    ClientServerElementStore.getServerUnicastAddress(rawName);
+//            if (existingClientUnicast == -1) {
+//                ClientServerElementStore.saveServerUnicastAddress(
+//                        rawName, node.getUnicastAddress());
+//                Log.d(TAG_BIND, "✅ Client unicast saved: key='" + rawName
+//                        + "' unicast=0x" + String.format("%04X", node.getUnicastAddress()));
+//            }
+//        }
+//
+//        int svgId = ClientServerElementStore.getServerSvgElementId(storeKey);
+//        Log.d(TAG_BIND, "Type: "
+//                + (isServerNode ? "SERVER" : "")
+//                + (isClientNode ? (isServerNode ? "+CLIENT" : "CLIENT") : "")
+//                + (svgId != -1 ? " | svgId=" + svgId : " | svgId NOT SET"));
+//
+//        if (mPendingBindOperations.isEmpty()) {
+//            if (isClientNode) saveClientElementAddresses(node, rawName);
+//            mAutoBindNode = null;
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//
+//        mHandler.postDelayed(this::sendNextAutoBind, 500);
+//    }
+//
+//    // =========================================================================
+//    // resolveServerKeyByNodeName
+//    // =========================================================================
+//    private String resolveServerKeyByNodeName(String normalizedNodeName) {
+//        if (normalizedNodeName == null || normalizedNodeName.isEmpty()) return null;
+//
+//        int direct = ClientServerElementStore.getServerSvgElementId(normalizedNodeName);
+//        if (direct != -1) {
+//            Log.d(TAG_BIND, "resolveServerKey: direct match '" + normalizedNodeName + "'");
+//            return normalizedNodeName;
+//        }
+//
+//        List<String> allKeys = ClientServerElementStore.getAllServerSvgKeys();
+//        List<String> matches = new ArrayList<>();
+//
+//        for (String storedKey : allKeys) {
+//            String pureName = extractPureNameFromKey(storedKey);
+//            if (pureName.equals(normalizedNodeName)) {
+//                matches.add(storedKey);
+//            }
+//        }
+//
+//        if (matches.isEmpty()) {
+//            Log.w(TAG_BIND, "resolveServerKey: no svgId-key match for '"
+//                    + normalizedNodeName + "' — node may be client-only");
+//            return null;
+//        }
+//
+//        if (matches.size() == 1) {
+//            Log.d(TAG_BIND, "resolveServerKey: suffix match '"
+//                    + normalizedNodeName + "' → '" + matches.get(0) + "'");
+//            return matches.get(0);
+//        }
+//
+//        if (mAutoBindNode != null) {
+//            int currentUnicast = mAutoBindNode.getUnicastAddress();
+//            for (String key : matches) {
+//                int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
+//                if (storedUnicast != -1 && storedUnicast == currentUnicast) {
+//                    Log.d(TAG_BIND, "resolveServerKey: unicast match 0x"
+//                            + String.format("%04X", currentUnicast) + " → '" + key + "'");
+//                    return key;
+//                }
+//            }
+//            for (String key : matches) {
+//                int storedUnicast = ClientServerElementStore.getServerUnicastAddress(key);
+//                if (storedUnicast == -1) {
+//                    Log.d(TAG_BIND, "resolveServerKey: new node → unset key '"
+//                            + key + "' unicast=0x"
+//                            + String.format("%04X", mAutoBindNode.getUnicastAddress()));
+//                    return key;
+//                }
+//            }
+//        }
+//
+//        Log.w(TAG_BIND, "resolveServerKey: fallback first match: " + matches.get(0));
+//        return matches.get(0);
+//    }
+//
+//    // =========================================================================
+//    // extractPureNameFromKey
+//    // =========================================================================
+//    private String extractPureNameFromKey(String key) {
+//        if (key == null) return "";
+//        String name = key.trim().toLowerCase();
+//        int colon = name.lastIndexOf(":");
+//        if (colon != -1) name = name.substring(colon + 1).trim();
+//        name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+//        return name;
+//    }
+//
+//    // =========================================================================
+//    // sendNextAutoBind
+//    // =========================================================================
+//    private void sendNextAutoBind() {
+//        if (mAutoBindNode == null) {
+//            Log.w(TAG_BIND, "sendNextAutoBind: node null — stop.");
+//            return;
+//        }
+//        if (mIsBindingInProgress) return;
+//
+//        if (mAutoBindIndex >= mPendingBindOperations.size()) {
+//            Log.d(TAG_BIND, "✅ ALL MODELS BOUND for node 0x"
+//                    + String.format("%04X", mAutoBindNode.getUnicastAddress()));
+//
+//            boolean isClientNode = false;
+//            boolean isServerNode = false;
+//
+//            for (Element element : mAutoBindNode.getElements().values()) {
+//                for (MeshModel model : element.getMeshModels().values()) {
+//                    if (model.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) isClientNode = true;
+//                    if (model.getModelId() == MODEL_GENERIC_ONOFF_SERVER) isServerNode = true;
+//                }
+//            }
+//
+//            final String rawName = normalizeId(mAutoBindNode.getNodeName());
+//
+//            if (isClientNode) {
+//                saveClientElementAddresses(mAutoBindNode, rawName);
+//            }
+//
+//            if (isServerNode) {
+//                final ProvisionedMeshNode serverNode = mAutoBindNode;
+//                mHandler.postDelayed(() -> triggerAutoPublication(serverNode), 2000);
+//            } else {
+//                // Client-only node — no publication needed, we are done
+//                mIsAutoSetupInProgress.postValue(false);
+//            }
+//
+//            mAutoBindNode        = null;
+//            mPendingBindOperations.clear();
+//            mAutoBindIndex       = 0;
+//            mIsBindingInProgress = false;
+//            return;
+//        }
+//
+//        final int[] op        = mPendingBindOperations.get(mAutoBindIndex);
+//        final int elementAddr = op[0];
+//        final int modelId     = op[1];
+//        final int appKeyIndex = op[2];
+//
+//        try {
+//            mMeshManagerApi.createMeshPdu(
+//                    mAutoBindNode.getUnicastAddress(),
+//                    new ConfigModelAppBind(elementAddr, modelId, appKeyIndex)
+//            );
+//            mIsBindingInProgress = true;
+//
+//            if (modelId == MODEL_GENERIC_ONOFF_SERVER || modelId == MODEL_GENERIC_ONOFF_CLIENT) {
+//                Log.d(TAG_BIND, "BIND [" + (mAutoBindIndex + 1) + "/"
+//                        + mPendingBindOperations.size() + "]"
+//                        + " Element=0x" + String.format("%04X", elementAddr)
+//                        + " Model=0x" + String.format("%04X", modelId));
+//            }
+//        } catch (Exception e) {
+//            Log.e(TAG_BIND, "❌ BIND FAILED Element=0x"
+//                    + String.format("%04X", elementAddr)
+//                    + " Model=0x" + String.format("%04X", modelId)
+//                    + " Error: " + e.getMessage());
+//            mAutoBindIndex++;
+//            mHandler.postDelayed(this::sendNextAutoBind, 300);
+//        }
+//    }
+//
+//    // =========================================================================
+//    // triggerAutoPublication
+//    //
+//    // FIX SUMMARY:
+//    //   OLD: STEP2 fired on postDelayed(1500ms) — blind timer, no ACK check.
+//    //        mIsAutoSetupInProgress set false immediately after STEP1 send.
+//    //   NEW: setPendingReversePublication() called BEFORE STEP1 is sent.
+//    //        STEP2 fires in onMeshMessageReceived → CONFIG_MODEL_PUBLICATION_STATUS
+//    //        only when STEP1's ACK arrives with the matching element address.
+//    //        mIsAutoSetupInProgress set false only AFTER STEP2 is sent.
+//    //        15-sec timeout fallback ensures progressbar never hangs forever.
+//    // =========================================================================
+//    private void triggerAutoPublication(@NonNull final ProvisionedMeshNode serverNode) {
+//        if (mMeshNetwork == null) {
+//            Log.e(TAG_BIND, "triggerAutoPublication: mMeshNetwork null — abort");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//
+//        final List<ApplicationKey> appKeys = mMeshNetworkLiveData.getAppKeys();
+//        if (appKeys == null || appKeys.isEmpty()) {
+//            Log.e(TAG_BIND, "triggerAutoPublication: no AppKey — abort");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//        final int appKeyIndex = appKeys.get(0).getKeyIndex();
+//
+//        final String rawServerName  = normalizeId(serverNode.getNodeName());
+//        final String serverStoreKey = resolveServerKeyByNodeName(rawServerName);
+//
+//        if (serverStoreKey == null || serverStoreKey.isEmpty()) {
+//            Log.e(TAG_BIND, "triggerAutoPublication: cannot resolve server store key"
+//                    + " for nodeName='" + serverNode.getNodeName() + "' — abort");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//
+//        final int serverSvgId = ClientServerElementStore.getServerSvgElementId(serverStoreKey);
+//        if (serverSvgId == -1) {
+//            Log.e(TAG_BIND, "triggerAutoPublication: svgId not set for key='"
+//                    + serverStoreKey + "' — abort."
+//                    + " Make sure saveElementId() was called from DeviceDetailActivity.");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//
+//        final int serverElementAddr =
+//                ClientServerElementStore.getServerPrimaryElementAddress(serverStoreKey);
+//        if (serverElementAddr == -1) {
+//            Log.e(TAG_BIND, "triggerAutoPublication: server primary element addr"
+//                    + " not found for key='" + serverStoreKey + "' — abort");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//
+//        String serverAreaId = ClientServerElementStore.getServerAreaId(serverStoreKey);
+//        Log.d(TAG_BIND, "triggerAutoPublication ▶"
+//                + " serverKey='" + serverStoreKey + "'"
+//                + " svgId=" + serverSvgId
+//                + " serverElem=0x" + String.format("%04X", serverElementAddr)
+//                + " serverArea='" + serverAreaId + "'");
+//
+//        int    clientElementAddr  = -1;
+//        int    clientUnicast      = -1;
+//        String matchedClientKey   = null;
+//
+//        final String provisionerUuid =
+//                mMeshNetwork.getSelectedProvisioner().getProvisionerUuid();
+//
+//        for (ProvisionedMeshNode candidate : mMeshNetwork.getNodes()) {
+//            if (candidate.getUuid().equalsIgnoreCase(provisionerUuid)) continue;
+//            if (candidate.getUnicastAddress() == serverNode.getUnicastAddress()) continue;
+//
+//            boolean hasClient = false;
+//            for (Element el : candidate.getElements().values()) {
+//                for (MeshModel m : el.getMeshModels().values()) {
+//                    if (m.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
+//                        hasClient = true;
+//                        break;
+//                    }
+//                }
+//                if (hasClient) break;
+//            }
+//            if (!hasClient) continue;
+//
+//            final String devKey = normalizeId(candidate.getNodeName());
+//            final int addr = ClientServerElementStore.getClientAddress(devKey, serverSvgId);
+//            if (addr == -1) {
+//                Log.d(TAG_BIND, "  no client addr for devKey='" + devKey
+//                        + "' svgId=" + serverSvgId);
+//                continue;
+//            }
+//
+//            String clientAreaId = getClientAreaId(candidate, devKey);
+//            Log.d(TAG_BIND, "  candidate='" + devKey
+//                    + "' clientAreaId='" + clientAreaId + "'"
+//                    + " serverAreaId='" + serverAreaId + "'");
+//
+//            if (serverAreaId != null && !serverAreaId.isEmpty()) {
+//                if (!serverAreaId.equalsIgnoreCase(clientAreaId)) {
+//                    Log.d(TAG_BIND, "  ❌ Area mismatch — skip: server="
+//                            + serverAreaId + " client=" + clientAreaId);
+//                    continue;
+//                }
+//            }
+//
+//            clientElementAddr = addr;
+//            clientUnicast     = candidate.getUnicastAddress();
+//            matchedClientKey  = devKey;
+//            Log.d(TAG_BIND, "✅ Client match (same area): devKey='" + devKey
+//                    + "' svgId=" + serverSvgId
+//                    + " clientElem=0x" + String.format("%04X", clientElementAddr)
+//                    + " clientUnicast=0x" + String.format("%04X", clientUnicast)
+//                    + " area=" + clientAreaId);
+//            break;
+//        }
+//
+//        if (clientElementAddr == -1 || clientUnicast == -1) {
+//            Log.w(TAG_BIND, "triggerAutoPublication: no client found for svgId=" + serverSvgId
+//                    + " — publication skipped.");
+//            mIsAutoSetupInProgress.postValue(false);
+//            return;
+//        }
+//
+//        // Save client element → SVG mapping for AreaClientListActivity
+//        if (matchedClientKey != null) {
+//            SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
+//            if (prefs != null) {
+//                int elementIndex = -1;
+//                for (int i = 0; i <= 40; i++) {
+//                    int a = ClientServerElementStore.getClientAddress(matchedClientKey, i);
+//                    if (a == clientElementAddr) { elementIndex = i; break; }
+//                }
+//                String mappingKey = elementIndex != -1
+//                        ? "client_element_svg_" + matchedClientKey + "_" + elementIndex
+//                        : "client_element_svg_" + matchedClientKey + "_1";
+//                prefs.edit().putString(mappingKey, String.valueOf(serverSvgId)).apply();
+//                Log.d(TAG_BIND, "✅ client_element_svg mapping saved: "
+//                        + matchedClientKey + "[" + (elementIndex != -1 ? elementIndex : "1(fallback)")
+//                        + "] → svgId=" + serverSvgId);
+//            }
+//        }
+//
+//        final int    finalClientElem      = clientElementAddr;
+//        final int    finalClientUnicast   = clientUnicast;
+//        final int    finalServerElem      = serverElementAddr;
+//        final int    finalServerUnicast   = serverNode.getUnicastAddress();
+//        final String finalMatchedClientKey = matchedClientKey;
+//        final String finalServerStoreKey   = serverStoreKey;
+//
+//        // Save client-to-server mapping
+//        if (finalMatchedClientKey != null && serverSvgId != -1) {
+//            ClientServerElementStore.saveClientToServerMapping(
+//                    finalMatchedClientKey, serverSvgId, finalServerStoreKey);
+//            Log.d(TAG_BIND, "✅ client_to_server mapping saved: "
+//                    + finalMatchedClientKey + "[" + serverSvgId + "] → " + finalServerStoreKey);
+//        }
+//
+//        // ── FIX: Register STEP2 context BEFORE sending STEP1 ─────────────────
+//        // STEP2 will fire in onMeshMessageReceived → CONFIG_MODEL_PUBLICATION_STATUS
+//        // when STEP1's ACK arrives. 15-sec timeout is armed as fallback.
+//        setPendingReversePublication(
+//                finalServerUnicast,
+//                finalServerElem,
+//                finalClientElem,
+//                appKeyIndex
+//        );
+//
+//        // ── STEP 1: Client → Server publication ──────────────────────────────
+//        Log.d(TAG_BIND, "📤 PUB STEP1 (client→server):"
+//                + " clientUnicast=0x" + String.format("%04X", finalClientUnicast)
+//                + " clientElem=0x"    + String.format("%04X", finalClientElem)
+//                + " → serverElem=0x"  + String.format("%04X", finalServerElem));
+//
+//        try {
+//            mMeshManagerApi.createMeshPdu(
+//                    finalClientUnicast,
+//                    new ConfigModelPublicationSet(
+//                            finalClientElem,
+//                            finalServerElem,
+//                            appKeyIndex,
+//                            false, 5, 0, 0, 0, 0,
+//                            MODEL_GENERIC_ONOFF_CLIENT
+//                    )
+//            );
+//            Log.d(TAG_BIND, "✅ PUB STEP1 sent — waiting for ACK to trigger STEP2");
+//            // NOTE: mIsAutoSetupInProgress stays TRUE here.
+//            // It will be set to false in:
+//            //   (a) onMeshMessageReceived → CONFIG_MODEL_PUBLICATION_STATUS → after STEP2 sent
+//            //   (b) mPendingReverseTimeout → after 15 sec if ACK never arrives
+//        } catch (Exception e) {
+//            Log.e(TAG_BIND, "❌ PUB STEP1 failed: " + e.getMessage());
+//            // Cancel pending reverse — STEP1 failed so STEP2 should not fire
+//            mHandler.removeCallbacks(mPendingReverseTimeout);
+//            mPendingReverseServerUnicast     = -1;
+//            mPendingReverseServerElementAddr = -1;
+//            mPendingReverseClientElementAddr = -1;
+//            mPendingReverseAppKeyIndex       = -1;
+//            mIsAutoSetupInProgress.postValue(false);
+//        }
+//    }
+//
+//    // =========================================================================
+//    // getClientAreaId — UUID-based area lookup (reliable, no pureName collision)
+//    // =========================================================================
+//    private String getClientAreaId(ProvisionedMeshNode clientNode, String clientKey) {
+//        SharedPreferences prefs = ClientServerElementStore.getPrefsPublic();
+//        if (prefs == null) return null;
+//
+//        // Primary: node UUID → node_svg_ mapping (most reliable)
+//        if (clientNode != null) {
+//            String svgId = prefs.getString("node_svg_" + clientNode.getUuid(), null);
+//            if (svgId != null && svgId.contains(":")) {
+//                String area = svgId.substring(0, svgId.indexOf(":")).trim();
+//                Log.d(TAG_BIND, "getClientAreaId: uuid→svgId='" + svgId
+//                        + "' area='" + area + "'");
+//                return area;
+//            }
+//        }
+//
+//        // Fallback: scan element_id_ keys, match pureName, verify via node_svg_
+//        String prefix = "element_id_";
+//        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+//            String k = entry.getKey();
+//            if (!k.startsWith(prefix)) continue;
+//
+//            String svgDeviceId = k.substring(prefix.length());
+//            String pureName    = extractPureNameFromKey(svgDeviceId);
+//
+//            if (!pureName.equalsIgnoreCase(clientKey.trim())) continue;
+//
+//            if (clientNode != null) {
+//                String mappedSvg = prefs.getString(
+//                        "node_svg_" + clientNode.getUuid(), null);
+//                if (mappedSvg != null && !svgDeviceId.equalsIgnoreCase(mappedSvg)) continue;
+//            }
+//
+//            int colon = svgDeviceId.indexOf(":");
+//            if (colon != -1) {
+//                String area = svgDeviceId.substring(0, colon).trim();
+//                Log.d(TAG_BIND, "getClientAreaId: fallback svgDeviceId='"
+//                        + svgDeviceId + "' area='" + area + "'");
+//                return area;
+//            }
+//        }
+//
+//        Log.w(TAG_BIND, "getClientAreaId: no area found for clientKey='" + clientKey + "'");
+//        return null;
+//    }
+//
+//    // =========================================================================
+//    // saveClientElementAddresses
+//    // =========================================================================
+//    private void saveClientElementAddresses(@NonNull final ProvisionedMeshNode node,
+//                                            @NonNull final String clientKey) {
+//        if (clientKey.isEmpty()) {
+//            Log.w(TAG_BIND, "saveClientElementAddresses: clientKey empty — skip");
+//            return;
+//        }
+//
+//        List<Element> sortedElements = new ArrayList<>(node.getElements().values());
+//        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+//            sortedElements.sort((a, b) ->
+//                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
+//        }
+//
+//        final Map<Integer, Integer> addressMap = new HashMap<>();
+//        int clientIndex = 0;
+//
+//        Log.d(TAG_BIND, "╔══════════════════════════════════════════════════");
+//        Log.d(TAG_BIND, "║ SAVING CLIENT ADDRESSES for key='" + clientKey + "'");
+//
+//        for (Element element : sortedElements) {
+//            int elementAddr = element.getElementAddress();
+//
+//            boolean hasClientModel = false;
+//            for (MeshModel model : element.getMeshModels().values()) {
+//                if (model.getModelId() == MODEL_GENERIC_ONOFF_CLIENT) {
+//                    hasClientModel = true;
+//                    break;
+//                }
+//            }
+//
+//            if (hasClientModel) {
+//                addressMap.put(clientIndex, elementAddr);
+//                Log.d(TAG_BIND, "║  CLIENT[" + clientIndex + "] → 0x"
+//                        + String.format("%04X", elementAddr));
+//                clientIndex++;
+//            }
+//        }
+//
+//        Log.d(TAG_BIND, "║ Total client elements: " + addressMap.size());
+//        Log.d(TAG_BIND, "╚══════════════════════════════════════════════════");
+//
+//        if (!addressMap.isEmpty()) {
+//            ClientServerElementStore.saveAll(clientKey, addressMap);
+//            Log.d(TAG_BIND, "✅ CLIENT addresses saved under key='" + clientKey + "'");
+//        } else {
+//            Log.w(TAG_BIND, "⚠️ No client elements found for: " + node.getNodeName());
+//        }
+//    }
+//
+//    // =========================================================================
+//    // normalizeId
+//    // =========================================================================
+//    private String normalizeId(String id) {
+//        return id == null ? null : id.trim().toLowerCase();
 //    }
 //}

@@ -95,32 +95,35 @@ public class SvgColorManager {
 
             int key = System.identityHashCode(childEl);
 
-            // ── Priority 1: standalone fill attribute ─────────────────────
+            // ✅ ALREADY SNAPSHOTTED? Skip
+            if (originalIconFillMap.containsKey(key)) return;
+
             String fillAttr = childEl.getAttribute("fill");
             if (fillAttr != null && !fillAttr.isEmpty()) {
                 originalIconFillMap.put(key, fillAttr);
                 originalIconFillInStyle.put(key, false);
+                // ✅ Store backup
+                childEl.setAttribute("data-original-fill", fillAttr);
                 return;
             }
 
-            // ── Priority 2: fill inside style attribute ───────────────────
             String styleAttr = childEl.getAttribute("style");
             if (styleAttr != null && styleAttr.contains("fill")) {
                 String fillFromStyle = extractFillFromStyle(styleAttr);
                 if (!fillFromStyle.equals(COLOR_TRANSPARENT)) {
                     originalIconFillMap.put(key, fillFromStyle);
                     originalIconFillInStyle.put(key, true);
+                    childEl.setAttribute("data-original-fill", fillFromStyle);
                     return;
                 }
             }
 
-            // ── No fill found — store transparent as fallback ─────────────
             originalIconFillMap.put(key, COLOR_TRANSPARENT);
             originalIconFillInStyle.put(key, false);
+            childEl.setAttribute("data-original-fill", COLOR_TRANSPARENT);
             return;
         }
     }
-
     private void snapshotDevicesGroupFills(Document document) {
         if (document == null) return;
         Element dg = parser.findElementById(document.getDocumentElement(), "Devices");
@@ -590,6 +593,66 @@ public class SvgColorManager {
             }
         }
         return false;
+    }
+    public void clearDeviceSnapshot(Element iconGroup) {
+        NodeList children = iconGroup.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (!(child instanceof Element)) continue;
+            Element childEl = (Element) child;
+            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
+
+            int key = System.identityHashCode(childEl);
+            originalIconFillMap.remove(key);
+            originalIconFillInStyle.remove(key);
+
+            // Re-snapshot the ORIGINAL from SVG source (not current modified state)
+            reSnapshotIconRectFill(childEl);
+            return;
+        }
+    }
+
+    private void reSnapshotIconRectFill(Element rectEl) {
+        int key = System.identityHashCode(rectEl);
+
+        // Read from data-original-fill if we stored it earlier
+        String original = rectEl.getAttribute("data-original-fill");
+        if (original != null && !original.isEmpty()) {
+            originalIconFillMap.put(key, original);
+            originalIconFillInStyle.put(key, false);
+            return;
+        }
+
+        // Fallback: re-parse from attribute
+        String fill = rectEl.getAttribute("fill");
+        if (fill != null && !fill.isEmpty()) {
+            originalIconFillMap.put(key, fill);
+            originalIconFillInStyle.put(key, false);
+        }
+    }
+    public void forceResnapshotAllDevices(Map<String, DeviceInfo> deviceMap) {
+        for (DeviceInfo info : deviceMap.values()) {
+            // Clear existing snapshots for this device
+            NodeList children = info.element.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                Node child = children.item(i);
+                if (!(child instanceof Element)) continue;
+                Element childEl = (Element) child;
+                if ("rect".equals(parser.normalizeTag(childEl.getTagName()))) {
+                    int key = System.identityHashCode(childEl);
+
+                    // Restore from data-original-fill attribute
+                    String original = childEl.getAttribute("data-original-fill");
+                    if (original != null && !original.isEmpty()) {
+                        originalIconFillMap.put(key, original);
+                        originalIconFillInStyle.put(key, false);
+
+                        // Also restore the actual fill
+                        childEl.setAttribute("fill", original);
+                    }
+                }
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════

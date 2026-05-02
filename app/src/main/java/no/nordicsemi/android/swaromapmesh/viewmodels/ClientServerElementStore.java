@@ -503,4 +503,21 @@ public final class ClientServerElementStore {
         }
         Log.d(TAG, "═══════════════════════════════════════════════════════════");
     }
+    /**
+     * Reverse lookup: unicast address → normalized device key.
+     * Use this when UUID→svgId mapping is lost (e.g. after app reinstall).
+     */
+    public static String getKeyByUnicastAddress(int unicastAddress) {
+        if (!checkInit("getKeyByUnicastAddress") || unicastAddress == -1) return null;
+        SharedPreferences prefs = getPrefs();
+        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            String k = entry.getKey();
+            if (!k.startsWith(PRE_SVR_UNICAST)) continue;
+            Object val = entry.getValue();
+            if (val instanceof Integer && (Integer) val == unicastAddress) {
+                return k.substring(PRE_SVR_UNICAST.length());
+            }
+        }
+        return null;
+    }
 }

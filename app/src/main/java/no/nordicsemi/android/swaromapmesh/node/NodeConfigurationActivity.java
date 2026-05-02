@@ -69,31 +69,36 @@ public class NodeConfigurationActivity extends BaseActivity implements
         DialogFragmentResetNode.DialogFragmentNodeResetListener,
         DialogFragmentConfigurationComplete.ConfigurationCompleteListener {
 
-    private static final String PROGRESS_BAR_STATE    = "PROGRESS_BAR_STATE";
-    private static final String PROXY_STATE            = "PROXY_STATE";
-    private static final String REQUESTED_PROXY_STATE  = "REQUESTED_PROXY_STATE";
-    private static final String TAG                    = "NodeConfigurationActivity";
+    private static final String PROGRESS_BAR_STATE   = "PROGRESS_BAR_STATE";
+    private static final String PROXY_STATE           = "PROXY_STATE";
+    private static final String REQUESTED_PROXY_STATE = "REQUESTED_PROXY_STATE";
+    private static final String TAG                   = "NodeConfigurationActivity";
 
     private ActivityNodeConfigurationBinding binding;
-    private SharedViewModel mSharedViewModel;
-    private boolean mRequestedState      = true;
+    private SharedViewModel                  mSharedViewModel;
+
+    private boolean mRequestedState       = true;
     private boolean mCompositionRequested = false;
     private boolean mAppKeyBindRequested  = false;
 
     // SVG device ID passed in from the previous screen
     private String mSvgDeviceId = null;
 
+    // ✅ Unicast captured before reset — node goes null before ConfigNodeResetStatus arrives
+    private int mResetNodeUnicast = -1;
+
     // =========================================================================
     // onCreate
     // =========================================================================
+
     @Override
     protected void onCreate(final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        binding = ActivityNodeConfigurationBinding.inflate(getLayoutInflater());
+        binding          = ActivityNodeConfigurationBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        mViewModel      = new ViewModelProvider(this).get(NodeConfigurationViewModel.class);
+        mViewModel       = new ViewModelProvider(this).get(NodeConfigurationViewModel.class);
         mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
         initialize();
 
@@ -273,6 +278,12 @@ public class NodeConfigurationActivity extends BaseActivity implements
         mViewModel.getSelectedMeshNode().observe(this, meshNode -> {
             if (meshNode == null) {
                 Log.w(TAG, "Selected mesh node became null");
+                // ✅ Reset in-progress hai toh wait karo —
+                // ConfigNodeResetStatus handler finish + clearDevice karega
+                if (mResetNodeUnicast != -1) {
+                    Log.d(TAG, "Node null during reset — waiting for ConfigNodeResetStatus");
+                    return;
+                }
                 finish();
                 return;
             }
@@ -354,7 +365,10 @@ public class NodeConfigurationActivity extends BaseActivity implements
         if (network == null) return;
         NetworkKey netKey = null;
         for (NetworkKey k : network.getNetKeys()) {
-            if (k.getKeyIndex() == netKeyIndex) { netKey = k; break; }
+            if (k.getKeyIndex() == netKeyIndex) {
+                netKey = k;
+                break;
+            }
         }
         if (netKey == null) return;
         if (!checkConnectivity(binding.container)) return;
@@ -364,22 +378,16 @@ public class NodeConfigurationActivity extends BaseActivity implements
     }
 
     // =========================================================================
-    // ✅ Client address saving
-    //
-    // Called after CompositionDataStatus is received (UI path).
-    // NrfMeshRepository also saves these automatically after auto-bind completes,
-    // so this provides a redundant/UI-layer save for cases where the user opens
-    // NodeConfigurationActivity on an already-provisioned client node.
+    // Client address saving
     // =========================================================================
 
     private void handleClientAddressSaving(ProvisionedMeshNode node) {
         if (node == null) return;
 
-        // Check if this is a Generic On Off Client
         boolean isClient = false;
         for (Element element : node.getElements().values()) {
             for (MeshModel model : element.getMeshModels().values()) {
-                if (model.getModelId() == 0x1001) { // Generic On Off Client
+                if (model.getModelId() == 0x1001) {
                     isClient = true;
                     break;
                 }
@@ -392,25 +400,21 @@ public class NodeConfigurationActivity extends BaseActivity implements
             return;
         }
 
-        // Resolve SVG device ID
         String svgDeviceId = (mSvgDeviceId != null)
                 ? mSvgDeviceId
                 : mSharedViewModel.getSelectedSvgDeviceId();
 
         if (svgDeviceId == null || svgDeviceId.isEmpty()) {
-            // Last resort: use node name directly (node name should already equal the SVG ID)
             svgDeviceId = node.getNodeName();
             Log.d(TAG, "handleClientAddressSaving: using node name as svgDeviceId=" + svgDeviceId);
         }
 
-        // Sort elements by unicast address ascending
         List<Element> sortedElements = new ArrayList<>(node.getElements().values());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             sortedElements.sort((a, b) ->
                     Integer.compare(a.getElementAddress(), b.getElementAddress()));
         }
 
-        // Build index (1-based) → address map, up to 40 elements
         Map<Integer, Integer> elementAddresses = new HashMap<>();
         for (int i = 0; i < sortedElements.size() && i < 40; i++) {
             int elementIndex   = i + 1;
@@ -423,6 +427,53 @@ public class NodeConfigurationActivity extends BaseActivity implements
         ClientServerElementStore.saveAllClientElementAddresses(svgDeviceId, elementAddresses);
         Log.d(TAG, "✅ handleClientAddressSaving: saved "
                 + elementAddresses.size() + " elements for svgDeviceId=" + svgDeviceId);
+    }
+
+    // =========================================================================
+    // Store cleanup helper — used by both reset and delete flows
+    // =========================================================================
+
+    /**
+     * Clears device from ClientServerElementStore using 3-layer lookup:
+     * 1. UUID → svgId map (SharedViewModel)
+     * 2. Unicast address reverse lookup
+     * 3. Full provisioned set scan
+     */
+    private void clearDeviceFromStore(int unicastAddr) {
+        if (unicastAddr == -1) return;
+
+        // Method 1: UUID → svgId (node may still be in SharedViewModel)
+        String svgId = mSharedViewModel.getSvgIdFromNode(
+                mViewModel.getSelectedMeshNode().getValue());
+
+        // Method 2: unicast reverse lookup
+        if (svgId == null) {
+            svgId = ClientServerElementStore.getKeyByUnicastAddress(unicastAddr);
+            if (svgId != null)
+                Log.d(TAG, "clearDeviceFromStore: svgId via unicast = " + svgId);
+        }
+
+        // Method 3: provisioned set scan
+        if (svgId == null) {
+            for (String key : ClientServerElementStore.getProvisionedKeys()) {
+                if (ClientServerElementStore.getServerUnicastAddress(key) == unicastAddr) {
+                    svgId = key;
+                    break;
+                }
+            }
+            if (svgId != null)
+                Log.d(TAG, "clearDeviceFromStore: svgId via scan = " + svgId);
+        }
+
+        if (svgId != null) {
+            ClientServerElementStore.clearDevice(svgId);
+            Log.d(TAG, "✅ clearDeviceFromStore: clearDevice(" + svgId + ")");
+        } else {
+            Log.e(TAG, "❌ clearDeviceFromStore: no store key found for unicast=0x"
+                    + String.format("%04X", unicastAddr));
+        }
+
+        mSharedViewModel.forceSvgRefresh();
     }
 
     // =========================================================================
@@ -456,25 +507,18 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
     @Override
     protected void updateMeshMessage(final MeshMessage meshMessage) {
+
         if (meshMessage instanceof ProxyConfigFilterStatus) {
             hideProgressBar();
-        }
 
-        if (meshMessage instanceof ConfigCompositionDataStatus) {
+        } else if (meshMessage instanceof ConfigCompositionDataStatus) {
             hideProgressBar();
-
-            // ── Save client element addresses when composition data arrives ───
-            // This covers the UI path (user opened NodeConfigurationActivity
-            // on an already-provisioned client).  The automatic path is in
-            // NrfMeshRepository.onAllModelsBindComplete().
             ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
-            if (node != null) {
-                handleClientAddressSaving(node);
-            }
+            if (node != null) handleClientAddressSaving(node);
 
         } else if (meshMessage instanceof ConfigAppKeyStatus) {
             final ConfigAppKeyStatus status = (ConfigAppKeyStatus) meshMessage;
-            final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+            final ProvisionedMeshNode node  = mViewModel.getSelectedMeshNode().getValue();
             if (node != null) {
                 if (status.isSuccessful()) {
                     Log.d("AUTO_APP_KEY", "AppKey bound successfully.");
@@ -491,6 +535,14 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
         } else if (meshMessage instanceof ConfigNodeResetStatus) {
             hideProgressBar();
+
+            // ✅ Use captured unicast — node is already null at this point
+            Log.d(TAG, "ConfigNodeResetStatus received — clearing unicast=0x"
+                    + String.format("%04X", mResetNodeUnicast));
+
+            clearDeviceFromStore(mResetNodeUnicast);
+            mResetNodeUnicast = -1;
+
             finish();
 
         } else if (meshMessage instanceof ConfigGattProxyStatus) {
@@ -520,7 +572,6 @@ public class NodeConfigurationActivity extends BaseActivity implements
         mViewModel.setSelectedElementAddress(element.getElementAddress());
         mViewModel.setSelectedModel(model);
 
-        // Forward svgDeviceId to PublicationSettingsActivity via SharedViewModel
         if (mSvgDeviceId != null) {
             mSharedViewModel.setSelectedSvgDeviceId(mSvgDeviceId);
             Log.d(TAG, "Stored svgDeviceId=" + mSvgDeviceId
@@ -534,13 +585,25 @@ public class NodeConfigurationActivity extends BaseActivity implements
     // Dialog callbacks
     // =========================================================================
 
-    @Override public void onNodeReset() { sendMessage(new ConfigNodeReset()); }
+    @Override
+    public void onNodeReset() {
+        // ✅ Capture unicast BEFORE sending reset —
+        // node becomes null before ConfigNodeResetStatus arrives
+        ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        if (node != null) {
+            mResetNodeUnicast = node.getUnicastAddress();
+            Log.d(TAG, "onNodeReset: captured unicast=0x"
+                    + String.format("%04X", mResetNodeUnicast));
+        }
+        sendMessage(new ConfigNodeReset());
+    }
+
     @Override public void onConfigurationCompleted() {}
 
     @Override
     public boolean onNodeNameUpdated(@NonNull final String nodeName) {
-        final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
-        final ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+        final MeshNetwork       network = mViewModel.getNetworkLiveData().getMeshNetwork();
+        final ProvisionedMeshNode node  = mViewModel.getSelectedMeshNode().getValue();
         if (node != null) {
             node.setNodeName(nodeName);
             return network.updateNodeName(node, nodeName);

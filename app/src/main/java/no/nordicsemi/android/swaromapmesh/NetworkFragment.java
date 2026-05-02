@@ -1,5 +1,7 @@
 package no.nordicsemi.android.swaromapmesh;
 
+import static no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager.COLOR_TRANSPARENT;
+
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
@@ -31,6 +33,10 @@ import androidx.lifecycle.ViewModelProvider;
 import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+
 import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -151,15 +157,22 @@ public class NetworkFragment extends Fragment {
 
         mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
             if (binding == null) return;
+            boolean wasInProgress = mAutoSetupInProgress;
             mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
+
             if (mAutoSetupInProgress) {
+                // Auto setup shuru — progressbar dikhao, touch disable karo
                 binding.autoSetupOverlay.setVisibility(View.VISIBLE);
-                binding.progressBar.setVisibility(View.GONE);
+                binding.progressBar.setVisibility(View.VISIBLE);
                 binding.svgView.setOnTouchListener(null);
             } else {
+                // Auto setup khatam — progressbar hatao, touch enable karo
                 binding.autoSetupOverlay.setVisibility(View.GONE);
+                binding.progressBar.setVisibility(View.GONE);
                 binding.svgView.setOnTouchListener(this::handleTouch);
-                if (svgDocument != null && !deviceMap.isEmpty()) {
+
+                // Agar pehle in-progress tha aur ab complete hua → colors refresh karo
+                if (wasInProgress && svgDocument != null && !deviceMap.isEmpty()) {
                     selectedDeviceId = null;
                     refreshColors();
                     reRenderSvg();
@@ -192,20 +205,10 @@ public class NetworkFragment extends Fragment {
     @Override
     public void onResume() {
         super.onResume();
-        if (mViewModel != null) {
-            mAutoSetupInProgress = Boolean.TRUE.equals(
-                    mViewModel.isAutoSetupInProgress().getValue());
-            if (binding != null) {
-                if (mAutoSetupInProgress) {
-                    binding.autoSetupOverlay.setVisibility(View.VISIBLE);
-                    binding.svgView.setOnTouchListener(null);
-                } else {
-                    binding.svgView.setOnTouchListener(this::handleTouch);
-                }
-            }
-        }
-        if (svgDocument == null || deviceMap.isEmpty() || mAutoSetupInProgress) return;
+        if (svgDocument == null || deviceMap.isEmpty()) return;
+        if (mAutoSetupInProgress) return;
         selectedDeviceId = null;
+        colorManager.forceResnapshotAllDevices(deviceMap);
         refreshColors();
         reRenderSvg();
     }
@@ -258,7 +261,38 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
     //  SVG LOADING
     // ══════════════════════════════════════════════════════════════════════
+    private void resetDeletedDeviceColors() {
+        Set<String> provisioned = getProvisionedSet();
 
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String deviceId = entry.getKey();
+            DeviceInfo info = entry.getValue();
+
+            // If device is NOT provisioned but has transparent/selected color, restore it
+            boolean shouldBeRestored = !provisioned.contains(deviceId.trim().toLowerCase());
+
+            if (shouldBeRestored) {
+                // Check current rect fill
+                NodeList children = info.element.getChildNodes();
+                for (int i = 0; i < children.getLength(); i++) {
+                    Node child = children.item(i);
+                    if (!(child instanceof Element)) continue;
+                    Element rect = (Element) child;
+                    if ("rect".equals(rect.getTagName().toLowerCase())) {
+                        String currentFill = rect.getAttribute("fill");
+                        String originalFill = rect.getAttribute("data-original-fill");
+
+                        // If current is transparent but shouldn't be
+                        if (COLOR_TRANSPARENT.equals(currentFill) && originalFill != null) {
+                            rect.setAttribute("fill", originalFill);
+                            Log.d(TAG, "Restored deleted device: " + deviceId + " to " + originalFill);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
     private void loadSvgFromAssets(String assetFileName) {
         showLoading(true);
         loadExecutor.execute(() -> {
@@ -816,7 +850,7 @@ public class NetworkFragment extends Fragment {
             colorManager.applyColorToIconGroup(
                     device.element,
                     isProvisioned(deviceId)
-                            ? SvgColorManager.COLOR_TRANSPARENT
+                            ? COLOR_TRANSPARENT
                             : SvgColorManager.COLOR_SELECTED);
         }
         reRenderSvg();
@@ -1014,3 +1048,4 @@ public class NetworkFragment extends Fragment {
         flingAnimator.start();
     }
 }
+//me jab mei device ko provision kar rh hu uske baad set publication nhi ho rha kabhi miss kar jata hai ya kabhi one side hi ho rha hai i want set publication dono side ho server to client or client to server or kabhi mis na ho

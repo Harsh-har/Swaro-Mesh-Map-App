@@ -200,7 +200,6 @@ public class SharedViewModel extends BaseViewModel
     }
 
     public boolean fullyDeleteNode(@NonNull ProvisionedMeshNode adapterNode) {
-        // Find real node in mesh
         ProvisionedMeshNode realNode = null;
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes != null) {
@@ -216,8 +215,19 @@ public class SharedViewModel extends BaseViewModel
             return false;
         }
 
+        // ── Method 1: UUID → svgId map ────────────────────────────────────────
         String svgId = getSvgIdFromNode(realNode);
-        Log.d(TAG, "fullyDeleteNode: nodeName=" + realNode.getNodeName() + " svgId=" + svgId);
+
+        // ── Method 2: Fallback — unicast address se reverse lookup ────────────
+        if (svgId == null) {
+            svgId = ClientServerElementStore
+                    .getKeyByUnicastAddress(realNode.getUnicastAddress());
+            Log.d(TAG, "fullyDeleteNode: svgId via unicast fallback = " + svgId);
+        }
+
+        Log.d(TAG, "fullyDeleteNode: nodeName=" + realNode.getNodeName()
+                + " unicast=0x" + String.format("%04X", realNode.getUnicastAddress())
+                + " svgId=" + svgId);
 
         boolean deleted = getNetworkLiveData().getMeshNetwork().deleteNode(realNode);
         if (!deleted) {
@@ -225,12 +235,25 @@ public class SharedViewModel extends BaseViewModel
             return false;
         }
 
-        // ✅ ONE call — Store cleans unicast, mac, svgId, provisioned set, mappings
+        // ── Clear Store ───────────────────────────────────────────────────────
         if (svgId != null) {
             ClientServerElementStore.clearDevice(svgId);
+            Log.d(TAG, "✅ fullyDeleteNode: clearDevice(" + svgId + ")");
+        } else {
+            // ── Last resort: unicast se seedha provisioned set scan karke remove
+            Log.w(TAG, "⚠️ fullyDeleteNode: svgId null — scanning provisioned set by unicast");
+            Set<String> keys = ClientServerElementStore.getProvisionedKeys();
+            for (String key : keys) {
+                int addr = ClientServerElementStore.getServerUnicastAddress(key);
+                if (addr == realNode.getUnicastAddress()) {
+                    ClientServerElementStore.clearDevice(key);
+                    Log.d(TAG, "✅ fullyDeleteNode: cleared by unicast scan → " + key);
+                    break;
+                }
+            }
         }
 
-        // Clean in-memory UUID map + persisted node_svg_ key
+        // ── Clean in-memory + persisted UUID map ──────────────────────────────
         nodeToSvgMap.remove(realNode.getUuid());
         prefs.edit().remove("node_svg_" + realNode.getUuid()).apply();
 
@@ -238,7 +261,6 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "✅ fullyDeleteNode complete: " + realNode.getNodeName());
         return true;
     }
-
     // =========================================================================
     // CLIENT PROVISIONING
     // =========================================================================
