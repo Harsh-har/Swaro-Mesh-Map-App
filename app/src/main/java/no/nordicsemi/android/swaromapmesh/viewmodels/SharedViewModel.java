@@ -24,6 +24,7 @@ import no.nordicsemi.android.swaromapmesh.NodeKey;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.transport.Element;
+import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
@@ -154,7 +155,9 @@ public class SharedViewModel extends BaseViewModel
         syncFromStore();
         Log.d(TAG, "🔄 forceSvgRefresh done");
     }
-
+    public LiveData<MeshMessage> getMeshMessageLiveData() {
+        return mNrfMeshRepository.getMeshMessageLiveData();
+    }
     public void clearProvisionedDevices() {
         for (String key : ClientServerElementStore.getProvisionedKeys()) {
             ClientServerElementStore.clearDevice(key);
