@@ -32,8 +32,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
     public static final String DEVICE_TYPE_CLIENT      = "client";
 
     // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES, KEY_SERVER_SVG_DEVICE_ID
-    //    Reason: DeviceDetailActivity ab directly mesh_prefs nahi likhti.
-    //    Sabka data ClientServerElementStore ke through jaata hai. ──────────
 
     private ActivityDeviceDetailBinding binding;
     private SharedViewModel             sharedViewModel;
@@ -85,7 +83,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
             deviceName = extractPureDeviceName(deviceId);
         }
 
-        // ✅ ONE save — sirf Store ke through, koi direct prefs write nahi
         if (svgElementIdInt != -1) {
             ClientServerElementStore.saveServerSvgElementId(deviceId, svgElementIdInt);
             Log.d(TAG, "✅ onCreate: saved svgElementId=" + svgElementIdInt
@@ -172,21 +169,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
         });
     }
 
-    // =========================================================================
-    // handleProvisioningResult  ← MAIN CHANGE
-    //
-    // Pehle:
-    //   • 5 alag jagah data save hota tha (direct prefs + VM + Store)
-    //   • Case inconsistency: "Casting:Relay Node1" vs "casting:relay node1"
-    //   • element_id_ key duplicate tha (onCreate + yahan)
-    //
-    // Ab:
-    //   • Sirf ClientServerElementStore.saveDevice() — ek atomic call
-    //   • sharedViewModel.syncFromStore() — VM ko Store se sync karo
-    //   • sharedViewModel.mapNodeToSvg() — UUID mapping (in-memory + node_svg_ prefs)
-    //   • Koi direct prefs write nahi is method mein
-    // =========================================================================
-
     private void handleProvisioningResult(final ActivityResult result) {
         Log.d(TAG, "handleProvisioningResult: code=" + result.getResultCode());
 
@@ -232,15 +214,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
             return;
         }
 
-        // ── ✅ SINGLE ATOMIC SAVE via Store ───────────────────────────────
-        // Replaces:
-        //   prefs.edit().putStringSet(KEY_PROVISIONED_DEVICES, ...) ← REMOVED
-        //   sharedViewModel.markDeviceProvisioned()                  ← REMOVED
-        //   sharedViewModel.saveElementId()                          ← REMOVED
-        //   prefs.edit().putString("element_id_" + ...)             ← REMOVED
-        //   ClientServerElementStore.saveServerUnicastAddress()      ← REMOVED
-        //   ClientServerElementStore.saveServerMacAddress()          ← REMOVED
-        //   ClientServerElementStore.saveServerSvgElementId()        ← REMOVED
         ClientServerElementStore.saveDevice(
                 finalSvgDeviceId,
                 provisionedNode.getUnicastAddress(),
@@ -259,8 +232,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
                 + " → " + finalSvgDeviceId);
 
         // ── Sync ViewModel LiveData from Store ────────────────────────────
-        // SharedViewModel ab directly prefs nahi padhta —
-        // Store se fresh provisioned set lekar LiveData update karta hai.
+
         sharedViewModel.syncFromStore();
 
         // ── Device-type specific logic ────────────────────────────────────

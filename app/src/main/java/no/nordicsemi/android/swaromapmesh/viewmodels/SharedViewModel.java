@@ -32,12 +32,6 @@ public class SharedViewModel extends BaseViewModel
         implements NetworkExportUtils.NetworkExportCallbacks {
 
     private static final String TAG = "SharedViewModel";
-
-    // ── SharedPreferences ──────────────────────────────────────────────────
-    // RULE: Sirf proxy, selected-device, signal, svg-uri, node_svg_ mapping
-    //       yahan store hoti hai.
-    //       Provisioned devices / element IDs / unicast / MAC →
-    //       sirf ClientServerElementStore ke through.
     private static final String PREFS_NAME              = "mesh_prefs";
     private static final String KEY_PROXY_ENABLED       = "proxy_enabled";
     private static final String KEY_SELECTED_DEVICE     = "selected_device";
@@ -118,15 +112,6 @@ public class SharedViewModel extends BaseViewModel
         mScannerRepository.unregisterBroadcastReceivers();
     }
 
-    // =========================================================================
-    // ✅ SYNC — Store → LiveData
-    //
-    // Single method jo ClientServerElementStore se provisioned keys lekar
-    // provisionedDeviceIds LiveData update karta hai.
-    // Yeh method pehle ke syncProvisionedWithMeshNetwork() +
-    // rebuildProvisionedFromMesh() dono ko replace karta hai.
-    // =========================================================================
-
     public void syncFromStore() {
         Set<String> keys = ClientServerElementStore.getProvisionedKeys();
         provisionedDeviceIds.setValue(new HashSet<>(keys));
@@ -161,18 +146,10 @@ public class SharedViewModel extends BaseViewModel
         return provisionedDeviceIds;
     }
 
-    /**
-     * Check if a device is provisioned.
-     * Delegates to Store — no case-sensitivity issues.
-     */
     public boolean isDeviceProvisioned(String svgDeviceId) {
         return ClientServerElementStore.isProvisioned(svgDeviceId);
     }
 
-    /**
-     * Force LiveData refresh from Store.
-     * Call this after any Store write if UI needs immediate update.
-     */
     public void forceSvgRefresh() {
         syncFromStore();
         Log.d(TAG, "🔄 forceSvgRefresh done");
@@ -265,10 +242,6 @@ public class SharedViewModel extends BaseViewModel
     // CLIENT PROVISIONING
     // =========================================================================
 
-    /**
-     * Call this after a CLIENT node is provisioned.
-     * Saves all element addresses (0-based index) via Store.
-     */
     public void onClientProvisioned(@NonNull ProvisionedMeshNode clientNode,
                                     @NonNull String svgDeviceId) {
         List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
@@ -278,7 +251,7 @@ public class SharedViewModel extends BaseViewModel
         }
         Map<Integer, Integer> elementAddresses = new HashMap<>();
         for (int i = 0; i < sorted.size() && i < 40; i++) {
-            elementAddresses.put(i, sorted.get(i).getElementAddress()); // 0-based ✅
+            elementAddresses.put(i, sorted.get(i).getElementAddress());
         }
         ClientServerElementStore.saveAllClientElementAddresses(svgDeviceId, elementAddresses);
         Log.d(TAG, "✅ onClientProvisioned: saved "
@@ -345,10 +318,10 @@ public class SharedViewModel extends BaseViewModel
         NetworkExportUtils.exportMeshNetwork(getMeshManagerApi(), stream, this);
     }
 
-    public void exportMeshNetwork() {
+    public void exportMeshNetwork(@NonNull final Context context) {
         NetworkExportUtils.exportMeshNetwork(
                 getMeshManagerApi(),
-                NrfMeshRepository.EXPORT_PATH,
+                mNrfMeshRepository.getExportPath(context),
                 getNetworkLiveData().getNetworkName() + ".json",
                 this);
     }

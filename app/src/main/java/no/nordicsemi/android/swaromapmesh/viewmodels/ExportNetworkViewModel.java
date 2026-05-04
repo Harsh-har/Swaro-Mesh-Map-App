@@ -3,7 +3,6 @@ package no.nordicsemi.android.swaromapmesh.viewmodels;
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
-
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
@@ -11,9 +10,8 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
-
 import javax.inject.Inject;
-
+import android.content.Context;
 import dagger.hilt.android.lifecycle.HiltViewModel;
 import no.nordicsemi.android.swaromapmesh.ApplicationKeysConfig;
 import no.nordicsemi.android.swaromapmesh.GroupsConfig;
@@ -53,21 +51,11 @@ public class ExportNetworkViewModel extends BaseViewModel implements NetworkExpo
         return networkExportState;
     }
 
-    /**
-     * Select a provisioner to be added to be exported.
-     *
-     * @param provisioner Provisioner
-     */
     public void addProvisioner(@NonNull final Provisioner provisioner) {
         provisioners.add(provisioner);
         exportStatus.postValue(null);
     }
 
-    /**
-     * Remove provisioner from the list of provisioners.
-     *
-     * @param provisioner Provisioner
-     */
     public void removeProvisioner(@NonNull final Provisioner provisioner) {
         provisioners.remove(provisioner);
         exportStatus.postValue(null);
@@ -77,45 +65,24 @@ public class ExportNetworkViewModel extends BaseViewModel implements NetworkExpo
         return provisioners;
     }
 
-    /**
-     * Add Network Key from the list of keys.
-     *
-     * @param networkKey Network Key
-     */
     public void addNetworkKey(@NonNull final NetworkKey networkKey) {
         networkKeys.add(networkKey);
         exportStatus.postValue(null);
     }
 
-    /**
-     * Remove Network Key from the list of keys.
-     *
-     * @param networkKey Network Key
-     */
     public void removeNetworkKey(@NonNull final NetworkKey networkKey) {
         networkKeys.remove(networkKey);
         exportStatus.postValue(null);
     }
 
-    /**
-     * Returns the list of network keys to export
-     */
     public List<NetworkKey> getNetworkKeys() {
         return networkKeys;
     }
 
-    /**
-     * Returns true if the everything is to be exported.
-     */
     public boolean isExportEverything() {
         return exportEverything;
     }
 
-    /**
-     * Sets the flag to true if everything must be exported.
-     *
-     * @param exportEverything flag
-     */
     public void setExportEverything(final boolean exportEverything) {
         this.exportEverything = exportEverything;
         exportStatus.postValue(null);
@@ -125,36 +92,36 @@ public class ExportNetworkViewModel extends BaseViewModel implements NetworkExpo
         return exportDeviceKeys;
     }
 
-    /**
-     * Sets the flag to true if all device keys must be exported.
-     *
-     * @param exportDeviceKeys flag
-     */
     public void setExportDeviceKeys(final boolean exportDeviceKeys) {
         this.exportDeviceKeys = exportDeviceKeys;
         exportStatus.postValue(null);
     }
 
-    /**
-     * Export mesh network
-     */
     private String export() throws IllegalArgumentException {
         if (exportEverything) {
             return mNrfMeshRepository.getMeshManagerApi().exportMeshNetwork();
         } else {
-            final ApplicationKeysConfig applicationKeysConfig = new ApplicationKeysConfig.ExportAll().build();
-            final NodesConfig nodesConfig = exportDeviceKeys ? new NodesConfig.ExportWithDeviceKey().build() : new NodesConfig.ExportWithoutDeviceKey().build();
+            final ApplicationKeysConfig applicationKeysConfig =
+                    new ApplicationKeysConfig.ExportAll().build();
+            final NodesConfig nodesConfig = exportDeviceKeys
+                    ? new NodesConfig.ExportWithDeviceKey().build()
+                    : new NodesConfig.ExportWithoutDeviceKey().build();
             final NetworkKeysConfig networkKeysConfig =
-                    mNrfMeshRepository.getMeshNetworkLiveData().getMeshNetwork().getNetKeys().size() == networkKeys.size() ?
-                            new NetworkKeysConfig.ExportAll().build() : new NetworkKeysConfig.ExportSome(networkKeys).build();
-
-            final ProvisionersConfig provisionersConfig = mNrfMeshRepository
-                    .getMeshNetworkLiveData().getMeshNetwork().getProvisioners().size() == provisioners.size() ?
-                    new ProvisionersConfig.ExportAll().build() : new ProvisionersConfig.ExportSome(provisioners).build();
+                    mNrfMeshRepository.getMeshNetworkLiveData().getMeshNetwork()
+                            .getNetKeys().size() == networkKeys.size()
+                            ? new NetworkKeysConfig.ExportAll().build()
+                            : new NetworkKeysConfig.ExportSome(networkKeys).build();
+            final ProvisionersConfig provisionersConfig =
+                    mNrfMeshRepository.getMeshNetworkLiveData().getMeshNetwork()
+                            .getProvisioners().size() == provisioners.size()
+                            ? new ProvisionersConfig.ExportAll().build()
+                            : new ProvisionersConfig.ExportSome(provisioners).build();
             return mNrfMeshRepository
                     .getMeshManagerApi()
-                    .exportMeshNetwork(networkKeysConfig, applicationKeysConfig, nodesConfig, provisionersConfig,
-                            new GroupsConfig.ExportAll().build(), new ScenesConfig.ExportAll().build());
+                    .exportMeshNetwork(networkKeysConfig, applicationKeysConfig, nodesConfig,
+                            provisionersConfig,
+                            new GroupsConfig.ExportAll().build(),
+                            new ScenesConfig.ExportAll().build());
         }
     }
 
@@ -165,17 +132,11 @@ public class ExportNetworkViewModel extends BaseViewModel implements NetworkExpo
         return true;
     }
 
-    public boolean exportNetwork() throws IOException {
-        final String network = export();
+    public boolean exportNetwork(@NonNull final Context context) throws IOException {
+        final String network  = export();
         final String fileName = getNetworkLiveData().getNetworkName() + ".json";
-        final String path = NrfMeshRepository.EXPORT_PATH;
-        final File directory = new File(path);
-        if (!directory.exists()) {
-            if (!directory.mkdirs()) {
-                return false;
-            }
-        }
-        final File file = new File(path, fileName);
+        final String path     = mNrfMeshRepository.getExportPath(context);
+        final File   file     = new File(path, fileName);
         final BufferedWriter br = new BufferedWriter(new FileWriter(file.getAbsolutePath()));
         br.write(network);
         br.flush();
@@ -183,10 +144,11 @@ public class ExportNetworkViewModel extends BaseViewModel implements NetworkExpo
         return true;
     }
 
-
     @Override
     public void onNetworkExported() {
-        networkExportState.postValue(getNetworkLiveData().getMeshNetwork().getMeshName() + " has been successfully exported.");
+        networkExportState.postValue(
+                getNetworkLiveData().getMeshNetwork().getMeshName()
+                        + " has been successfully exported.");
     }
 
     @Override

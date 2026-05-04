@@ -46,11 +46,30 @@ public class MqttSettingsActivity extends AppCompatActivity {
 
     private void loadSettings() {
         SharedPreferences p = getSharedPreferences(PREFS_MQTT, Context.MODE_PRIVATE);
-        etBrokerHost.setText(p.getString(KEY_BROKER_HOST, ""));
-        int savedPort = p.getInt(KEY_BROKER_PORT, 1883);
-        etBrokerPort.setText(savedPort > 0 ? String.valueOf(savedPort) : "");
-        etUsername.setText(p.getString(KEY_USERNAME, ""));
-        etPassword.setText(p.getString(KEY_PASSWORD, ""));
+
+        String host     = p.getString(KEY_BROKER_HOST, "");
+        int port        = p.getInt(KEY_BROKER_PORT, 1883);
+        String username = p.getString(KEY_USERNAME, "");
+        String password = p.getString(KEY_PASSWORD, "");
+
+        if (TextUtils.isEmpty(host)) {
+            host = "192.168.1.200";
+            port = 1883;
+            username = "Swajahome";
+            password = "12345678";
+
+            SharedPreferences.Editor e = p.edit();
+            e.putString(KEY_BROKER_HOST, host);
+            e.putInt(KEY_BROKER_PORT, port);
+            e.putString(KEY_USERNAME, username);
+            e.putString(KEY_PASSWORD, password);
+            e.apply();
+        }
+
+        etBrokerHost.setText(host);
+        etBrokerPort.setText(String.valueOf(port));
+        etUsername.setText(username);
+        etPassword.setText(password);
     }
 
     private void saveSettings() {
@@ -109,10 +128,7 @@ public class MqttSettingsActivity extends AppCompatActivity {
         return "";
     }
 
-    /**
-     * Returns ON value for given type key.
-     * s=250, st=250, d=100, f=10, ex=4, b=100, r=1
-     */
+
     public static String getOnValueForType(String typeKey) {
         switch (typeKey) {
             case "s":  return "250";
@@ -122,14 +138,10 @@ public class MqttSettingsActivity extends AppCompatActivity {
             case "ex": return "4";
             case "b":  return "100";
             case "r":  return "1";
-            default:   return "1"; // fallback
+            default:   return "1";
         }
     }
 
-    /**
-     * Main entry point — pass relationDeviceName directly.
-     * Replaces old getOnValue(prefs, deviceCode).
-     */
     public static String getOnValue(SharedPreferences prefs, String relationDeviceName) {
         String typeKey = extractDeviceTypeKey(relationDeviceName);
         return getOnValueForType(typeKey);

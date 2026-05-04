@@ -105,7 +105,6 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private static final String TAG_LIGHT   = "LIGHT_CMD";
     private static final String TAG_TID     = "TID";
     private static final String TAG_MODEL   = "MODEL_CARD";
-    private static final String TAG_PUB     = "AUTO_PUB";
 
     // ─────────────────────────────────────────────────────────────────────────
     // Model IDs
@@ -690,162 +689,17 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
         MeshMessage m = mViewModel.getMessageQueue().peek();
         if (m != null) sendAcknowledgedMessage(address, m);
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // navigateToPublication — ✅ FIXED: Area-aware lookup via
-    //   ClientServerElementStore.getKeyBySvgElementIdAndArea()
-    //   Same logic as AreaClientListActivity.getElementRows() — always correct.
     // ─────────────────────────────────────────────────────────────────────────
     protected void navigateToPublication() {
-        final MeshModel           model   = mViewModel.getSelectedModel().getValue();
-        final Element             element = mViewModel.getSelectedElement().getValue();
-        final ProvisionedMeshNode node    = mViewModel.getSelectedMeshNode().getValue();
-
+        final MeshModel model = mViewModel.getSelectedModel().getValue();
         if (model == null || model.getBoundAppKeyIndexes().isEmpty()) {
             mViewModel.displaySnackBar(this, mContainer,
                     getString(R.string.error_no_app_keys_bound), Snackbar.LENGTH_LONG);
             return;
         }
-
-        // Only auto-publish for GenericOnOffClient model
-        if (element == null || node == null || model.getModelId() != GENERIC_ONOFF_CLIENT) {
-            publicationSettings.launch(
-                    new Intent(this, PublicationSettingsActivity.class));
-            return;
-        }
-
-        // ── Step 1: Get client node name + extract area prefix ────────────────
-        String clientNodeName = node.getNodeName() != null
-                ? node.getNodeName().trim() : null;
-
-        if (clientNodeName == null || clientNodeName.isEmpty()) {
-            Log.w(TAG_PUB, "⚠️ Client node name null — falling back to dialog");
-            publicationSettings.launch(
-                    new Intent(this, PublicationSettingsActivity.class));
-            return;
-        }
-
-        // Store key: "vcri:sw-cn01-aa" (full lowercase)
-        String clientStoreKey = clientNodeName.toLowerCase();
-
-        // Area prefix: "VCRI:SW-CN01-AA" → "vcri"
-        String clientArea = "";
-        if (clientNodeName.contains(":")) {
-            clientArea = clientNodeName.split(":")[0].trim().toLowerCase();
-        }
-
-        Log.d(TAG_PUB, "navigateToPublication: clientNodeName=" + clientNodeName
-                + " clientStoreKey=" + clientStoreKey
-                + " clientArea=" + clientArea);
-
-        // ── Step 2: Find element index from stored client element addresses ───
-        int targetElementAddress = element.getElementAddress();
-        int clientElementIndex   = -1;
-
-        for (int i = 0; i <= 40; i++) {
-            int storedAddr = ClientServerElementStore.getClientAddress(clientStoreKey, i);
-            if (storedAddr == targetElementAddress) {
-                clientElementIndex = i;
-                break;
-            }
-        }
-
-        Log.d(TAG_PUB, "  targetElementAddr=0x"
-                + String.format("%04X", targetElementAddress)
-                + " clientElementIndex=" + clientElementIndex);
-
-        if (clientElementIndex < 0) {
-            Log.w(TAG_PUB, "⚠️ Element index not found for client="
-                    + clientStoreKey + " — falling back to dialog");
-            publicationSettings.launch(
-                    new Intent(this, PublicationSettingsActivity.class));
-            return;
-        }
-
-        // svgId = clientElementIndex (0-based, same convention as AreaClientListActivity)
-        int matchingSvgId = clientElementIndex;
-
-        // ── Step 3: Area-aware server lookup ─────────────────────────────────
-        // ✅ This is the exact same call AreaClientListActivity.getElementRows() makes.
-        //    getKeyBySvgElementIdAndArea() checks BOTH svgId AND area prefix — no wrong matches.
-        String serverStoreKey = ClientServerElementStore
-                .getKeyBySvgElementIdAndArea(matchingSvgId, clientArea);
-
-        Log.d(TAG_PUB, "  matchingSvgId=" + matchingSvgId
-                + " serverStoreKey=" + serverStoreKey);
-
-        if (serverStoreKey == null) {
-            Log.w(TAG_PUB, "⚠️ No server found for svgId=" + matchingSvgId
-                    + " area=" + clientArea + " — falling back to dialog");
-            publicationSettings.launch(
-                    new Intent(this, PublicationSettingsActivity.class));
-            return;
-        }
-
-        // ── Step 4: Fetch stored server addresses ─────────────────────────────
-        int serverUnicastAddress = ClientServerElementStore
-                .getServerUnicastAddress(serverStoreKey);
-        int serverElementAddr    = ClientServerElementStore
-                .getServerPrimaryElementAddress(serverStoreKey);
-
-        Log.d(TAG_PUB, "  serverUnicastAddr=0x"
-                + String.format("%04X", serverUnicastAddress)
-                + " serverElementAddr=0x"
-                + String.format("%04X", serverElementAddr));
-
-        if (serverUnicastAddress == -1 || serverElementAddr == -1) {
-            Log.w(TAG_PUB, "⚠️ Server addresses not stored yet for key="
-                    + serverStoreKey + " — falling back to dialog");
-            publicationSettings.launch(
-                    new Intent(this, PublicationSettingsActivity.class));
-            return;
-        }
-
-        // ── Step 5: Register reverse publication (server → client) ────────────
-        final int appKeyIndex = model.getBoundAppKeyIndexes().get(0);
-
-        ((ModelConfigurationViewModel) mViewModel)
-                .getNrfMeshRepository()
-                .setPendingReversePublication(
-                        serverUnicastAddress,
-                        serverElementAddr,
-                        targetElementAddress,
-                        node.getUnicastAddress(),  // ← ADD
-                        appKeyIndex
-                );
-        Log.d(TAG_PUB, "✅ Reverse pub queued: server=0x"
-                + String.format("%04X", serverUnicastAddress)
-                + " serverElem=0x" + String.format("%04X", serverElementAddr)
-                + " → clientElem=0x" + String.format("%04X", targetElementAddress));
-
-        // ── Step 6: Send client → server publication ──────────────────────────
-        try {
-            ConfigModelPublicationSet pubSet = new ConfigModelPublicationSet(
-                    targetElementAddress,
-                    serverElementAddr,
-                    appKeyIndex,
-                    false, 5, 0, 0, 0, 0,
-                    model.getModelId()
-            );
-            sendAcknowledgedMessage(node.getUnicastAddress(), pubSet);
-
-            mViewModel.displaySnackBar(this, mContainer,
-                    "Publication set ↔ bidirectional",
-                    Snackbar.LENGTH_LONG);
-
-            Log.d(TAG_PUB, "✅ Client→Server pub sent:"
-                    + " client=0x" + String.format("%04X", node.getUnicastAddress())
-                    + " clientElem=0x" + String.format("%04X", targetElementAddress)
-                    + " → serverElem=0x" + String.format("%04X", serverElementAddr));
-
-        } catch (Exception e) {
-            Log.e(TAG_PUB, "❌ Auto publication failed", e);
-            mViewModel.displaySnackBar(this, mContainer,
-                    "Auto-pub failed: " + e.getMessage(),
-                    Snackbar.LENGTH_SHORT);
-        }
+        publicationSettings.launch(
+                new Intent(this, PublicationSettingsActivity.class));
     }
-
     // ─────────────────────────────────────────────────────────────────────────
     // App Key helpers
     // ─────────────────────────────────────────────────────────────────────────
@@ -1009,7 +863,6 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     // Message Senders
     // ─────────────────────────────────────────────────────────────────────────
 
-    /** Send PDU + show progress bar. Use for user-initiated operations. */
     protected void sendMessage(@NonNull MeshMessage msg) {
         try {
             if (!checkConnectivity(mContainer)) return;

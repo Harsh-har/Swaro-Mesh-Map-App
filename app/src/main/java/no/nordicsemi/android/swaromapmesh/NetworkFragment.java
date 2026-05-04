@@ -1,7 +1,6 @@
 package no.nordicsemi.android.swaromapmesh;
 
 import static no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager.COLOR_TRANSPARENT;
-
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
@@ -36,7 +35,6 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-
 import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
@@ -75,9 +73,6 @@ public class NetworkFragment extends Fragment {
     private static final float TAP_MOVE_SLOP      = 10f;
     private static final long  TAP_MAX_DURATION   = 250;
 
-    // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES
-    //    Reason: NetworkFragment ab directly mesh_prefs nahi padhta.
-    //    Provisioned check sirf ClientServerElementStore ke through hota hai. ─
 
     // ── Area / zoom lock state ────────────────────────────────────────────
     private float  areaLockedMinZoom  = -1f;
@@ -157,21 +152,25 @@ public class NetworkFragment extends Fragment {
 
         mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
             if (binding == null) return;
+
             boolean wasInProgress = mAutoSetupInProgress;
             mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
 
             if (mAutoSetupInProgress) {
-                // Auto setup shuru — progressbar dikhao, touch disable karo
                 binding.autoSetupOverlay.setVisibility(View.VISIBLE);
                 binding.progressBar.setVisibility(View.VISIBLE);
                 binding.svgView.setOnTouchListener(null);
+
             } else {
-                // Auto setup khatam — progressbar hatao, touch enable karo
                 binding.autoSetupOverlay.setVisibility(View.GONE);
                 binding.progressBar.setVisibility(View.GONE);
                 binding.svgView.setOnTouchListener(this::handleTouch);
 
-                // Agar pehle in-progress tha aur ab complete hua → colors refresh karo
+                if (wasInProgress) {
+                    Toast.makeText(requireContext(), "All process is complete", Toast.LENGTH_SHORT).show();
+                }
+
+                // Colors refresh + re-render only when transition hua ho
                 if (wasInProgress && svgDocument != null && !deviceMap.isEmpty()) {
                     selectedDeviceId = null;
                     refreshColors();
@@ -182,26 +181,26 @@ public class NetworkFragment extends Fragment {
 
         mViewModel.getFocusAreaId().observe(getViewLifecycleOwner(), areaId -> {
             if (areaId == null || areaId.isEmpty()) return;
+
             pendingFocusAreaId = areaId;
             mViewModel.setFocusAreaId(null);
+
             if (svgDocument != null && !svgParser.areaMap.isEmpty()) {
                 zoomToArea(areaId);
                 pendingFocusAreaId = null;
             }
         });
 
-        // ✅ provisionedDeviceIds LiveData — Store se sync hoti hai (normalized keys)
-        // refreshColors() mein getProvisionedSet() call hota hai jo Store se normalized
-        // Set<String> return karta hai — case mismatch bug permanently khatam.
+        // ✅ Provisioned devices update
         mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), ids -> {
             if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
             if (mAutoSetupInProgress) return;
+
             selectedDeviceId = null;
             refreshColors();
             reRenderSvg();
         });
     }
-
     @Override
     public void onResume() {
         super.onResume();
@@ -836,10 +835,6 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
     //  DEVICE TAP  ← CORE FIX
     //
-    //  Pehle: provisioned.contains(deviceId) → case-sensitive exact match → FAIL
-    //  Ab:    isProvisioned(deviceId) → Store.normalize() → reliable ✅
-    // ══════════════════════════════════════════════════════════════════════
-
     private void onDeviceTapped(String deviceId) {
         DeviceInfo device = deviceMap.get(deviceId);
 
@@ -855,9 +850,6 @@ public class NetworkFragment extends Fragment {
         }
         reRenderSvg();
 
-        // ✅ ADD: SVG tap pe svgElementId pre-save karo
-        // Ye ensure karta hai ki triggerAutoPublication mein svgId
-        // hamesha available ho — even before provisioning starts
         if (device != null && device.elementId != null) {
             try {
                 int svgId = Integer.parseInt(device.elementId.trim());
@@ -1062,4 +1054,3 @@ public class NetworkFragment extends Fragment {
         flingAnimator.start();
     }
 }
-//me jab mei device ko provision kar rh hu uske baad set publication nhi ho rha kabhi miss kar jata hai ya kabhi one side hi ho rha hai i want set publication dono side ho server to client or client to server or kabhi mis na ho

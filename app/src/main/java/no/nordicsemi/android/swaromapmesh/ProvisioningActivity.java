@@ -54,7 +54,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
         DialogFragmentNodeName.DialogFragmentNodeNameListener,
         DialogFragmentUnicastAddress.DialogFragmentUnicastAddressListener,
         DialogFragmentProvisioningFailedError.DialogFragmentProvisioningFailedErrorListener {
-    // ✅ DialogFragmentConfigurationComplete REMOVE kar diya — ab dialog nahi dikhayenge
 
     private static final String DIALOG_FRAGMENT_PROVISIONING_FAILED = "DIALOG_FRAGMENT_PROVISIONING_FAILED";
     private static final String DIALOG_FRAGMENT_AUTH_INPUT_TAG = "DIALOG_FRAGMENT_AUTH_INPUT_TAG";
@@ -64,7 +63,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
     private ProvisioningViewModel mViewModel;
     private ExtendedBluetoothDevice mDevice;
 
-    // ✅ SVG device ID — new code se liya
     private String mSvgDeviceId = null;
 
     private final ActivityResultLauncher<Intent> appKeySelector = registerForActivityResult(
@@ -87,7 +85,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
         final Intent intent = getIntent();
         mDevice = intent.getParcelableExtra(Utils.EXTRA_DEVICE);
 
-        // ✅ SVG device ID extract karo
         mSvgDeviceId = intent.getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
         Log.d(TAG, "onCreate — SVG Device ID: " + mSvgDeviceId);
 
@@ -114,7 +111,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
             Log.d(TAG, "MAC Address stored: " + mDevice.getAddress());
         }
 
-        // --- UI containers setup (same as old code) ---
         binding.containerName.image
                 .setBackground(ContextCompat.getDrawable(this, R.drawable.ic_label_outline));
         binding.containerName.title.setText(R.string.summary_name);
@@ -335,7 +331,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
         mViewModel.disconnect();
     }
 
-    // ✅ MAIN CHANGE: Auto app key add + bind — koi dialog nahi
     public void setupProvisionerStateObservers() {
         binding.infoProvisioningStatusContainer.getRoot().setVisibility(View.VISIBLE);
 
@@ -360,7 +355,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
             switch (state) {
 
                 case PROVISIONING_FAILED:
-                    // ✅ Error dialog dikhao, baaki kuch nahi
                     if (getSupportFragmentManager()
                             .findFragmentByTag(DIALOG_FRAGMENT_PROVISIONING_FAILED) == null) {
                         final String statusMessage = ProvisioningFailedState
@@ -394,19 +388,16 @@ public class ProvisioningActivity extends AppCompatActivity implements
                     break;
 
                 case DEFAULT_TTL_STATUS_RECEIVED:
-                    // ✅ Agar koi app key nahi hai network mein → seedha finish
                     if (mViewModel.isDefaultTtlReceived()) {
                         if (mViewModel.getNetworkLiveData().getAppKeys().isEmpty()) {
                             Log.d(TAG, "No app keys — finishing after TTL");
                             mViewModel.getProvisioningStatus().removeObservers(this);
                             setResultIntent();
                         }
-                        // Agar app keys hain → ruko APP_KEY_STATUS_RECEIVED ka wait karo
                     }
                     break;
 
                 case APP_KEY_STATUS_RECEIVED:
-                    // ✅ App key successfully add + bind hua → seedha finish, koi dialog nahi
                     Log.d(TAG, "App key bound — auto finishing");
                     mViewModel.getProvisioningStatus().removeObservers(this);
                     runOnUiThread(this::setResultIntent);
@@ -425,14 +416,9 @@ public class ProvisioningActivity extends AppCompatActivity implements
         });
     }
 
-    // ✅ onConfigurationCompleted — interface implement karna zaruri tha, but ab dialog nahi aata
-    // Agar DialogFragmentConfigurationComplete interface still implement hai to yeh rakho,
-    // warna class declaration se bhi hata sakte ho (upar already hataya hai)
-
     private void setResultIntent() {
         final Intent returnIntent = new Intent();
 
-        // ✅ SVG device ID wapas pass karo
         if (mSvgDeviceId != null) {
             returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
             Log.d(TAG, "Returning svgDeviceId: " + mSvgDeviceId);
@@ -491,7 +477,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
         }
     }
 
-    // ✅ Helper: node ready hone ke baad provisioning start karna (MAC + name set karke)
     private void startProvisioningForNode(final UnprovisionedMeshNode node) {
         if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
             node.setMacAddress(mDevice.getAddress());
