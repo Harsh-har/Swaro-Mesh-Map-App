@@ -74,15 +74,6 @@
                 android:textStyle="bold"
                 android:textColor="#FF6200"
                 android:gravity="end" />
-            <TextView
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="SENSOR"
-                android:textSize="11sp"
-                android:textStyle="bold"
-                android:textColor="#1565C0"
-                android:gravity="end" />
 
         </LinearLayout>
 

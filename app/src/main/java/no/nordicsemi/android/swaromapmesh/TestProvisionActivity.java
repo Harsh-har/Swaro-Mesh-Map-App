@@ -42,6 +42,7 @@ public class TestProvisionActivity extends AppCompatActivity {
     // ── Instance variables ────────────────────────────────────────────────
     private String deviceId;
     private String elementId;
+    private MaterialTextView tvReceiveId;
     private String svgName;
     private String topicPrefix;
     private String areaName;
@@ -84,6 +85,7 @@ public class TestProvisionActivity extends AppCompatActivity {
 
         tvDeviceId         = findViewById(R.id.tv_device_id);
         tvElementId        = findViewById(R.id.tv_element_id);
+        tvReceiveId        = findViewById(R.id.tv_recive_id);
         tvStatus           = findViewById(R.id.tv_status);
         tvMacAddress       = findViewById(R.id.tv_mac_address);
         tvUnicastAddress   = findViewById(R.id.tv_unicast_address);
@@ -95,6 +97,27 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvDeviceId.setText(deviceId != null ? deviceId : "N/A");
         tvElementId.setText(elementId != null ? elementId : "N/A");
         tvRelationDeviceId.setText(relationDeviceName != null ? relationDeviceName : "N/A");
+
+        // ── Receive ID — intent se pehle, phir store se ───────────────────────
+        String intentReceiveId = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID);
+        String normalizedId    = deviceId != null ? deviceId.trim().toLowerCase() : null;
+        String storeReceiveId  = ClientServerElementStore.getReceiveId(normalizedId);
+
+        String receiveId = (intentReceiveId != null && !intentReceiveId.isEmpty())
+                ? intentReceiveId : storeReceiveId;
+
+        Log.d(TAG, "receiveId: intent=" + intentReceiveId
+                + " store=" + storeReceiveId
+                + " final=" + receiveId);
+
+        if (tvReceiveId != null) {
+            tvReceiveId.setText(receiveId != null && !receiveId.isEmpty() ? receiveId : "N/A");
+        }
+
+        // Store update karo agar intent se mila aur store mein nahi tha
+        if (intentReceiveId != null && !intentReceiveId.isEmpty() && storeReceiveId == null) {
+            ClientServerElementStore.saveReceiveIdOnly(normalizedId, intentReceiveId);
+        }
 
         updateMqttTopicDisplay(relationDeviceName);
         updateStatus();
@@ -108,7 +131,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             loadAddressesFromNodes(nodes);
         });
 
-        // ── BLE Test button ───────────────────────────────────────────────
+        // ── BLE Test button ───────────────────────────────────────────────────
         btnTestBle.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
@@ -131,7 +154,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             btnTestBle.postDelayed(() -> btnTestBle.setEnabled(true), 2100);
         });
 
-        // ── MQTT Test button ──────────────────────────────────────────────
+        // ── MQTT Test button ──────────────────────────────────────────────────
         btnTestMqtt.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
@@ -197,7 +220,6 @@ public class TestProvisionActivity extends AppCompatActivity {
             });
         });
     }
-
     // =========================================================================
     // Address loading — node matching
     // =========================================================================

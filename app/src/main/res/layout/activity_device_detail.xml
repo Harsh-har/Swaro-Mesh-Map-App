@@ -105,25 +105,24 @@
                             android:gravity="end" />
                     </LinearLayout>
 
-                    <!-- Node ID row — only visible when nodeId exists (2 IDs case) -->
+                    <!-- recive ID row -->
                     <LinearLayout
-                        android:id="@+id/row_node_id"
+                        android:id="@+id/rowreciveld"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:layout_marginBottom="10dp"
-                        android:visibility="gone">
+                        android:layout_marginBottom="10dp">
 
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Node ID"
+                            android:text="Recive ID"
                             android:textColor="#888"
                             android:textSize="14sp" />
 
                         <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_node_id_value"
+                            android:id="@+id/tvreciveldValue"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="2"

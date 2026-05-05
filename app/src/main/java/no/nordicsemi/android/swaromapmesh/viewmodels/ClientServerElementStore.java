@@ -10,6 +10,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * ============================================================
+ * ClientServerElementStore — Single Source of Truth
+ * ============================================================
+ *
+ * RULE: Koi bhi class directly mesh_prefs mein mat likhe.
+ *       Sabka data sirf is class ke through aayega aur jaayega.
+ *
+ * Key format: ALWAYS lowercase  e.g. "casting:relay node1"
+ *
+ * Key prefixes:
+ *   server_unicast_<key>            → int   unicast address
+ *   server_svg_element_id_<key>     → int   svg element id
+ *   server_primary_addr_<key>       → int   primary element address
+ *   server_mesh_element_index_<key> → int   mesh element index
+ *   server_area_id_<key>            → String area id
+ *   mac_<key>                       → String mac address
+ *   element_addr_<key>_<index>      → int   client element address (0-based)
+ *   client_to_server_<key>_<index>  → String server store key
+ *   provisioned_devices             → Set<String> all provisioned device keys (lowercase)
+ * ============================================================
+ */
 public final class ClientServerElementStore {
 
     private static final String TAG  = "ClientServerElementStore";
@@ -22,8 +44,9 @@ public final class ClientServerElementStore {
     private static final String PRE_SVR_SVG_ID    = "server_svg_element_id_";
     private static final String PRE_SVR_AREA_ID   = "server_area_id_";
     private static final String PRE_SVR_MAC       = "mac_";
-    private static final String PRE_SVR_NODE_ID   = "server_node_id_";
     private static final String PRE_CLIENT_ADDR   = "element_addr_";
+
+    private static final String PRE_SVR_RECEIVE_ID = "server_receive_id_";
     private static final String PRE_CLIENT_TO_SVR = "client_to_server_";
     private static final String KEY_PROVISIONED   = "provisioned_devices";
 
@@ -51,9 +74,12 @@ public final class ClientServerElementStore {
         return sPrefs;
     }
 
+    /** Public accessor for observers (e.g. SharedViewModel) */
     public static SharedPreferences getPrefsPublic() {
         return getPrefs();
     }
+
+    // ── Guards ────────────────────────────────────────────────────────────────
 
     private static boolean checkInit(String caller) {
         if (getPrefs() == null) {
@@ -71,24 +97,25 @@ public final class ClientServerElementStore {
         return false;
     }
 
+    /**
+     * Normalize any deviceId/key to lowercase trimmed.
+     * ALWAYS call this before building a prefs key.
+     * e.g. "Casting:Relay Node1" → "casting:relay node1"
+     */
     public static String normalize(String key) {
         if (key == null) return "";
         return key.trim().toLowerCase();
     }
 
     // =========================================================================
-    // ✅ MASTER SAVE
-    // =========================================================================
+    // ✅ MASTER SAVE — single call to persist a complete device record
 
-    /**
-     * Save complete device record.
-     * nodeId → sirf tab pass karo jab 2 IDs hon (e.g. "2", "3"), warna null.
-     */
+    // =========================================================================
     public static void saveDevice(String deviceId,
                                   int unicastAddr,
                                   int svgElementId,
                                   String mac,
-                                  String nodeId) {
+                                  String receiveId) {      // ← add parameter
         if (!checkInit("saveDevice") || isEmpty(deviceId, "saveDevice")) return;
 
         String key = normalize(deviceId);
@@ -101,15 +128,10 @@ public final class ClientServerElementStore {
         if (mac != null && !mac.isEmpty()) {
             ed.putString(PRE_SVR_MAC + key, mac);
         }
-
-        // nodeId: sirf tab save karo jab 2 IDs hon
-        if (nodeId != null && !nodeId.isEmpty()) {
-            ed.putString(PRE_SVR_NODE_ID + key, nodeId);
-        } else {
-            ed.remove(PRE_SVR_NODE_ID + key);
+        if (receiveId != null && !receiveId.isEmpty()) {       // ← add
+            ed.putString(PRE_SVR_RECEIVE_ID + key, receiveId); // ← add
         }
 
-        // provisioned set mein add karo
         Set<String> provisioned = new HashSet<>(
                 getPrefs().getStringSet(KEY_PROVISIONED, new HashSet<>()));
         provisioned.add(key);
@@ -120,8 +142,8 @@ public final class ClientServerElementStore {
         Log.d(TAG, "✅ saveDevice: key=" + key
                 + " unicast=0x" + String.format("%04X", unicastAddr)
                 + " svgId=" + svgElementId
-                + " nodeId=" + (nodeId != null ? nodeId : "—")
-                + " mac=" + (mac != null ? mac : "null"));
+                + " mac=" + (mac != null ? mac : "null")
+                + " receiveId=" + (receiveId != null ? receiveId : "null")); // ← add
     }
 
     // =========================================================================
@@ -137,8 +159,13 @@ public final class ClientServerElementStore {
     }
 
     public static int getServerUnicastAddress(String deviceId) {
+
         if (!checkInit("getServerUnicastAddress") || deviceId == null) return -1;
         return getPrefs().getInt(PRE_SVR_UNICAST + normalize(deviceId), -1);
+    }
+    public static String getReceiveId(String deviceId) {
+        if (!checkInit("getReceiveId") || deviceId == null) return null;
+        return getPrefs().getString(PRE_SVR_RECEIVE_ID + normalize(deviceId), null);
     }
 
     // =========================================================================
@@ -185,20 +212,31 @@ public final class ClientServerElementStore {
         return getPrefs().getInt(PRE_SVR_SVG_ID + normalize(deviceId), -1);
     }
 
+    /**
+     * Area-aware reverse lookup — svgElementId + areaPrefix → store key.
+     *
+     * e.g. svgElementId=1, areaPrefix="casting" → "casting:relay node1"
+     *
+     * Same elementId multiple areas mein ho sakta hai (e.g. smt:Relay Node1
+     * aur casting:Relay Node1 dono ka svgId=1).
+     * areaPrefix pass karo taaki correct key mile.
+     */
     public static String getKeyBySvgElementIdAndArea(int svgElementId, String areaPrefix) {
         SharedPreferences prefs = getPrefs();
         if (prefs == null) return null;
 
         if (areaPrefix == null || areaPrefix.trim().isEmpty()) {
-            Log.w(TAG, "getKeyBySvgElementIdAndArea: areaPrefix empty — falling back");
+            Log.w(TAG, "getKeyBySvgElementIdAndArea: areaPrefix empty — falling back to ambiguous lookup");
             return getKeyBySvgElementId(svgElementId);
         }
 
         String normalizedArea = normalize(areaPrefix);
+
         for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
             if (!entry.getKey().startsWith(PRE_SVR_SVG_ID)) continue;
             Object val = entry.getValue();
             if (!(val instanceof Integer) || (Integer) val != svgElementId) continue;
+
             String key = entry.getKey().substring(PRE_SVR_SVG_ID.length());
             if (key.startsWith(normalizedArea + ":") || key.startsWith(normalizedArea + " ")) {
                 Log.d(TAG, "✅ getKeyBySvgElementIdAndArea: svgId=" + svgElementId
@@ -206,11 +244,16 @@ public final class ClientServerElementStore {
                 return key;
             }
         }
+
         Log.w(TAG, "getKeyBySvgElementIdAndArea: no match for svgId="
                 + svgElementId + " area=" + normalizedArea);
         return null;
     }
 
+    /**
+     * @deprecated AMBIGUOUS — same elementId can exist in multiple areas.
+     * Use {@link #getKeyBySvgElementIdAndArea(int, String)} instead.
+     */
     @Deprecated
     public static String getKeyBySvgElementId(int svgElementId) {
         SharedPreferences prefs = getPrefs();
@@ -238,23 +281,12 @@ public final class ClientServerElementStore {
         }
         return result;
     }
-
-    // =========================================================================
-    // SERVER — Node ID (only for 2-ID nodes)
-    // =========================================================================
-
-    public static void saveServerNodeId(String deviceId, String nodeId) {
-        if (!checkInit("saveServerNodeId") || isEmpty(deviceId, "saveServerNodeId")) return;
+    public static void saveReceiveIdOnly(String deviceId, String receiveId) {
+        if (!checkInit("saveReceiveIdOnly") || isEmpty(deviceId, "saveReceiveIdOnly")) return;
+        if (receiveId == null || receiveId.isEmpty()) return;
         String key = normalize(deviceId);
-        if (nodeId != null && !nodeId.isEmpty()) {
-            getPrefs().edit().putString(PRE_SVR_NODE_ID + key, nodeId).apply();
-            Log.d(TAG, "✅ saveServerNodeId: " + key + " = " + nodeId);
-        }
-    }
-
-    public static String getServerNodeId(String deviceId) {
-        if (!checkInit("getServerNodeId") || deviceId == null) return null;
-        return getPrefs().getString(PRE_SVR_NODE_ID + normalize(deviceId), null);
+        getPrefs().edit().putString(PRE_SVR_RECEIVE_ID + key, receiveId).apply();
+        Log.d(TAG, "✅ saveReceiveIdOnly: " + key + " = " + receiveId);
     }
 
     // =========================================================================
@@ -288,7 +320,8 @@ public final class ClientServerElementStore {
     }
 
     // =========================================================================
-    // SERVER — batch save (backward compatibility)
+    // SERVER — batch save (kept for backward compatibility)
+    // Prefer saveDevice() for new code.
     // =========================================================================
 
     public static void saveCompleteServerInfo(String deviceId,
@@ -308,9 +341,15 @@ public final class ClientServerElementStore {
     }
 
     // =========================================================================
-    // CLIENT — element addresses
+    // CLIENT — element addresses  (0-based index)
     // =========================================================================
 
+    /**
+     * Save one client element address.
+     * @param deviceId   client svg device id  e.g. "VCRI:SW-CN01-AA"
+     * @param index      0-based element index
+     * @param address    BLE mesh element address
+     */
     public static void saveClientElementAddress(String deviceId, int index, int address) {
         if (!checkInit("saveClientElementAddress") || isEmpty(deviceId, "saveClientElementAddress")) return;
         String key = normalize(deviceId);
@@ -319,11 +358,20 @@ public final class ClientServerElementStore {
                 + "[" + index + "] = 0x" + String.format("%04X", address));
     }
 
+    /**
+     * @deprecated Renamed to {@link #saveAllClientElementAddresses(String, Map)}.
+     * Kept so NrfMeshRepository.saveClientElementAddresses() compiles without change.
+     */
     @Deprecated
     public static void saveAll(String deviceId, Map<Integer, Integer> addressMap) {
         saveAllClientElementAddresses(deviceId, addressMap);
     }
 
+    /**
+     * Save all client element addresses in one atomic write.
+     * @param deviceId       client svg device id
+     * @param addressMap     map of 0-based index → element address
+     */
     public static void saveAllClientElementAddresses(String deviceId,
                                                      Map<Integer, Integer> addressMap) {
         if (!checkInit("saveAllClientElementAddresses") || isEmpty(deviceId, "saveAllClientElementAddresses")) return;
@@ -373,15 +421,20 @@ public final class ClientServerElementStore {
     // PROVISIONED DEVICES SET
     // =========================================================================
 
+    /**
+     * Check if a device is provisioned.
+     * Normalizes the key before lookup — no case-mismatch bugs.
+     */
     public static boolean isProvisioned(String deviceId) {
         if (!checkInit("isProvisioned") || deviceId == null) return false;
-        return getServerUnicastAddress(deviceId) != -1;
+        if (getServerUnicastAddress(deviceId) != -1) return true;
+        return getProvisionedKeys().contains(normalize(deviceId));
     }
 
     public static Set<String> getProvisionedKeys() {
         if (!checkInit("getProvisionedKeys")) return new HashSet<>();
         Set<String> raw = getPrefs().getStringSet(KEY_PROVISIONED, new HashSet<>());
-        return new HashSet<>(raw);
+        return new HashSet<>(raw); // defensive copy
     }
 
     public static void markProvisioned(String deviceId) {
@@ -409,24 +462,26 @@ public final class ClientServerElementStore {
     }
 
     // =========================================================================
-    // CLEAR
+    // CLEAR — full cleanup on node delete
     // =========================================================================
-
     public static void clearDevice(String deviceId) {
         if (!checkInit("clearDevice") || isEmpty(deviceId, "clearDevice")) return;
 
         String key = normalize(deviceId);
-        SharedPreferences        prefs  = getPrefs();
+        SharedPreferences       prefs  = getPrefs();
         SharedPreferences.Editor editor = prefs.edit();
 
+        // ── Step 1: Remove all server-specific keys ───────────────────────────
         editor.remove(PRE_SVR_UNICAST   + key);
         editor.remove(PRE_SVR_MESH_IDX  + key);
         editor.remove(PRE_SVR_PRIM_ADDR + key);
         editor.remove(PRE_SVR_SVG_ID    + key);
         editor.remove(PRE_SVR_AREA_ID   + key);
         editor.remove(PRE_SVR_MAC       + key);
-        editor.remove(PRE_SVR_NODE_ID   + key);
+        editor.remove(PRE_SVR_RECEIVE_ID + key);
 
+
+        // ── Step 2: Remove client_to_server_ mappings pointing to this server ─
         for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
             String k = entry.getKey();
             if (!k.startsWith(PRE_CLIENT_TO_SVR)) continue;
@@ -436,6 +491,7 @@ public final class ClientServerElementStore {
             }
         }
 
+        // ── Step 3: Remove from provisioned set ───────────────────────────────
         Set<String> provisioned = new HashSet<>(
                 prefs.getStringSet(KEY_PROVISIONED, new HashSet<>()));
         provisioned.remove(key);
@@ -445,13 +501,17 @@ public final class ClientServerElementStore {
         Log.d(TAG, "✅ clearDevice complete: key='" + key + "'");
     }
 
+    /**
+     * @deprecated Renamed to {@link #clearDevice(String)}.
+     * Kept for backward compatibility — will be removed in future.
+     */
     @Deprecated
     public static void clearServerData(String serverStoreKey) {
         clearDevice(serverStoreKey);
     }
 
     // =========================================================================
-    // DEBUG
+    // DEBUG — dump all store entries to logcat
     // =========================================================================
 
     public static void dumpAll() {
@@ -463,7 +523,10 @@ public final class ClientServerElementStore {
         }
         Log.d(TAG, "═══════════════════════════════════════════════════════════");
     }
-
+    /**
+     * Reverse lookup: unicast address → normalized device key.
+     * Use this when UUID→svgId mapping is lost (e.g. after app reinstall).
+     */
     public static String getKeyByUnicastAddress(int unicastAddress) {
         if (!checkInit("getKeyByUnicastAddress") || unicastAddress == -1) return null;
         SharedPreferences prefs = getPrefs();

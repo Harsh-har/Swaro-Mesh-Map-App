@@ -44,15 +44,5 @@
         android:textColor="#FF6200"
         android:textStyle="bold"
         android:gravity="end" />
-    <TextView
-        android:id="@+id/tvSensor"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:textSize="13sp"
-        android:fontFamily="monospace"
-        android:textColor="#D9D9D9"
-        android:textStyle="bold"
-        android:gravity="end" />
 
 </LinearLayout>

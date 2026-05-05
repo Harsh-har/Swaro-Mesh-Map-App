@@ -850,20 +850,6 @@ public class NetworkFragment extends Fragment {
         }
         reRenderSvg();
 
-        if (device != null && device.elementId != null) {
-            try {
-                int svgId = Integer.parseInt(device.elementId.trim());
-                if (svgId >= 0) {
-                    ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
-                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved"
-                            + " device=" + deviceId
-                            + " svgId=" + svgId);
-                }
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
-            }
-        }
-
         SharedPreferences prefs = requireContext()
                 .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
         Uri    svgUri       = mViewModel.getSvgUri().getValue();
@@ -875,17 +861,42 @@ public class NetworkFragment extends Fragment {
         String      relationDevName = relatedDevices.isEmpty()
                 ? null : relatedDevices.iterator().next();
 
+        Log.d(TAG, "isProvisioned check: deviceId=" + deviceId
+                + " result=" + isProvisioned(deviceId));  // ← debug
+
         if (isProvisioned(deviceId)) {
+            // ← svgElementId save karo provisioned branch mein bhi
+            if (device != null && device.elementId != null) {
+                try {
+                    int svgId = Integer.parseInt(device.elementId.trim());
+                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
+                } catch (NumberFormatException ignored) {}
+            }
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                     device != null ? device.elementId : null);
+            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
+                    device != null ? device.receiveId : null);
             intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
             intent.putExtra("svg_name", svgName);
             startActivity(intent);
             return;
+        }
+
+        // ← Unprovision branch mein svgElementId save karo
+        if (device != null && device.elementId != null) {
+            try {
+                int svgId = Integer.parseInt(device.elementId.trim());
+                if (svgId >= 0) {
+                    ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
+                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved device=" + deviceId + " svgId=" + svgId);
+                }
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
+            }
         }
 
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
@@ -894,11 +905,10 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                 device != null ? device.elementId : null);
-        intent.putExtra(DeviceDetailActivity.EXTRA_NODE_ID,
-                device != null ? device.nodeId : null);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
+                device != null ? device.receiveId : null);
         startActivity(intent);
-    }
-    private String extractPureDeviceName(String fullDeviceId) {
+    }    private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
         String name = fullDeviceId;
         int ci = name.lastIndexOf(":");

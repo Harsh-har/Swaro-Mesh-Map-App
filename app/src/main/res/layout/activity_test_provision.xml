@@ -6,7 +6,6 @@
     android:layout_height="match_parent"
     android:background="@color/background">
 
-    <!-- AppBar -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/app_bar"
         android:layout_width="match_parent"
@@ -20,7 +19,6 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- Scrollable content -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -47,7 +45,6 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <!-- Section header -->
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -82,6 +79,7 @@
                             android:textColor="@android:color/white"
                             android:textSize="14sp" />
                     </LinearLayout>
+
                     <!-- MAC Address row -->
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -104,10 +102,10 @@
                             android:layout_weight="2"
                             android:gravity="end"
                             android:textColor="@android:color/white"
-                            android:textSize="14sp"
-                             />
+                            android:textSize="14sp" />
                     </LinearLayout>
-                    <!-- Element ID row -->
+
+                    <!-- Relation Device row -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -155,8 +153,8 @@
                             android:gravity="end"
                             android:textColor="@android:color/white"
                             android:textSize="14sp" />
-
                     </LinearLayout>
+
                     <!-- Element ID row -->
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -181,7 +179,34 @@
                             android:textColor="@android:color/white"
                             android:textSize="14sp" />
                     </LinearLayout>
-                    <!-- Mqtt Topic row -->
+
+                    <!-- Recive ID row  -->
+                    <LinearLayout
+                        android:id="@+id/row_recive_id"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="10dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Recive ID"
+                            android:textColor="#888"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tv_recive_id"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:gravity="end"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <!-- MQTT Topic row -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -204,7 +229,6 @@
                             android:gravity="end"
                             android:textColor="@android:color/white"
                             android:textSize="14sp" />
-
                     </LinearLayout>
 
                     <!-- Status row -->
@@ -260,7 +284,6 @@
                         android:textSize="13sp"
                         android:textStyle="bold" />
 
-                    <!-- Test button -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_testble"
                         android:layout_width="match_parent"
@@ -272,7 +295,7 @@
                         app:cornerRadius="8dp"
                         app:strokeColor="#ffbb00"
                         app:strokeWidth="1dp" />
-                    <!-- Test button -->
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_testmqqt"
                         android:layout_width="match_parent"
