@@ -67,9 +67,7 @@ public class AreaClientListActivity extends AppCompatActivity {
     private static final long RETRY_DELAY_MS  = 4000;
 
     // ── Retry state ───────────────────────────────────────────────────────
-    // Key format: "fromAddr_toAddr"
     private final Map<String, Integer>  mRetryCount     = new HashMap<>();
-    // Stores pending retry runnables so we can cancel on destroy
     private final Map<String, Runnable> mRetryRunnables = new HashMap<>();
     private final Handler               mHandler        = new Handler(Looper.getMainLooper());
 
@@ -142,11 +140,9 @@ public class AreaClientListActivity extends AppCompatActivity {
         mRetryRunnables.clear();
         mRetryCount.clear();
     }
-
     // =========================================================================
     // PUBLICATION STATUS HANDLER
     // =========================================================================
-
     private void handlePublicationStatus(ConfigModelPublicationStatus status) {
         int elemAddr    = status.getElementAddress();
         int publishAddr = status.getPublishAddress();
@@ -156,43 +152,50 @@ public class AreaClientListActivity extends AppCompatActivity {
             Log.e(TAG, String.format(
                     "❌ Publication FAILED: Elem=0x%04X → Pub=0x%04X, StatusCode=%d",
                     elemAddr, publishAddr, status.getStatusCode()));
-
             scheduleRetry(elemAddr, publishAddr, retryKey);
             return;
         }
 
-        // ── Success ───────────────────────────────────────────────────────
         Log.d(TAG, String.format(
-                "📬 Publication Status OK: Elem=0x%04X → Pub=0x%04X, Model=0x%04X",
-                elemAddr, publishAddr, status.getModelIdentifier()));
+                "📬 Publication OK: Elem=0x%04X → Pub=0x%04X",
+                elemAddr, publishAddr));
 
-        // Cancel any pending retry for this direction
         cancelRetry(retryKey);
-
         markDirectionComplete(elemAddr, publishAddr);
 
-        boolean clientToServerDone = isDirectionComplete(elemAddr, publishAddr);
-        boolean serverToClientDone = isDirectionComplete(publishAddr, elemAddr);
+        // Check if both directions complete for this pair
+        for (AreaItem area : areaItems) {
+            for (ElementRow row : area.rows) {
+                if (row.serverAddr == -1) continue;
 
-        if (clientToServerDone && serverToClientDone) {
-            Log.d(TAG, String.format(
-                    "🎉 BOTH DIRECTIONS COMPLETE: 0x%04X ↔ 0x%04X", elemAddr, publishAddr));
-            markPublicationSetupComplete(elemAddr, publishAddr);
-            Toast.makeText(this,
-                    String.format("✅ Publication complete: 0x%04X ↔ 0x%04X",
-                            elemAddr, publishAddr),
-                    Toast.LENGTH_SHORT).show();
+                boolean isThisPair =
+                        (elemAddr == row.serverAddr && publishAddr == row.clientAddr) ||
+                                (elemAddr == row.receiveAddr && publishAddr == row.serverAddr);
+
+                if (!isThisPair) continue;
+
+                boolean s2cDone = isDirectionComplete(row.serverAddr, row.clientAddr);
+                boolean c2sDone = (row.receiveAddr == -1)
+                        || isDirectionComplete(row.receiveAddr, row.serverAddr);
+
+                if (s2cDone && c2sDone) {
+                    Log.d(TAG, String.format(
+                            "🎉 BOTH DIRECTIONS COMPLETE: Server=0x%04X ↔ Client=0x%04X",
+                            row.serverAddr, row.clientAddr));
+                    markPublicationSetupComplete(row.serverAddr, row.clientAddr);
+                    Toast.makeText(this,
+                            String.format("✅ Publication complete: 0x%04X ↔ 0x%04X",
+                                    row.serverAddr, row.clientAddr),
+                            Toast.LENGTH_SHORT).show();
+                }
+                return;
+            }
         }
     }
-
     // =========================================================================
     // RETRY LOGIC
     // =========================================================================
 
-    /**
-     * Schedules a retry for a failed publication direction.
-     * Key = "fromAddr_toAddr"
-     */
     private void scheduleRetry(int fromAddr, int toAddr, String retryKey) {
         int currentRetry = mRetryCount.getOrDefault(retryKey, 0);
 
@@ -210,7 +213,7 @@ public class AreaClientListActivity extends AppCompatActivity {
         }
 
         mRetryCount.put(retryKey, currentRetry + 1);
-        long delay = RETRY_DELAY_MS * (currentRetry + 1); // exponential backoff: 4s, 8s, 12s
+        long delay = RETRY_DELAY_MS * (currentRetry + 1);
 
         Log.d(TAG, String.format(
                 "🔄 Scheduling retry %d/%d for 0x%04X → 0x%04X in %dms",
@@ -243,9 +246,6 @@ public class AreaClientListActivity extends AppCompatActivity {
         }
     }
 
-    /**
-     * Finds the pair for this address and re-sends only the failed direction.
-     */
     private void retryPublication(int fromAddr, int toAddr) {
         if (areaItems.isEmpty()) {
             Log.w(TAG, "retryPublication: areaItems empty — rebuilding list first");
@@ -309,76 +309,61 @@ public class AreaClientListActivity extends AppCompatActivity {
     // =========================================================================
 
     private void setupPublicationsForNewPairs() {
-        if (areaItems.isEmpty()) {
-            Log.d(TAG, "No area items to check for publication setup");
-            return;
-        }
-
-        Log.d(TAG, "🔍 Checking for new pairs that need publication setup...");
-        boolean hasNewPairs = false;
+        if (areaItems.isEmpty()) return;
 
         for (AreaItem area : areaItems) {
             for (ElementRow row : area.rows) {
                 if (row.serverAddr == -1) continue;
-                if (isPublicationSetupComplete(row.clientAddr, row.serverAddr)) continue;
 
-                boolean clientToServerDone = isDirectionComplete(row.clientAddr, row.serverAddr);
+                // S→C direction: serverAddr → clientAddr
                 boolean serverToClientDone = isDirectionComplete(row.serverAddr, row.clientAddr);
+                // C→S direction: receiveAddr → serverAddr
+                boolean clientToServerDone = (row.receiveAddr == -1)
+                        || isDirectionComplete(row.receiveAddr, row.serverAddr);
 
-                if (!clientToServerDone || !serverToClientDone) {
-                    Log.d(TAG, "🔄 Incomplete pair: " + area.getTopName()
-                            + String.format(" Client=0x%04X Server=0x%04X",
-                            row.clientAddr, row.serverAddr));
-                    Log.d(TAG, String.format("   C→S: %s, S→C: %s",
-                            clientToServerDone ? "DONE" : "PENDING",
-                            serverToClientDone ? "DONE" : "PENDING"));
+                if (!serverToClientDone || !clientToServerDone) {
+                    Log.d(TAG, "🔄 Incomplete: " + area.getTopName()
+                            + String.format(" Server=0x%04X Client=0x%04X ReceiveElem=0x%04X",
+                            row.serverAddr, row.clientAddr,
+                            row.receiveAddr != -1 ? row.receiveAddr : 0));
+                    Log.d(TAG, String.format("   S→C: %s, C→S: %s",
+                            serverToClientDone ? "DONE" : "PENDING",
+                            clientToServerDone ? "DONE" : "PENDING"));
 
-                    setupMissingPublications(row, clientToServerDone, serverToClientDone);
-                    hasNewPairs = true;
+                    setupMissingPublications(row, serverToClientDone, clientToServerDone);
+                }
+            }
+        }
+    }
+    private void setupMissingPublications(ElementRow row,
+                                          boolean serverToClientDone,
+                                          boolean clientToServerDone) {
+        // ── Direction 1: Server → Client (elementId based) ────────────────────
+        if (!serverToClientDone && row.serverAddr != -1) {
+            ProvisionedMeshNode serverNode = findNodeByAddress(row.serverAddr);
+            if (serverNode != null) {
+                List<ApplicationKey> appKeys = vm.getNetworkLiveData().getAppKeys();
+                if (appKeys != null && !appKeys.isEmpty()) {
+                    mRetryCount.remove(retryKey(row.serverAddr, row.clientAddr));
+                    setupPublicationWithDelay(serverNode, row.serverAddr,
+                            GENERIC_ONOFF_SERVER, row.clientAddr,
+                            appKeys.get(0).getKeyIndex(), "Server→Client", 0);
                 }
             }
         }
 
-        if (!hasNewPairs) {
-            Log.d(TAG, "✅ All pairs already configured");
-        }
-    }
-
-    private void setupMissingPublications(ElementRow row,
-                                          boolean clientToServerDone,
-                                          boolean serverToClientDone) {
-        ProvisionedMeshNode clientNode = findNodeByAddress(row.clientAddr);
-        ProvisionedMeshNode serverNode = findNodeByAddress(row.serverAddr);
-
-        if (clientNode == null) {
-            Log.e(TAG, "Client node not found: 0x" + String.format("%04X", row.clientAddr));
-            return;
-        }
-        if (serverNode == null) {
-            Log.e(TAG, "Server node not found: 0x" + String.format("%04X", row.serverAddr));
-            return;
-        }
-
-        List<ApplicationKey> appKeys = vm.getNetworkLiveData().getAppKeys();
-        if (appKeys == null || appKeys.isEmpty()) {
-            Log.e(TAG, "No AppKey available");
-            return;
-        }
-        int appKeyIndex = appKeys.get(0).getKeyIndex();
-
-        if (!clientToServerDone) {
-            // Reset retry count for fresh attempt
-            mRetryCount.remove(retryKey(row.clientAddr, row.serverAddr));
-            setupPublicationWithDelay(clientNode, row.clientAddr,
-                    GENERIC_ONOFF_CLIENT, row.serverAddr,
-                    appKeyIndex, "Client→Server", 0);
-        }
-
-        if (!serverToClientDone) {
-            mRetryCount.remove(retryKey(row.serverAddr, row.clientAddr));
-            setupPublicationWithDelay(serverNode, row.serverAddr,
-                    GENERIC_ONOFF_SERVER, row.clientAddr,
-                    appKeyIndex, "Server→Client", 1500);
+        // ── Direction 2: Client → Server (receiveId based) ────────────────────
+        if (!clientToServerDone && row.receiveAddr != -1 && row.serverAddr != -1) {
+            ProvisionedMeshNode clientNode = findNodeByAddress(row.receiveAddr);
+            if (clientNode != null) {
+                List<ApplicationKey> appKeys = vm.getNetworkLiveData().getAppKeys();
+                if (appKeys != null && !appKeys.isEmpty()) {
+                    mRetryCount.remove(retryKey(row.receiveAddr, row.serverAddr));
+                    setupPublicationWithDelay(clientNode, row.receiveAddr,
+                            GENERIC_ONOFF_CLIENT, row.serverAddr,
+                            appKeys.get(0).getKeyIndex(), "Client→Server", 1500);
+                }
+            }
         }
     }
 
@@ -538,18 +523,34 @@ public class AreaClientListActivity extends AppCompatActivity {
             int svgId      = entry.getKey();
             int clientAddr = entry.getValue();
             int serverAddr = -1;
+            int receiveAddr = -1;
 
             String serverStoreKey = ClientServerElementStore.getKeyBySvgElementIdAndArea(
                     svgId, clientArea.toLowerCase());
+
             if (serverStoreKey != null) {
-                serverAddr = ClientServerElementStore.getServerUnicastAddress(serverStoreKey);
-                if (serverAddr != -1 && !isNodeStillProvisioned(serverAddr)) serverAddr = -1;
+                // Server address
+                int sAddr = ClientServerElementStore.getServerUnicastAddress(serverStoreKey);
+                if (sAddr != -1 && isNodeStillProvisioned(sAddr)) {
+                    serverAddr = sAddr;
+                }
+
+                // receiveId → client element address for C→S direction
+                String receiveId = ClientServerElementStore.getReceiveId(serverStoreKey);
+                if (receiveId != null && !receiveId.trim().isEmpty()) {
+                    try {
+                        int receiveIndex = Integer.parseInt(receiveId.trim());
+                        int rAddr = ClientServerElementStore.getClientAddress(
+                                key, receiveIndex);
+                        if (rAddr != -1) receiveAddr = rAddr;
+                    } catch (NumberFormatException ignored) {}
+                }
             }
-            rows.add(new ElementRow(svgId, clientAddr, serverAddr));
+
+            rows.add(new ElementRow(svgId, clientAddr, serverAddr, receiveAddr));
         }
         return rows;
     }
-
     private boolean isNodeStillProvisioned(int addr) {
         if (addr == -1) return false;
         List<ProvisionedMeshNode> nodes = vm.getAllProvisionedNodes();
@@ -661,8 +662,12 @@ public class AreaClientListActivity extends AppCompatActivity {
         }
     }
 
+    // ── ElementRow — receiveAddr ─────────────────────────────────
     static class ElementRow {
-        final int index, clientAddr, serverAddr;
-        ElementRow(int i, int c, int s) { index = i; clientAddr = c; serverAddr = s; }
+        final int index, clientAddr, serverAddr, receiveAddr;
+        // receiveAddr = client element address used for Client→Server direction
+        ElementRow(int i, int c, int s, int r) {
+            index = i; clientAddr = c; serverAddr = s; receiveAddr = r;
+        }
     }
 }

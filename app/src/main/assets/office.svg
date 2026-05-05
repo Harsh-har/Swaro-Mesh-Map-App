@@ -735,7 +735,7 @@
       </g>
       <g id="smt:Relay Node2">
         <metadata>
-          <elementId>20</elementId>
+          <elementId>2</elementId>
           <reciveId>2</reciveId>
         </metadata>
         <rect x="417.84" y="429.19" width="6.68" height="6.68" rx=".89" ry=".89" fill="#ff0" stroke="#000" stroke-width=".11"/>
@@ -798,7 +798,7 @@
       </g>
       <g id="Casting:Relay Node3">
         <metadata>
-          <elementId>35</elementId>
+          <elementId>5</elementId>
           <reciveId>5</reciveId>
         </metadata>        <rect x="476.85" y="153.41" width="6.44" height="6.44" rx=".86" ry=".86" fill="#ff0" stroke="#000" stroke-width=".11"/>
         <path d="M478.62,158.45h3.61" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width=".11"/>
