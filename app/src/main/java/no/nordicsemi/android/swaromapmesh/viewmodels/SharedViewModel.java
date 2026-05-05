@@ -4,6 +4,8 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -23,6 +25,7 @@ import no.nordicsemi.android.swaromapmesh.MeshNetwork;
 import no.nordicsemi.android.swaromapmesh.NodeKey;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
+import no.nordicsemi.android.swaromapmesh.swajaui.AutoPublicationHelper;
 import no.nordicsemi.android.swaromapmesh.transport.Element;
 import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
@@ -40,7 +43,14 @@ public class SharedViewModel extends BaseViewModel
     private static final String KEY_SVG_URI             = "svg_uri";
     private static final String DEFAULT_SELECTED_DEVICE = "All Device";
 
+    // Publication settings (same as AreaClientListActivity)
+    private static final int GENERIC_ONOFF_CLIENT = 0x1001;
+    private static final int GENERIC_ONOFF_SERVER = 0x1000;
+
     private final SharedPreferences prefs;
+
+    // ── Application context (for publication setup) ────────────────────────
+    private final Context mContext;
 
     // ── Repositories ───────────────────────────────────────────────────────
     private final ScannerRepository      mScannerRepository;
@@ -79,6 +89,7 @@ public class SharedViewModel extends BaseViewModel
     ) {
         super(nrfMeshRepository);
 
+        mContext = context;
         ClientServerElementStore.init(context);
 
         mScannerRepository = scannerRepository;
@@ -102,6 +113,9 @@ public class SharedViewModel extends BaseViewModel
 
         // ── After network import → re-sync ────────────────────────────────
         mNrfMeshRepository.setOnNetworkImportedCallback(this::onNetworkImported);
+
+        // ── Register auto-setup complete callback → triggers publication ───
+        mNrfMeshRepository.setAutoSetupCompleteListener(this::onAutoSetupComplete);
     }
 
     @Override
@@ -134,9 +148,219 @@ public class SharedViewModel extends BaseViewModel
             }
         }
         syncFromStore();
-        new android.os.Handler(android.os.Looper.getMainLooper())
+        new Handler(Looper.getMainLooper())
                 .postDelayed(this::forceSvgRefresh, 1000);
         Log.d(TAG, "✅ onNetworkImported: rebuilt " + nodeToSvgMap.size() + " UUID mappings");
+    }
+
+    // =========================================================================
+    // AUTO PUBLICATION SETUP
+    // Called automatically when NrfMeshRepository completes auto-bind for a node
+    // =========================================================================
+
+    /**
+     * Called by NrfMeshRepository when all AppKey binds are done for a node.
+     * Triggers bidirectional publication setup automatically — no Activity needed.
+     */
+    private void onAutoSetupComplete(@NonNull ProvisionedMeshNode node) {
+        Log.d(TAG, "🔔 onAutoSetupComplete: node=0x"
+                + String.format("%04X", node.getUnicastAddress())
+                + " name=" + node.getNodeName());
+
+        // 500ms delay — store ko settle hone do
+        new Handler(Looper.getMainLooper())
+                .postDelayed(() -> triggerPublicationSetup(node), 500);
+    }
+
+    /**
+     * Finds all client-server pairs that need publication, then sets them up.
+     */
+    private void triggerPublicationSetup(@NonNull ProvisionedMeshNode completedNode) {
+        Log.d(TAG, "📡 triggerPublicationSetup: checking all pairs...");
+
+        List<ApplicationKey> appKeys = getNetworkLiveData().getAppKeys();
+        if (appKeys == null || appKeys.isEmpty()) {
+            Log.e(TAG, "triggerPublicationSetup: no AppKey available");
+            return;
+        }
+        int appKeyIndex = appKeys.get(0).getKeyIndex();
+
+        SharedPreferences meshPrefs = mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
+        if (storePrefs == null) {
+            Log.e(TAG, "triggerPublicationSetup: storePrefs null");
+            return;
+        }
+
+        Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
+        if (provisionedKeys.isEmpty()) {
+            Log.d(TAG, "triggerPublicationSetup: no provisioned keys");
+            return;
+        }
+
+        boolean anyScheduled = false;
+        long delayOffset = 0;
+
+        for (String clientKey : provisionedKeys) {
+            // Normalize the key name (strip area prefix for lookup)
+            String keyName = clientKey.contains(":")
+                    ? clientKey.split(":")[1].trim().toLowerCase()
+                    : clientKey.toLowerCase();
+            String areaPrefix = clientKey.contains(":")
+                    ? clientKey.split(":")[0].trim().toLowerCase()
+                    : "";
+
+            // Find all element_addr_ entries for this clientKey
+            Map<Integer, Integer> clientIndexToAddr = new HashMap<>();
+            for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
+                String k = e.getKey();
+                if (!k.startsWith("element_addr_")) continue;
+                String rest = k.substring("element_addr_".length());
+                int sep = rest.lastIndexOf("_");
+                if (sep == -1) continue;
+                String storedName = rest.substring(0, sep).toLowerCase();
+                if (!storedName.equals(keyName)) continue;
+                try {
+                    int idx = Integer.parseInt(rest.substring(sep + 1));
+                    int addr = (int) e.getValue();
+                    clientIndexToAddr.put(idx, addr);
+                } catch (Exception ignored) {}
+            }
+
+            if (clientIndexToAddr.isEmpty()) continue;
+
+            for (Map.Entry<Integer, Integer> entry : clientIndexToAddr.entrySet()) {
+                int svgElementId = entry.getKey();
+                int clientAddr   = entry.getValue();
+
+                // Find matching server via svgElementId + area
+                String serverStoreKey = ClientServerElementStore
+                        .getKeyBySvgElementIdAndArea(svgElementId, areaPrefix);
+                if (serverStoreKey == null) {
+                    Log.d(TAG, "  No server key for svgId=" + svgElementId
+                            + " area=" + areaPrefix);
+                    continue;
+                }
+
+                int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverStoreKey);
+                if (serverAddr == -1) {
+                    Log.d(TAG, "  Server addr not found for key=" + serverStoreKey);
+                    continue;
+                }
+
+                // Check if server node is actually provisioned
+                if (!isNodeInNetwork(serverAddr)) {
+                    Log.d(TAG, "  Server 0x" + String.format("%04X", serverAddr)
+                            + " not in network yet — skip");
+                    continue;
+                }
+
+                // Already done?
+                if (AutoPublicationHelper.isPublicationSetupComplete(
+                        meshPrefs, clientAddr, serverAddr)) {
+                    Log.d(TAG, "  Already complete: 0x" + String.format("%04X", clientAddr)
+                            + " ↔ 0x" + String.format("%04X", serverAddr));
+                    continue;
+                }
+
+                Log.d(TAG, "  📤 Scheduling publication: 0x"
+                        + String.format("%04X", clientAddr)
+                        + " ↔ 0x" + String.format("%04X", serverAddr)
+                        + " (delay=" + delayOffset + "ms)");
+
+                final int fClientAddr = clientAddr;
+                final int fServerAddr = serverAddr;
+                final int fAppKeyIndex = appKeyIndex;
+                final long fDelay = delayOffset;
+
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> setupPublicationPair(fClientAddr, fServerAddr, fAppKeyIndex),
+                        fDelay);
+
+                delayOffset += 3000; // 3 second gap between pairs to avoid BLE collision
+                anyScheduled = true;
+            }
+        }
+
+        if (anyScheduled) {
+            Log.d(TAG, "✅ triggerPublicationSetup: pairs scheduled with staggered delays");
+        } else {
+            Log.d(TAG, "triggerPublicationSetup: nothing to schedule");
+        }
+    }
+
+    /**
+     * Sets up bidirectional publication between one client-server pair.
+     */
+    private void setupPublicationPair(int clientAddr, int serverAddr, int appKeyIndex) {
+        Log.d(TAG, "setupPublicationPair: 0x" + String.format("%04X", clientAddr)
+                + " ↔ 0x" + String.format("%04X", serverAddr));
+
+        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+        if (nodes == null) {
+            Log.e(TAG, "setupPublicationPair: node list null");
+            return;
+        }
+
+        ProvisionedMeshNode clientNode = null;
+        ProvisionedMeshNode serverNode = null;
+
+        for (ProvisionedMeshNode n : nodes) {
+            for (Element el : n.getElements().values()) {
+                if (el.getElementAddress() == clientAddr) clientNode = n;
+                if (el.getElementAddress() == serverAddr) serverNode = n;
+            }
+        }
+
+        if (clientNode == null) {
+            Log.e(TAG, "setupPublicationPair: clientNode not found for 0x"
+                    + String.format("%04X", clientAddr));
+            return;
+        }
+        if (serverNode == null) {
+            Log.e(TAG, "setupPublicationPair: serverNode not found for 0x"
+                    + String.format("%04X", serverAddr));
+            return;
+        }
+
+        int clientElemIndex = AutoPublicationHelper.getElementIndex(clientNode, clientAddr);
+        int serverElemIndex = AutoPublicationHelper.getElementIndex(serverNode, serverAddr);
+
+        if (clientElemIndex == -1 || serverElemIndex == -1) {
+            Log.e(TAG, "setupPublicationPair: element index not found"
+                    + " clientIdx=" + clientElemIndex
+                    + " serverIdx=" + serverElemIndex);
+            return;
+        }
+
+        Log.d(TAG, "  Client node=0x" + String.format("%04X", clientNode.getUnicastAddress())
+                + " elemIdx=" + clientElemIndex);
+        Log.d(TAG, "  Server node=0x" + String.format("%04X", serverNode.getUnicastAddress())
+                + " elemIdx=" + serverElemIndex);
+
+        AutoPublicationHelper.setupBidirectionalPublication(
+                this,
+                clientNode,
+                serverNode,
+                clientElemIndex,
+                serverElemIndex,
+                appKeyIndex
+        );
+    }
+
+    /**
+     * Checks whether a node with the given unicast address exists in the mesh network.
+     */
+    private boolean isNodeInNetwork(int unicastAddr) {
+        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+        if (nodes == null) return false;
+        for (ProvisionedMeshNode n : nodes) {
+            if (n.getUnicastAddress() == unicastAddr) return true;
+            for (Element el : n.getElements().values()) {
+                if (el.getElementAddress() == unicastAddr) return true;
+            }
+        }
+        return false;
     }
 
     // =========================================================================
@@ -155,9 +379,11 @@ public class SharedViewModel extends BaseViewModel
         syncFromStore();
         Log.d(TAG, "🔄 forceSvgRefresh done");
     }
+
     public LiveData<MeshMessage> getMeshMessageLiveData() {
         return mNrfMeshRepository.getMeshMessageLiveData();
     }
+
     public void clearProvisionedDevices() {
         for (String key : ClientServerElementStore.getProvisionedKeys()) {
             ClientServerElementStore.clearDevice(key);
@@ -220,7 +446,6 @@ public class SharedViewModel extends BaseViewModel
             ClientServerElementStore.clearDevice(svgId);
             Log.d(TAG, "✅ fullyDeleteNode: clearDevice(" + svgId + ")");
         } else {
-            // ── Last resort: unicast se seedha provisioned set scan karke remove
             Log.w(TAG, "⚠️ fullyDeleteNode: svgId null — scanning provisioned set by unicast");
             Set<String> keys = ClientServerElementStore.getProvisionedKeys();
             for (String key : keys) {
@@ -241,6 +466,7 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "✅ fullyDeleteNode complete: " + realNode.getNodeName());
         return true;
     }
+
     // =========================================================================
     // CLIENT PROVISIONING
     // =========================================================================
@@ -620,7 +846,6 @@ public class SharedViewModel extends BaseViewModel
 
     public void setServerSvgDeviceId(@Nullable String serverSvgDeviceId) {
         mServerSvgDeviceId.setValue(serverSvgDeviceId);
-        // Persist via Store area id (lightweight — just the key reference)
         if (serverSvgDeviceId != null) {
             ClientServerElementStore.saveServerAreaId(serverSvgDeviceId, serverSvgDeviceId);
         }

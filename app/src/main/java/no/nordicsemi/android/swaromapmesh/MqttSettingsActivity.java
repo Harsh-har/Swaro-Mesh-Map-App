@@ -47,32 +47,41 @@ public class MqttSettingsActivity extends AppCompatActivity {
     private void loadSettings() {
         SharedPreferences p = getSharedPreferences(PREFS_MQTT, Context.MODE_PRIVATE);
 
-        String host     = p.getString(KEY_BROKER_HOST, "");
-        int port        = p.getInt(KEY_BROKER_PORT, 1883);
+        String host = p.getString(KEY_BROKER_HOST, "");
+        int port = p.getInt(KEY_BROKER_PORT, 1883);
         String username = p.getString(KEY_USERNAME, "");
         String password = p.getString(KEY_PASSWORD, "");
 
+        // Check if settings are empty (first time run)
         if (TextUtils.isEmpty(host)) {
+            // Set default values
             host = "192.168.1.200";
             port = 1883;
             username = "Swajahome";
             password = "12345678";
 
+            // Save defaults immediately to SharedPreferences
             SharedPreferences.Editor e = p.edit();
             e.putString(KEY_BROKER_HOST, host);
             e.putInt(KEY_BROKER_PORT, port);
             e.putString(KEY_USERNAME, username);
             e.putString(KEY_PASSWORD, password);
             e.apply();
+
+            // Show toast and close activity automatically
+            Toast.makeText(this, "Default settings saved automatically!", Toast.LENGTH_SHORT).show();
+
+            // Optional: Finish activity so user doesn't need to press save
+            finish();
+            return;
         }
 
+        // Display the settings (previously saved ones)
         etBrokerHost.setText(host);
         etBrokerPort.setText(String.valueOf(port));
         etUsername.setText(username);
         etPassword.setText(password);
-    }
-
-    private void saveSettings() {
+    }    private void saveSettings() {
         tilBrokerHost.setError(null);
         tilBrokerPort.setError(null);
 

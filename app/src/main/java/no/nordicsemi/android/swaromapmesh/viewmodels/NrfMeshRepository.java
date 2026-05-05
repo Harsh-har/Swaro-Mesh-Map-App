@@ -1207,7 +1207,16 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         name = name.replaceAll("\\s*\\d+$", "").trim();
         return name;
     }
+    // ── Publication setup callback ────────────────────────────────────────────
+    public interface OnAutoSetupCompleteListener {
+        void onAutoSetupComplete(@NonNull ProvisionedMeshNode node);
+    }
 
+    private OnAutoSetupCompleteListener mAutoSetupCompleteListener;
+
+    public void setAutoSetupCompleteListener(@Nullable OnAutoSetupCompleteListener listener) {
+        mAutoSetupCompleteListener = listener;
+    }
     // =========================================================================
     // sendNextAutoBind
     // =========================================================================
@@ -1223,7 +1232,6 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         if (mIsBindingInProgress) return;
 
         if (mAutoBindIndex >= mPendingBindOperations.size()) {
-            // ── All models bound ──────────────────────────────────────────────
             Log.d(TAG_BIND, "✅ ALL MODELS BOUND for node 0x"
                     + String.format("%04X", mAutoBindNode.getUnicastAddress()));
 
@@ -1243,15 +1251,20 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 saveClientElementAddresses(mAutoBindNode, rawName);
             }
 
-            // Reset all bind state
-            mAutoBindNode = null;
+            final ProvisionedMeshNode completedNode = mAutoBindNode;
+
+            mAutoBindNode        = null;
             mPendingBindOperations.clear();
             mAutoBindIndex       = 0;
             mIsBindingInProgress = false;
+
+            if (mAutoSetupCompleteListener != null && completedNode != null) {
+                mHandler.post(() -> mAutoSetupCompleteListener.onAutoSetupComplete(completedNode));
+            }
+
             mIsAutoSetupInProgress.postValue(false);
             return;
         }
-
         final int[] op           = mPendingBindOperations.get(mAutoBindIndex);
         final int   elementAddr  = op[0];
         final int   modelId      = op[1];
