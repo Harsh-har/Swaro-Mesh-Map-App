@@ -3,6 +3,7 @@ package no.nordicsemi.android.swaromapmesh;
 import android.content.Intent;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
 import android.widget.Toast;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
@@ -21,23 +22,23 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
     private static final String TAG = "DeviceDetailActivity";
 
-    // ── Intent extras (public — used by callers) ───────────────────────────
-    public static final String EXTRA_PURE_DEVICE_NAME  = "pure_device_name";
-    public static final String EXTRA_DEVICE_ID         = "device_id";
-    public static final String EXTRA_ELEMENT_ID        = "element_id";
-    public static final String EXTRA_DEVICE_NAME       = "device_name";
+    // ── Intent extras ──────────────────────────────────────────────────────
+    public static final String EXTRA_PURE_DEVICE_NAME   = "pure_device_name";
+    public static final String EXTRA_DEVICE_ID          = "device_id";
+    public static final String EXTRA_ELEMENT_ID         = "element_id";
+    public static final String EXTRA_NODE_ID            = "node_id";       // ← naya
+    public static final String EXTRA_DEVICE_NAME        = "device_name";
     public static final String EXTRA_AUTO_FILTER_DEVICE = "auto_filter_device";
-    public static final String EXTRA_DEVICE_TYPE       = "device_type";
-    public static final String DEVICE_TYPE_SERVER      = "server";
-    public static final String DEVICE_TYPE_CLIENT      = "client";
-
-    // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES, KEY_SERVER_SVG_DEVICE_ID
+    public static final String EXTRA_DEVICE_TYPE        = "device_type";
+    public static final String DEVICE_TYPE_SERVER       = "server";
+    public static final String DEVICE_TYPE_CLIENT       = "client";
 
     private ActivityDeviceDetailBinding binding;
     private SharedViewModel             sharedViewModel;
 
     private String deviceId;
     private String elementId;
+    private String nodeId;          // ← naya: sirf 2-ID nodes ke liye
     private String deviceName;
     private String deviceType;
     private int    svgElementIdInt = -1;
@@ -63,13 +64,16 @@ public class DeviceDetailActivity extends AppCompatActivity {
         deviceId   = getIntent().getStringExtra(EXTRA_DEVICE_ID);
         deviceName = getIntent().getStringExtra(EXTRA_DEVICE_NAME);
         elementId  = getIntent().getStringExtra(EXTRA_ELEMENT_ID);
+        nodeId     = getIntent().getStringExtra(EXTRA_NODE_ID);     // ← naya
         deviceType = getIntent().getStringExtra(EXTRA_DEVICE_TYPE);
 
-        if (elementId != null && !elementId.isEmpty()) {
+        // svgElementIdInt: nodeId prefer karo (2-ID case), fallback to elementId (1-ID case)
+        String idToParse = (nodeId != null && !nodeId.isEmpty()) ? nodeId : elementId;
+        if (idToParse != null && !idToParse.isEmpty()) {
             try {
-                svgElementIdInt = Integer.parseInt(elementId.trim());
+                svgElementIdInt = Integer.parseInt(idToParse.trim());
             } catch (NumberFormatException e) {
-                Log.e(TAG, "Invalid element ID format: " + elementId);
+                Log.e(TAG, "Not numeric (expected for group IDs like PDRD): " + idToParse);
             }
         }
 
@@ -122,6 +126,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private void populateDeviceInfo() {
         String pureDeviceName = getIntent().getStringExtra(EXTRA_PURE_DEVICE_NAME);
 
+        // ── Device name ───────────────────────────────────────────────────
         if (pureDeviceName != null && !pureDeviceName.isEmpty()) {
             deviceName = pureDeviceName;
             binding.tvDeviceIdValue.setText(pureDeviceName);
@@ -133,12 +138,25 @@ public class DeviceDetailActivity extends AppCompatActivity {
             binding.tvDeviceIdValue.setText(deviceId);
         }
 
+        // ── Element ID ────────────────────────────────────────────────────
         binding.tvElementIdValue.setText(
                 (elementId != null && !elementId.isEmpty()) ? elementId : "—");
 
-        Log.d(TAG, "populateDeviceInfo: deviceName=" + deviceName
-                + " originalId=" + deviceId
+        // ── Node ID row: sirf tab dikhao jab 2 IDs hain ──────────────────
+        boolean hasTwoIds = (nodeId != null && !nodeId.isEmpty());
+
+        if (hasTwoIds) {
+            binding.rowNodeId.setVisibility(View.VISIBLE);
+            binding.tvNodeIdValue.setText(nodeId);
+        } else {
+            binding.rowNodeId.setVisibility(View.GONE);
+        }
+
+        Log.d(TAG, "populateDeviceInfo:"
+                + " deviceName=" + deviceName
                 + " elementId=" + elementId
+                + " nodeId=" + nodeId
+                + " hasTwoIds=" + hasTwoIds
                 + " svgElementIdInt=" + svgElementIdInt);
     }
 
@@ -148,6 +166,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
             intent.putExtra(EXTRA_DEVICE_ID,   deviceId);
             intent.putExtra(EXTRA_DEVICE_NAME, deviceName);
             intent.putExtra(EXTRA_ELEMENT_ID,  elementId);
+            intent.putExtra(EXTRA_NODE_ID,     nodeId);     // ← pass karo
             startActivity(intent);
         });
 
@@ -162,9 +181,12 @@ public class DeviceDetailActivity extends AppCompatActivity {
             intent.putExtra(EXTRA_DEVICE_NAME,            deviceName);
             intent.putExtra(EXTRA_DEVICE_TYPE,            deviceType);
             intent.putExtra(EXTRA_ELEMENT_ID,             elementId);
+            intent.putExtra(EXTRA_NODE_ID,                nodeId);   // ← pass karo
 
             Log.d(TAG, "Launch provisioning: deviceId=" + deviceId
-                    + " deviceName=" + deviceName);
+                    + " deviceName=" + deviceName
+                    + " elementId=" + elementId
+                    + " nodeId=" + nodeId);
             provisioner.launch(intent);
         });
     }
@@ -194,8 +216,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
         }
         final String finalSvgDeviceId = svgDeviceId;
 
-        // ── Resolve svgElementId ──────────────────────────────────────────
-        // svgElementIdInt already parsed in onCreate; use it directly.
         if (svgElementIdInt == -1) {
             Log.e(TAG, "❌ svgElementIdInt = -1 — elementId was invalid: " + elementId);
         }
@@ -206,7 +226,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
         if (provisionedNode == null) {
             Log.e(TAG, "❌ provisionedNode is null — cannot save addresses for: "
                     + finalSvgDeviceId);
-            // Still mark provisioned so SVG turns green
             ClientServerElementStore.markProvisioned(finalSvgDeviceId);
             sharedViewModel.syncFromStore();
             showProvisionedToast(finalSvgDeviceId);
@@ -218,37 +237,29 @@ public class DeviceDetailActivity extends AppCompatActivity {
                 finalSvgDeviceId,
                 provisionedNode.getUnicastAddress(),
                 svgElementIdInt,
-                provisionedNode.getMacAddress()
+                provisionedNode.getMacAddress(),
+                nodeId
         );
 
         Log.d(TAG, "✅ saveDevice: svgId=" + finalSvgDeviceId
                 + " unicast=0x" + String.format("%04X", provisionedNode.getUnicastAddress())
                 + " svgElementId=" + svgElementIdInt
+                + " nodeId=" + nodeId
                 + " mac=" + provisionedNode.getMacAddress());
 
-        // ── UUID → SVG mapping (in-memory + node_svg_ prefs) ─────────────
         sharedViewModel.mapNodeToSvg(provisionedNode.getUuid(), finalSvgDeviceId);
-        Log.d(TAG, "✅ mapNodeToSvg: uuid=" + provisionedNode.getUuid()
-                + " → " + finalSvgDeviceId);
-
-        // ── Sync ViewModel LiveData from Store ────────────────────────────
-
         sharedViewModel.syncFromStore();
 
-        // ── Device-type specific logic ────────────────────────────────────
         if (DEVICE_TYPE_SERVER.equals(deviceType)) {
             sharedViewModel.setServerSvgDeviceId(finalSvgDeviceId);
             Log.d(TAG, "🖥️ SERVER provisioned: " + finalSvgDeviceId);
-
         } else if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
             Log.d(TAG, "📱 CLIENT provisioned: " + finalSvgDeviceId);
-
         } else {
             Log.d(TAG, "ℹ️ Unknown device type: " + deviceType);
         }
 
         showProvisionedToast(finalSvgDeviceId);
-
         Log.d(TAG, "✅ Provisioning fully completed for: " + finalSvgDeviceId);
         finish();
     }
@@ -260,11 +271,17 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private void showProvisionedToast(String svgDeviceId) {
         String label = (deviceName != null && !deviceName.isEmpty())
                 ? deviceName : svgDeviceId;
+
+        // 2 IDs hain to dono dikhao, warna sirf ek
+        String elementDisplay = (nodeId != null && !nodeId.isEmpty())
+                ? elementId + " | Node: " + nodeId
+                : (elementId != null ? elementId : "—");
+
         String msg;
         if (DEVICE_TYPE_SERVER.equals(deviceType)) {
-            msg = "Server " + label + " provisioned!\nElement ID: " + elementId;
+            msg = "Server " + label + " provisioned!\nElement ID: " + elementDisplay;
         } else if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
-            msg = "Client " + label + " provisioned!\nElement ID: " + elementId;
+            msg = "Client " + label + " provisioned!\nElement ID: " + elementDisplay;
         } else {
             msg = label + " provisioned successfully!";
         }

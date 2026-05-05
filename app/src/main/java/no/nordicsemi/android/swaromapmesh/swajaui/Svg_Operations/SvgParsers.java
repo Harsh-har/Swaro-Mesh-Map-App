@@ -162,7 +162,34 @@ public class SvgParsers {
         if (bounds == null || bounds.isEmpty()) return;
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
-        devices.put(id, new DeviceInfo(id, el, bounds, elementId, areaId));
+        String nodeId = extractNodeId(el);
+        devices.put(id, new DeviceInfo(id, el, bounds, elementId, nodeId, areaId));
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+        //  NODE ID METADATA  (<nodeId> child tag) — only for 2-ID nodes
+// ══════════════════════════════════════════════════════════════════════
+
+    public String extractNodeId(Element element) {
+        return findNodeIdInNode(element);
+    }
+
+    private String findNodeIdInNode(Node node) {
+        if (node instanceof Element) {
+            Element el  = (Element) node;
+            String  tag = el.getTagName();
+            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+            if ("nodeId".equalsIgnoreCase(tag)) {
+                String text = el.getTextContent();
+                return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
+            }
+        }
+        NodeList children = node.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            String r = findNodeIdInNode(children.item(i));
+            if (r != null) return r;
+        }
+        return null;
     }
 
     private boolean hasDirectRectChild(Element el) {

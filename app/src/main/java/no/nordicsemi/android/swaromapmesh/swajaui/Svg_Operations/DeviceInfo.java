@@ -14,18 +14,22 @@ public class DeviceInfo {
     /** Bounding box in SVG coordinate space */
     public final RectF bounds;
 
-    /** Element ID extracted from <elementId> child node */
+    /** Element ID extracted from <elementId> child node (e.g. "PDRD", "VCRD", "1") */
     public final String elementId;
+
+    /** Node ID extracted from <nodeId> child node — only for 2-ID nodes (e.g. "2", "3") */
+    public final String nodeId;
 
     /** Area group ID this device belongs to (e.g. "LivingRoom") */
     public final String areaId;
 
     public DeviceInfo(String id, Element element, RectF bounds,
-                      String elementId, String areaId) {
+                      String elementId, String nodeId, String areaId) {  // ← nodeId add
         this.id        = id;
         this.element   = element;
         this.bounds    = bounds;
         this.elementId = elementId;
+        this.nodeId    = nodeId;
         this.areaId    = areaId;
     }
 }

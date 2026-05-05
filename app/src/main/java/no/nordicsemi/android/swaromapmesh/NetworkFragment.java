@@ -894,6 +894,8 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
                 device != null ? device.elementId : null);
+        intent.putExtra(DeviceDetailActivity.EXTRA_NODE_ID,
+                device != null ? device.nodeId : null);
         startActivity(intent);
     }
     private String extractPureDeviceName(String fullDeviceId) {

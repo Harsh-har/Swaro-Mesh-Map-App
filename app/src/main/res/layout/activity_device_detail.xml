@@ -6,7 +6,6 @@
     android:layout_height="match_parent"
     android:background="@color/background">
 
-    <!-- AppBar -->
     <com.google.android.material.appbar.AppBarLayout
         android:id="@+id/app_bar"
         android:layout_width="match_parent"
@@ -16,12 +15,10 @@
         <com.google.android.material.appbar.MaterialToolbar
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-  />
+            android:layout_height="?attr/actionBarSize" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- Scrollable content -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -48,7 +45,6 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <!-- Section header -->
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -101,6 +97,33 @@
 
                         <com.google.android.material.textview.MaterialTextView
                             android:id="@+id/tv_element_id_value"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="2"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp"
+                            android:gravity="end" />
+                    </LinearLayout>
+
+                    <!-- Node ID row — only visible when nodeId exists (2 IDs case) -->
+                    <LinearLayout
+                        android:id="@+id/row_node_id"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginBottom="10dp"
+                        android:visibility="gone">
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Node ID"
+                            android:textColor="#888"
+                            android:textSize="14sp" />
+
+                        <com.google.android.material.textview.MaterialTextView
+                            android:id="@+id/tv_node_id_value"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="2"
@@ -162,7 +185,6 @@
                         android:textStyle="bold"
                         android:letterSpacing="0.08" />
 
-                    <!-- Add to Network -->
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/add_to_network"
                         android:layout_width="match_parent"
@@ -172,9 +194,6 @@
                         android:textColor="@android:color/black"
                         app:backgroundTint="#ffbb00"
                         app:cornerRadius="8dp" />
-
-
-
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
