@@ -52,6 +52,9 @@ public class ScannerRepository {
     // ✅ FIX: Flag to prevent scan restart after proxy connection is established
     private boolean mIsConnected = false;
 
+    //RSSI Filter
+    private int mRssiThreshold = Integer.MIN_VALUE;
+
     // ------------------------------------------------------------------------
     // Scan Callback
     // ------------------------------------------------------------------------
@@ -287,12 +290,17 @@ public class ScannerRepository {
     // Helpers
     // ------------------------------------------------------------------------
     private void updateScannerLiveData(final ScanResult result) {
+        // ✅ RSSI filter
+        if (mRssiThreshold != Integer.MIN_VALUE && result.getRssi() < mRssiThreshold) {
+            Log.d(TAG, "Skipping device RSSI=" + result.getRssi()
+                    + " below threshold=" + mRssiThreshold);
+            return;
+        }
+
         final ScanRecord scanRecord = result.getScanRecord();
         if (scanRecord != null && scanRecord.getBytes() != null) {
-
             final byte[] beaconData =
                     mMeshManagerApi.getMeshBeaconData(scanRecord.getBytes());
-
             if (beaconData != null) {
                 mScannerLiveData.deviceDiscovered(
                         result,
@@ -300,11 +308,9 @@ public class ScannerRepository {
             } else {
                 mScannerLiveData.deviceDiscovered(result);
             }
-
             mScannerStateLiveData.deviceFound();
         }
     }
-
     private boolean checkIfNodeIdentityMatches(final byte[] serviceData) {
         final MeshNetwork network = mMeshManagerApi.getMeshNetwork();
         if (network != null) {
@@ -315,6 +321,10 @@ public class ScannerRepository {
             }
         }
         return false;
+    }
+    public void setRssiThreshold(int threshold) {
+        mRssiThreshold = threshold;
+        Log.d(TAG, "RSSI threshold set: " + threshold);
     }
 
     // ------------------------------------------------------------------------

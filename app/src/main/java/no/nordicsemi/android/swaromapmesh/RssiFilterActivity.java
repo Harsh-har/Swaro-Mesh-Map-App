@@ -46,7 +46,9 @@ public class RssiFilterActivity extends AppCompatActivity {
         setInitialSelection(selectedSignal);
 
         rgSignalStrength.setOnCheckedChangeListener((group, checkedId) -> {
-            if (checkedId == R.id.rbSignal100)
+            if (checkedId == R.id.rbSignalVeryClose)
+                selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
+            else if (checkedId == R.id.rbSignal100)
                 selectedSignal = DevicesAdapter.SIGNAL_100;
             else if (checkedId == R.id.rbSignal50)
                 selectedSignal = DevicesAdapter.SIGNAL_50;
@@ -55,21 +57,22 @@ public class RssiFilterActivity extends AppCompatActivity {
             else
                 selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
         });
-
         btnApply.setOnClickListener(v -> {
             mSharedViewModel.setSignalThreshold(selectedSignal);
             finish();
         });
 
         btnReset.setOnClickListener(v -> {
-            selectedSignal = DevicesAdapter.SIGNAL_100;
+            selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
             mSharedViewModel.setSignalThreshold(selectedSignal);
             setInitialSelection(selectedSignal);
         });
     }
 
     private void setInitialSelection(int value) {
-        if (value == DevicesAdapter.SIGNAL_100)
+        if (value == DevicesAdapter.SIGNAL_VERY_CLOSE)
+            rgSignalStrength.check(R.id.rbSignalVeryClose);
+        else if (value == DevicesAdapter.SIGNAL_100)
             rgSignalStrength.check(R.id.rbSignal100);
         else if (value == DevicesAdapter.SIGNAL_50)
             rgSignalStrength.check(R.id.rbSignal50);

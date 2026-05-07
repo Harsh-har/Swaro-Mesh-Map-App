@@ -65,37 +65,45 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp">
 
-        <!-- 100% (Default Selected) -->
+        <!-- Very Close ~0.5m (-45 dBm) -->
+        <RadioButton
+            android:id="@+id/rbSignalVeryClose"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Very Close (~0.5m)"
+            android:textColor="@android:color/white"/>
+
+        <!-- 100% ~1m (-55 dBm) -->
         <RadioButton
             android:id="@+id/rbSignal100"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="100%"
+            android:text="Strong (~1m)"
             android:textColor="@android:color/white"
             android:checked="true"/>
 
-        <!-- 50% -->
+        <!-- 50% ~2-3m (-70 dBm) -->
         <RadioButton
             android:id="@+id/rbSignal50"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="50%"
+            android:text="Medium (~2-3m)"
             android:textColor="@android:color/white"/>
 
-        <!-- 20% -->
+        <!-- 20% ~5m (-85 dBm) -->
         <RadioButton
             android:id="@+id/rbSignal20"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="20%"
+            android:text="Weak (~5m)"
             android:textColor="@android:color/white"/>
 
-        <!-- Default (Last) -->
+        <!-- Default — no filter -->
         <RadioButton
             android:id="@+id/rbSignalDefault"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Default"
+            android:text="Default (No Filter)"
             android:textColor="@android:color/white"/>
 
     </RadioGroup>

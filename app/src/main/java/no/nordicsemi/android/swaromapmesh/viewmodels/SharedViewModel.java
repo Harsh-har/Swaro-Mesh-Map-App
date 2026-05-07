@@ -100,7 +100,7 @@ public class SharedViewModel extends BaseViewModel
         // ── Restore simple prefs ───────────────────────────────────────────
         proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
-        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
+        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_100));
 
         final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
         if (savedSvgUri != null) svgUri.setValue(Uri.parse(savedSvgUri));
@@ -744,14 +744,14 @@ public class SharedViewModel extends BaseViewModel
     }
 
     public void setSignalThreshold(int threshold) {
-        int sanitized = (threshold == DevicesAdapter.SIGNAL_100)
-                ? DevicesAdapter.SIGNAL_100 : DevicesAdapter.SIGNAL_DEFAULT;
-        signalThreshold.setValue(sanitized);
-        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, sanitized).apply();
+        signalThreshold.setValue(threshold);
+        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, threshold).apply();
+        mScannerRepository.setRssiThreshold(threshold);
+        Log.d(TAG, "setSignalThreshold: " + threshold);
     }
 
     public void clearSignalThreshold() {
-        setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
+        setSignalThreshold(DevicesAdapter.SIGNAL_100);
     }
 
     // =========================================================================
@@ -852,9 +852,18 @@ public class SharedViewModel extends BaseViewModel
         StringBuilder sb = new StringBuilder();
         if (!getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE))
             sb.append("Device: ").append(getSelectedDeviceValue());
-        if (getSignalThresholdValue() == DevicesAdapter.SIGNAL_100) {
+
+        int threshold = getSignalThresholdValue();
+        if (threshold != DevicesAdapter.SIGNAL_DEFAULT) {
             if (sb.length() > 0) sb.append(" | ");
-            sb.append("Signal ≥ 100%");
+            if (threshold == DevicesAdapter.SIGNAL_VERY_CLOSE)
+                sb.append("Signal: Very Close (~0.5m)");
+            else if (threshold == DevicesAdapter.SIGNAL_100)
+                sb.append("Signal: Strong (~1m)");
+            else if (threshold == DevicesAdapter.SIGNAL_50)
+                sb.append("Signal: Medium (~2-3m)");
+            else if (threshold == DevicesAdapter.SIGNAL_20)
+                sb.append("Signal: Weak (~5m)");
         }
         return sb.length() > 0 ? "Filter: " + sb : "No filter active";
     }

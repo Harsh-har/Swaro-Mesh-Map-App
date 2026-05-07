@@ -22,34 +22,31 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerLiveData;
 public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHolder> {
 
     // RSSI thresholds
-    public static final int SIGNAL_DEFAULT = Integer.MIN_VALUE;
-    public static final int SIGNAL_20      = -85;
-    public static final int SIGNAL_50      = -70;
-    public static final int SIGNAL_100     = -55;
+    public static final int SIGNAL_DEFAULT    = Integer.MIN_VALUE; // no filter
+    public static final int SIGNAL_VERY_CLOSE = -45;  // ~0.5 meter
+    public static final int SIGNAL_100        = -55;  // ~1 meter
+    public static final int SIGNAL_50         = -70;  // ~2-3 meter
+    public static final int SIGNAL_20         = -85;  // ~5 meter
 
     private final List<ExtendedBluetoothDevice> mAllDevices;
     private final List<ExtendedBluetoothDevice> mDisplayedDevices;
 
-    private String mCurrentNameFilter = "";
-    private int mCurrentSignalThreshold = SIGNAL_DEFAULT;
+    private String mCurrentNameFilter      = "";
+    private int    mCurrentSignalThreshold = SIGNAL_DEFAULT;
 
     private OnItemClickListener mOnItemClickListener;
 
     public DevicesAdapter(@NonNull final LifecycleOwner owner,
                           @NonNull final ScannerLiveData scannerLiveData) {
 
-        mAllDevices = new ArrayList<>();
+        mAllDevices       = new ArrayList<>();
         mDisplayedDevices = new ArrayList<>();
 
-        // 🔥 FIXED: correct ScannerLiveData usage
         scannerLiveData.observe(owner, scannerData -> {
-
             if (scannerData == null || scannerData.getDevices() == null) return;
 
-            List<ExtendedBluetoothDevice> devices = scannerData.getDevices();
-
             mAllDevices.clear();
-            mAllDevices.addAll(devices);
+            mAllDevices.addAll(scannerData.getDevices());
 
             applyFilters(mCurrentNameFilter, mCurrentSignalThreshold);
         });
@@ -60,21 +57,19 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     // -------------------------------------------------------------------------
 
     public void applyFilters(@NonNull String nameFilter, int signalThreshold) {
-        mCurrentNameFilter = nameFilter;
+        mCurrentNameFilter      = nameFilter;
         mCurrentSignalThreshold = signalThreshold;
 
         mDisplayedDevices.clear();
 
         for (ExtendedBluetoothDevice device : mAllDevices) {
-
             if (matchesNameFilter(device, nameFilter)
                     && matchesSignalFilter(device, signalThreshold)) {
-
                 mDisplayedDevices.add(device);
             }
         }
 
-        // Sort strongest first
+        // Sort strongest RSSI first
         Collections.sort(mDisplayedDevices,
                 (a, b) -> Integer.compare(b.getRssi(), a.getRssi()));
 
@@ -95,18 +90,14 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     private boolean matchesNameFilter(@NonNull ExtendedBluetoothDevice device,
                                       @NonNull String nameFilter) {
-
         if (nameFilter.isEmpty()) return true;
-
         return device.getName() != null &&
                 device.getName().toLowerCase().contains(nameFilter.toLowerCase());
     }
 
     private boolean matchesSignalFilter(@NonNull ExtendedBluetoothDevice device,
                                         int signalThreshold) {
-
         if (signalThreshold == SIGNAL_DEFAULT) return true;
-
         return device.getRssi() >= signalThreshold;
     }
 
@@ -116,15 +107,16 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     private int getRssiPercentage(int rssi) {
         if (rssi <= -100) return 0;
-        if (rssi >= -50) return 100;
+        if (rssi >= -50)  return 100;
         return 2 * (rssi + 100);
     }
 
     private int getSignalLevel(int rssi) {
-        if (rssi >= -55) return 4;
-        else if (rssi >= -65) return 3;
-        else if (rssi >= -75) return 2;
-        else return 1;
+        if (rssi >= SIGNAL_VERY_CLOSE) return 4; // -45  = strongest
+        else if (rssi >= SIGNAL_100)   return 3; // -55 to -46
+        else if (rssi >= SIGNAL_50)    return 2; // -70 to -56
+        else if (rssi >= SIGNAL_20)    return 1; // -85 to -71
+        else                           return 0; // -85   = weakest
     }
 
     // -------------------------------------------------------------------------
@@ -144,18 +136,16 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     @Override
     public void onBindViewHolder(@NonNull final ViewHolder holder, int position) {
-
         final ExtendedBluetoothDevice device = mDisplayedDevices.get(position);
 
         final String name = device.getName();
-        final int rssi = device.getRssi();
+        final int    rssi = device.getRssi();
 
         holder.deviceName.setText(TextUtils.isEmpty(name)
                 ? holder.deviceName.getContext().getString(R.string.unknown_device)
                 : name);
 
         holder.deviceAddress.setText(device.getAddress() + " (" + rssi + " dBm)");
-
         holder.rssi.setImageLevel(getSignalLevel(rssi));
     }
 
@@ -179,21 +169,20 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     final class ViewHolder extends RecyclerView.ViewHolder {
 
-        TextView deviceAddress;
-        TextView deviceName;
+        TextView  deviceAddress;
+        TextView  deviceName;
         ImageView rssi;
 
         private ViewHolder(@NonNull DeviceItemBinding binding) {
             super(binding.getRoot());
 
             deviceAddress = binding.deviceAddress;
-            deviceName = binding.deviceName;
-            rssi = binding.rssi;
+            deviceName    = binding.deviceName;
+            rssi          = binding.rssi;
 
             binding.deviceContainer.setOnClickListener(v -> {
                 if (mOnItemClickListener != null) {
                     int pos = getBindingAdapterPosition();
-
                     if (pos != RecyclerView.NO_POSITION
                             && pos < mDisplayedDevices.size()) {
                         mOnItemClickListener.onItemClick(mDisplayedDevices.get(pos));

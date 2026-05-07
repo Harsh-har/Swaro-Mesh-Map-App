@@ -114,9 +114,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                                 " with SVG ID: " + mSvgDeviceId);
 
                         showConnectingUI();
-                        binding.textConnectingProgress.setText(
-                                String.format("Provisioning complete!\nConnecting to %s...",
-                                        formatMacForDisplay(mProvisionedDeviceMac)));
+                        binding.textConnectingProgress.setText("Provisioning complete!\nConnecting to proxy...");
+
 
                         startAutoConnectAfterProvisioning();
 
@@ -185,7 +184,6 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     // -----------------------------------------------------------------------
     // onCreate
     // -----------------------------------------------------------------------
-
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -197,10 +195,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         final Toolbar toolbar = binding.toolbar;
-        toolbar.setTitle(R.string.title_scanner);
+        toolbar.setTitle(null);
         setSupportActionBar(toolbar);
-        if (getSupportActionBar() != null)
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
 
         // ✅ Read svgDeviceId from incoming intent
         if (getIntent() != null) {
@@ -216,9 +212,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             String autoFilterDevice = getIntent().getStringExtra(
                     DeviceDetailActivity.EXTRA_AUTO_FILTER_DEVICE);
             if (autoFilterDevice != null && !autoFilterDevice.isEmpty()) {
-                Log.d(TAG, "Auto filter set: " + autoFilterDevice);
                 mSharedViewModel.setSelectedDevice(autoFilterDevice);
-                mSharedViewModel.setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
                 mSharedViewModel.setDeviceNameFilter("");
             }
 
@@ -237,18 +231,19 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     Log.d(TAG, "Auto-connect from intent for MAC: " + deviceMac);
 
                     showConnectingUI();
-                    binding.textConnectingProgress.setText(
-                            String.format("Auto-connecting to provisioned device: %s...",
-                                    formatMacForDisplay(deviceMac)));
+                    binding.textConnectingProgress.setText("Connecting to proxy...");
 
                     startAutoConnectAfterProvisioning();
                 }
-            }
-
-            if (getSupportActionBar() != null) {
-                getSupportActionBar().setSubtitle(mScanWithProxyService
-                        ? R.string.sub_title_scanning_nodes
-                        : R.string.sub_title_scanning_proxy_node);
+            } else {
+                // ✅ Normal scanner mode — title, subtitle, back arrow
+                if (getSupportActionBar() != null) {
+                    getSupportActionBar().setTitle(R.string.title_scanner);
+                    getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+                    getSupportActionBar().setSubtitle(mScanWithProxyService
+                            ? R.string.sub_title_scanning_nodes
+                            : R.string.sub_title_scanning_proxy_node);
+                }
             }
         }
 
@@ -312,7 +307,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         mSharedViewModel.getSignalThreshold().observe(this, threshold -> {
             mCurrentSignalFilter = threshold != null
                     ? threshold : DevicesAdapter.SIGNAL_DEFAULT;
-            Log.d(TAG, "Signal filter: " + mCurrentSignalFilter + "%");
+            // mViewModel.getScannerRepository().setRssiThreshold(mCurrentSignalFilter);
+            Log.d(TAG, "Signal filter: " + mCurrentSignalFilter);
             applyFilterToAdapter();
         });
 
@@ -339,6 +335,15 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             String name = device.getName();
             if (name != null
                     && name.toLowerCase().contains(mCurrentDeviceFilter.toLowerCase())) {
+
+                // ✅ RSSI filter check — threshold se kam ho toh skip karo
+                if (mCurrentSignalFilter != DevicesAdapter.SIGNAL_DEFAULT
+                        && device.getRssi() < mCurrentSignalFilter) {
+                    Log.d(TAG, "Auto-click skipped — RSSI=" + device.getRssi()
+                            + " below threshold=" + mCurrentSignalFilter);
+                    continue; //skip
+                }
+
                 Log.i(TAG, "Auto-click: " + name + " [" + device.getAddress() + "]");
                 mAutoClickEnabled = false;
                 onItemClick(device);
@@ -347,7 +352,6 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         }
         Log.d(TAG, "Auto-click: '" + mCurrentDeviceFilter + "' not found yet...");
     }
-
     // -----------------------------------------------------------------------
     // Filter
     // -----------------------------------------------------------------------
@@ -641,11 +645,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     stopScan();
                     stopAutoConnectLoop();
 
-                    // ✅ NEW: Newly provisioned node ke liye full config chain trigger karo
-                    // markSetupRequired() → onDeviceReady mein:
-                    // CompositionDataGet → DefaultTtlGet → AppKeyAdd → AutoBind
                     if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
-                        // ✅ Last provisioned node ka address fetch karo
                         ProvisionedMeshNode provNode =
                                 mViewModel.getMeshRepository().getLastProvisionedNode();
 
@@ -708,14 +708,14 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
     private void updateProgressText() {
         if (targetProxyMac == null || binding.textConnectingProgress == null) return;
+        binding.textConnectingProgress.setVisibility(View.VISIBLE);
         long   elapsed = (System.currentTimeMillis() - mScanStartTime) / 1000;
         String mac     = formatMacForDisplay(targetProxyMac);
-        String text    = mShouldAutoConnectAfterProvisioning
-                ? String.format("Provisioned device: %s\nConnecting... (%ds)", mac, elapsed)
-                : String.format("Looking for device: %s\nElapsed: %ds...", mac, elapsed);
+        String text = mShouldAutoConnectAfterProvisioning
+                ? String.format("Connecting to proxy... (%ds)", elapsed)
+                : String.format("Looking for device... (%ds)", elapsed);
         binding.textConnectingProgress.setText(text);
     }
-
     private void showTimeoutMessage() {
         runOnUiThread(() -> {
             binding.textConnectingProgress.setText(
@@ -737,6 +737,11 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
     private void showConnectingUI() {
         binding.appbarLayout.setVisibility(View.VISIBLE);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(null);
+            getSupportActionBar().setSubtitle(null);
+            getSupportActionBar().setDisplayHomeAsUpEnabled(false);
+        }
         binding.recyclerViewBleDevices.setVisibility(View.GONE);
         binding.noDevices.getRoot().setVisibility(View.GONE);
         binding.bluetoothOff.getRoot().setVisibility(View.GONE);
@@ -744,10 +749,18 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         binding.noBluetoothPermissions.getRoot().setVisibility(View.GONE);
         binding.stateScanning.setVisibility(View.GONE);
         binding.connectivityProgressContainer.setVisibility(View.VISIBLE);
+        binding.textConnectingProgress.setVisibility(View.VISIBLE);
+        binding.textConnectingProgress.setText("Connecting to proxy...");
     }
-
     private void showScannerUI() {
         binding.appbarLayout.setVisibility(View.VISIBLE);
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(R.string.title_scanner);
+            getSupportActionBar().setSubtitle(mScanWithProxyService
+                    ? R.string.sub_title_scanning_nodes
+                    : R.string.sub_title_scanning_proxy_node);
+            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+        }
         binding.recyclerViewBleDevices.setVisibility(View.VISIBLE);
         binding.connectivityProgressContainer.setVisibility(View.GONE);
         binding.stateScanning.setVisibility(View.VISIBLE);
@@ -760,7 +773,6 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         }
     }
 
-    // ✅ Always includes svgDeviceId in result
     private void setResultIntent(final Intent data) {
         data.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, mIsNewlyProvisioned);
         if (mSvgDeviceId != null) {
