@@ -106,7 +106,7 @@ public class AutoPublicationHelper {
     /**
      * Setup publication from a model to a target address
      */
-    private static void setupPublication(
+    public static void setupPublication(
             SharedViewModel viewModel,
             ProvisionedMeshNode node,
             int sourceElementAddr,

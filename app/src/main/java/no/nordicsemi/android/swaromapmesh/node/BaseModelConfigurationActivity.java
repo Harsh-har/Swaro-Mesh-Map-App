@@ -115,10 +115,10 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
     private static final String DIALOG_FRAGMENT_CONFIGURATION_STATUS = "DIALOG_FRAGMENT_CONFIGURATION_STATUS";
     private static final String PROGRESS_BAR_STATE = "PROGRESS_BAR_STATE";
 
-    private static final int DEFAULT_BRIGHTNESS_VALUE = 30;
+    private static final int DEFAULT_BRIGHTNESS_VALUE = 1;
     private static final int MIN_BRIGHTNESS           = 0;
     private static final int MAX_BRIGHTNESS           = 255;
-    private static final int MIN_LENGTH               = 0;
+    private static final int MIN_LENGTH               = 1;
     private static final int MAX_LENGTH               = 255;
     private static final int MAX_TID                  = 255;
 

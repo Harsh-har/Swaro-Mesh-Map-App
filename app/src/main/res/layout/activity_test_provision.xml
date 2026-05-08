@@ -260,6 +260,7 @@
             </com.google.android.material.card.MaterialCardView>
 
             <!-- Operations card -->
+            <!-- Operations card -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -283,6 +284,39 @@
                         android:textColor="#ffbb00"
                         android:textSize="13sp"
                         android:textStyle="bold" />
+
+                    <!-- Address Input — FIXED: removed android:background="@color/white" -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/layout_address"
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:hint="Enter Address"
+                        app:boxStrokeColor="#ffbb00"
+                        app:hintTextColor="#ffbb00">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/et_address"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="number"
+                            android:textColor="@android:color/white"
+                            android:textColorHint="#888" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btn_save_address"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginBottom="10dp"
+                        android:text="Save Address"
+                        android:textColor="@android:color/white"
+                        app:backgroundTint="#333333"
+                        app:cornerRadius="8dp"
+                        app:strokeColor="#ffbb00"
+                        app:strokeWidth="1dp" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/btn_testble"
@@ -309,8 +343,8 @@
                         app:strokeWidth="1dp" />
 
                 </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
 
+            </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 

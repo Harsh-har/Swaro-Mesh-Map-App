@@ -8,6 +8,7 @@ import android.widget.Toast;
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
+import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textview.MaterialTextView;
 import com.google.android.material.button.MaterialButton;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
@@ -17,17 +18,13 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
-import java.util.ArrayList;
-import java.util.HashSet;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import dagger.hilt.android.AndroidEntryPoint;
-import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
+import no.nordicsemi.android.swaromapmesh.transport.GenericLightSet;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -35,34 +32,48 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 @AndroidEntryPoint
 public class TestProvisionActivity extends AppCompatActivity {
 
-    private static final String TAG        = "TestProvisionActivity";
-    private static final String PREFS_NAME = "mesh_prefs";
-    private static final String KEY_PROVISIONED_DEVICES = "provisioned_devices";
+    private static final String TAG               = "TestProvisionActivity";
+    private static final String PREFS_NAME        = "mesh_prefs";
+    private static final String PREFS_DEVICE_ADDR = "device_address_prefs";
+
+    // ── Long Command Fixed Values ─────────────────────────────────────────
+    private static final int LONG_CMD_LENGTH   = 1;
+    private static final int LONG_CMD_COMMAND  = 3;
+    private static final int LONG_DATA_1       = 11;
+    private static final int LONG_DATA_2       = 1;
+    private static final int LONG_DATA_DEFAULT = 0;
+
+    private static final int MAX_TID = 255;
 
     // ── Instance variables ────────────────────────────────────────────────
     private String deviceId;
     private String elementId;
-    private MaterialTextView tvReceiveId;
     private String svgName;
     private String topicPrefix;
     private String areaName;
     private String relationDeviceName;
 
-    private MaterialTextView tvDeviceId;
-    private MaterialTextView tvElementId;
-    private MaterialTextView tvStatus;
-    private MaterialTextView tvMacAddress;
-    private MaterialTextView tvUnicastAddress;
-    private MaterialTextView tvMqttTopic;
-    private MaterialButton   btnTestBle;
-    private MaterialButton   btnTestMqtt;
-    private MaterialTextView tvRelationDeviceId;
+    private MaterialTextView  tvDeviceId;
+    private MaterialTextView  tvElementId;
+    private MaterialTextView  tvReceiveId;
+    private MaterialTextView  tvStatus;
+    private MaterialTextView  tvMacAddress;
+    private MaterialTextView  tvUnicastAddress;
+    private MaterialTextView  tvMqttTopic;
+    private MaterialTextView  tvRelationDeviceId;
+    private MaterialButton    btnTestBle;
+    private MaterialButton    btnTestMqtt;
+    private MaterialButton    btnSaveAddress;
+    private TextInputEditText etAddress;
+
+    private SharedPreferences devicePrefs;   // ← instance variable
 
     private SharedViewModel       mViewModel;
-    private final AtomicInteger   tidCounter   = new AtomicInteger(0);
-    private int                   mUnicastAddress = -1;
+    private final AtomicInteger   tidCounter             = new AtomicInteger(0);
+    private final AtomicInteger   genericLightTidCounter = new AtomicInteger(0);
+    private int                   mUnicastAddress        = -1;
     private MqttClient            mqttClient;
-    private final ExecutorService mqttExecutor = Executors.newSingleThreadExecutor();
+    private final ExecutorService mqttExecutor           = Executors.newSingleThreadExecutor();
 
     // =========================================================================
     // Lifecycle
@@ -76,6 +87,7 @@ public class TestProvisionActivity extends AppCompatActivity {
 
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
+        // ── Intent extras ─────────────────────────────────────────────────
         deviceId           = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_DEVICE_ID);
         elementId          = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID);
         svgName            = getIntent().getStringExtra("svg_name");
@@ -83,6 +95,7 @@ public class TestProvisionActivity extends AppCompatActivity {
         areaName           = getIntent().getStringExtra("area_name");
         relationDeviceName = getIntent().getStringExtra("EXTRA_RELATION_DEVICE_NAME");
 
+        // ── View bindings ─────────────────────────────────────────────────
         tvDeviceId         = findViewById(R.id.tv_device_id);
         tvElementId        = findViewById(R.id.tv_element_id);
         tvReceiveId        = findViewById(R.id.tv_recive_id);
@@ -90,15 +103,18 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvMacAddress       = findViewById(R.id.tv_mac_address);
         tvUnicastAddress   = findViewById(R.id.tv_unicast_address);
         tvMqttTopic        = findViewById(R.id.tv_mqtttopic);
+        tvRelationDeviceId = findViewById(R.id.tv_relation_device_id);
         btnTestBle         = findViewById(R.id.btn_testble);
         btnTestMqtt        = findViewById(R.id.btn_testmqqt);
-        tvRelationDeviceId = findViewById(R.id.tv_relation_device_id);
+        btnSaveAddress     = findViewById(R.id.btn_save_address);
+        etAddress          = findViewById(R.id.et_address);
 
+        // ── Static text ───────────────────────────────────────────────────
         tvDeviceId.setText(deviceId != null ? deviceId : "N/A");
         tvElementId.setText(elementId != null ? elementId : "N/A");
         tvRelationDeviceId.setText(relationDeviceName != null ? relationDeviceName : "N/A");
 
-        // ── Receive ID — intent se pehle, phir store se ───────────────────────
+        // ── Receive ID ────────────────────────────────────────────────────
         String intentReceiveId = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID);
         String normalizedId    = deviceId != null ? deviceId.trim().toLowerCase() : null;
         String storeReceiveId  = ClientServerElementStore.getReceiveId(normalizedId);
@@ -106,55 +122,122 @@ public class TestProvisionActivity extends AppCompatActivity {
         String receiveId = (intentReceiveId != null && !intentReceiveId.isEmpty())
                 ? intentReceiveId : storeReceiveId;
 
-        Log.d(TAG, "receiveId: intent=" + intentReceiveId
-                + " store=" + storeReceiveId
-                + " final=" + receiveId);
-
         if (tvReceiveId != null) {
             tvReceiveId.setText(receiveId != null && !receiveId.isEmpty() ? receiveId : "N/A");
         }
-
-        // Store update karo agar intent se mila aur store mein nahi tha
         if (intentReceiveId != null && !intentReceiveId.isEmpty() && storeReceiveId == null) {
             ClientServerElementStore.saveReceiveIdOnly(normalizedId, intentReceiveId);
+        }
+
+        // ── SharedPreferences init ────────────────────────────────────────
+        devicePrefs = getSharedPreferences(PREFS_DEVICE_ADDR, MODE_PRIVATE);
+
+        // ── Prefill saved address ─────────────────────────────────────────
+        String savedAddress = devicePrefs.getString("address_" + deviceId, "");
+        if (!savedAddress.isEmpty()) {
+            etAddress.setText(savedAddress);
         }
 
         updateMqttTopicDisplay(relationDeviceName);
         updateStatus();
 
+        // ── Node observer ─────────────────────────────────────────────────
         mViewModel.getNodes().observe(this, nodes -> {
             if (nodes == null || nodes.isEmpty()) {
-                Log.w(TAG, "Nodes list empty");
                 setAddressFields("N/A", "N/A");
                 return;
             }
             loadAddressesFromNodes(nodes);
         });
 
-        // ── BLE Test button ───────────────────────────────────────────────────
+        // ── Save Address button ───────────────────────────────────────────
+        btnSaveAddress.setOnClickListener(v -> {
+            String addrStr = etAddress.getText() != null
+                    ? etAddress.getText().toString().trim() : "";
+
+            if (addrStr.isEmpty()) {
+                Toast.makeText(this, "Pehle address enter karo!", Toast.LENGTH_SHORT).show();
+                etAddress.requestFocus();
+                return;
+            }
+
+            int userAddress;
+            try {
+                userAddress = Integer.parseInt(addrStr);
+                if (userAddress < 0 || userAddress > 255) {
+                    Toast.makeText(this, "Address 0–255 ke beech hona chahiye",
+                            Toast.LENGTH_SHORT).show();
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                Toast.makeText(this, "Invalid address!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (!isProvisioned(deviceId)) {
+                Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            if (mUnicastAddress == -1) {
+                Toast.makeText(this, "Unicast address not loaded yet!",
+                        Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            // Save karo
+            devicePrefs.edit()
+                    .putString("address_" + deviceId, addrStr)
+                    .apply();
+
+            Toast.makeText(this,
+                    "Address saved: " + addrStr + " → Sending command...",
+                    Toast.LENGTH_SHORT).show();
+
+            // Long command bhejo
+            sendLongCommand(userAddress);
+
+            btnSaveAddress.setEnabled(false);
+            btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
+        });
+
+        // ── BLE Test button ───────────────────────────────────────────────
         btnTestBle.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
                 return;
             }
             if (mUnicastAddress == -1) {
-                Toast.makeText(this,
-                        "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Unicast address not loaded yet!",
+                        Toast.LENGTH_SHORT).show();
                 return;
             }
-            MeshCommandManager.sendOnThenOff(
-                    this,
-                    mViewModel,
-                    tidCounter,
-                    mUnicastAddress,
-                    relationDeviceName
-            );
-            Toast.makeText(this, "Sending ON → OFF...", Toast.LENGTH_SHORT).show();
+            String addrStr = etAddress.getText() != null
+                    ? etAddress.getText().toString().trim() : "";
+            if (addrStr.isEmpty()) {
+                Toast.makeText(this, "Please enter an address!", Toast.LENGTH_SHORT).show();
+                etAddress.requestFocus();
+                return;
+            }
+            int userAddress;
+            try {
+                userAddress = Integer.parseInt(addrStr);
+                if (userAddress < 0 || userAddress > 255) {
+                    Toast.makeText(this, "Address must be 0–255", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+            } catch (NumberFormatException e) {
+                Toast.makeText(this, "Invalid address!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            sendLongCommand(userAddress);
+
             btnTestBle.setEnabled(false);
             btnTestBle.postDelayed(() -> btnTestBle.setEnabled(true), 2100);
         });
 
-        // ── MQTT Test button ──────────────────────────────────────────────────
+        // ── MQTT Test button ──────────────────────────────────────────────
         btnTestMqtt.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
@@ -181,8 +264,8 @@ public class TestProvisionActivity extends AppCompatActivity {
                 return;
             }
             if (elementId == null || elementId.isEmpty()) {
-                Toast.makeText(this,
-                        "Element ID not found for this device!", Toast.LENGTH_LONG).show();
+                Toast.makeText(this, "Element ID not found for this device!",
+                        Toast.LENGTH_LONG).show();
                 return;
             }
             String onValue = MqttSettingsActivity.getOnValue(mqttPrefs, relationDeviceName);
@@ -197,8 +280,6 @@ public class TestProvisionActivity extends AppCompatActivity {
             final String payloadOff = MqttSettingsActivity.buildOffCommand(elementId);
 
             Log.d(TAG, "MQTT → " + finalHost + ":" + finalPort + " topic=" + finalTopic);
-            Log.d(TAG, "Device=" + deviceId + " ElementId=" + elementId + " OnValue=" + onValue);
-            Log.d(TAG, "CMD1=" + payloadOn + " | CMD2=" + payloadOff);
 
             btnTestMqtt.setEnabled(false);
             Toast.makeText(this, "Sending Command 1... (ON value: " + onValue + ")",
@@ -220,90 +301,109 @@ public class TestProvisionActivity extends AppCompatActivity {
             });
         });
     }
+
     // =========================================================================
-    // Address loading — node matching
+    // Long Command
+    // =========================================================================
+
+    private void sendLongCommand(int userAddress) {
+        ApplicationKey appKey = getFirstAppKey();
+        if (appKey == null) {
+            Toast.makeText(this, "No AppKey found in network!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int[] data = new int[8];
+        data[0] = LONG_DATA_1;        // 11
+        data[1] = LONG_DATA_2;        // 1
+        data[2] = userAddress;        // user input → data 3
+        data[3] = LONG_DATA_DEFAULT;  // 0
+        data[4] = LONG_DATA_DEFAULT;  // 0
+        data[5] = LONG_DATA_DEFAULT;  // 0
+        data[6] = LONG_DATA_DEFAULT;  // 0
+        data[7] = LONG_DATA_DEFAULT;  // 0
+
+        int tid = getNextLightTid();
+
+        Log.d(TAG, "══ sendLongCommand ══");
+        Log.d(TAG, String.format("  Dest UnicastAddr : 0x%04X", mUnicastAddress));
+        Log.d(TAG, String.format("  Length           : %d",     LONG_CMD_LENGTH));
+        Log.d(TAG, String.format("  Command          : %d (0x%02X)", LONG_CMD_COMMAND, LONG_CMD_COMMAND));
+        Log.d(TAG, String.format("  Data             : %s",     Arrays.toString(data)));
+        Log.d(TAG, String.format("  TID              : %d",     tid));
+        Log.d(TAG, "════════════════════");
+
+        try {
+            GenericLightSet msg = new GenericLightSet(
+                    appKey, LONG_CMD_LENGTH, LONG_CMD_COMMAND, data, tid);
+            mViewModel.getMeshManagerApi().createMeshPdu(mUnicastAddress, msg);
+            Toast.makeText(this,
+                    String.format("Long CMD sent → addr=0x%04X data3=%d TID=%d",
+                            mUnicastAddress, userAddress, tid),
+                    Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Log.e(TAG, "sendLongCommand failed", e);
+            Toast.makeText(this, "Send failed: " + e.getMessage(),
+                    Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    // ── TID counter ───────────────────────────────────────────────────────
+    private int getNextLightTid() {
+        int c = genericLightTidCounter.getAndIncrement();
+        if (c > MAX_TID) { genericLightTidCounter.set(0); c = 0; }
+        return c;
+    }
+
+    // ── AppKey helper ─────────────────────────────────────────────────────
+    private ApplicationKey getFirstAppKey() {
+        try {
+            List<ApplicationKey> keys = mViewModel.getNetworkLiveData().getAppKeys();
+            if (keys != null && !keys.isEmpty()) return keys.get(0);
+        } catch (Exception e) {
+            Log.e(TAG, "getFirstAppKey error", e);
+        }
+        return null;
+    }
+
+    // =========================================================================
+    // Address loading
     // =========================================================================
 
     private void loadAddressesFromNodes(List<ProvisionedMeshNode> nodes) {
         if (deviceId == null) { setAddressFields("N/A", "N/A"); return; }
 
-        String storeKey = deviceId.trim().toLowerCase();
-        // e.g. "casting:relay node1"
-
-        // ── Direct read from store ────────────────────────────────────────
+        String storeKey      = deviceId.trim().toLowerCase();
         int    storedUnicast = ClientServerElementStore.getServerUnicastAddress(storeKey);
         String storedMac     = ClientServerElementStore.getServerMacAddress(storeKey);
 
         if (storedUnicast != -1) {
-            // Verify node still exists in mesh
             for (ProvisionedMeshNode node : nodes) {
                 if (node.getUnicastAddress() == storedUnicast) {
                     mUnicastAddress = storedUnicast;
-                    String mac = storedMac != null ? storedMac : "N/A";
-                    setAddressFields(mac, String.format("0x%04X", mUnicastAddress));
-                    Log.d(TAG, "✅ Direct store hit: " + storeKey
-                            + " unicast=0x" + String.format("%04X", mUnicastAddress));
+                    setAddressFields(
+                            storedMac != null ? storedMac : "N/A",
+                            String.format("0x%04X", mUnicastAddress));
                     return;
                 }
             }
         }
 
-        // ── Fallback: UUID se dhundho ─────────────────────────────────────
-        // (agar re-provision hua ho aur unicast shift ho gayi ho)
         for (ProvisionedMeshNode node : nodes) {
             String mappedSvg = mViewModel.getSvgIdFromNode(node);
             if (deviceId.equalsIgnoreCase(mappedSvg)) {
                 mUnicastAddress = node.getUnicastAddress();
                 String mac = node.getMacAddress() != null ? node.getMacAddress() : "N/A";
-
-                // Refresh store
                 ClientServerElementStore.saveServerUnicastAddress(storeKey, mUnicastAddress);
                 if (!mac.equals("N/A"))
                     ClientServerElementStore.saveServerMacAddress(storeKey, mac);
-
                 setAddressFields(mac, String.format("0x%04X", mUnicastAddress));
-                Log.d(TAG, "✅ UUID fallback: " + storeKey
-                        + " unicast=0x" + String.format("%04X", mUnicastAddress));
                 return;
             }
         }
 
-        // ── Not found ─────────────────────────────────────────────────────
-        Log.w(TAG, "❌ No match for deviceId=" + deviceId);
         mUnicastAddress = -1;
         setAddressFields("N/A", "N/A");
-    }
-    // =========================================================================
-    // String helpers
-    // =========================================================================
-
-    /** "Casting:Relay Node1" → "CASTING" */
-    private String extractAreaPrefix(String fullId) {
-        if (fullId == null || !fullId.contains(":")) return "";
-        return fullId.split(":")[0].trim().toUpperCase();
-    }
-
-    /** "Casting:Relay Node1" → "relay node1"  (number kept intentionally) */
-    private String extractBaseName(String fullId) {
-        if (fullId == null) return "";
-        String name = fullId.trim().toLowerCase();
-        int colon   = name.lastIndexOf(":");
-        if (colon != -1) name = name.substring(colon + 1).trim();
-        return name;
-    }
-
-    /** "relay node1" → "relay node"  (used in Step 4 and Step 1c) */
-    private String extractPureNameNoNumber(String fullId) {
-        String base = extractBaseName(fullId);
-        return base.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
-    }
-
-    /** "relay node1" → "1",  "relay node" → "" */
-    @SuppressWarnings("unused")
-    private String extractTrailingNumber(String baseName) {
-        if (baseName == null || baseName.isEmpty()) return "";
-        Matcher m = Pattern.compile("(\\d+)$").matcher(baseName.trim());
-        return m.find() ? m.group(1) : "";
     }
 
     // =========================================================================
@@ -354,9 +454,7 @@ public class TestProvisionActivity extends AppCompatActivity {
                 opts.setPassword(password.toCharArray());
             }
             mqttClient.setCallback(new MqttCallback() {
-                @Override public void connectionLost(Throwable cause) {
-                    Log.w(TAG, "MQTT connection lost", cause);
-                }
+                @Override public void connectionLost(Throwable cause) {}
                 @Override public void messageArrived(String t, MqttMessage m) {}
                 @Override public void deliveryComplete(IMqttDeliveryToken token) {
                     Log.d(TAG, "MQTT delivery complete: " + payload);
@@ -368,10 +466,9 @@ public class TestProvisionActivity extends AppCompatActivity {
             msg.setRetained(false);
             mqttClient.publish(topic, msg);
             mqttClient.disconnect();
-            Log.d(TAG, "✓ Published to topic '" + topic + "': " + payload);
             return true;
         } catch (MqttException e) {
-            Log.e(TAG, "MQTT publish failed for topic '" + topic + "': " + payload, e);
+            Log.e(TAG, "MQTT publish failed", e);
             runOnUiThread(() -> {
                 Toast.makeText(this, "MQTT Error: " + e.getMessage(),
                         Toast.LENGTH_LONG).show();
@@ -393,12 +490,10 @@ public class TestProvisionActivity extends AppCompatActivity {
     private void updateStatus() {
         if (isProvisioned(deviceId)) {
             tvStatus.setText("Provisioned");
-            tvStatus.setTextColor(
-                    getResources().getColor(android.R.color.holo_green_light));
+            tvStatus.setTextColor(getResources().getColor(android.R.color.holo_green_light));
         } else {
             tvStatus.setText("Not Provisioned");
-            tvStatus.setTextColor(
-                    getResources().getColor(android.R.color.holo_orange_light));
+            tvStatus.setTextColor(getResources().getColor(android.R.color.holo_orange_light));
         }
     }
 
@@ -406,6 +501,24 @@ public class TestProvisionActivity extends AppCompatActivity {
         if (id == null) return false;
         return ClientServerElementStore
                 .getServerUnicastAddress(id.trim().toLowerCase()) != -1;
+    }
+
+    private String extractAreaPrefix(String fullId) {
+        if (fullId == null || !fullId.contains(":")) return "";
+        return fullId.split(":")[0].trim().toUpperCase();
+    }
+
+    private String extractBaseName(String fullId) {
+        if (fullId == null) return "";
+        String name  = fullId.trim().toLowerCase();
+        int    colon = name.lastIndexOf(":");
+        if (colon != -1) name = name.substring(colon + 1).trim();
+        return name;
+    }
+
+    private String extractPureNameNoNumber(String fullId) {
+        String base = extractBaseName(fullId);
+        return base.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
     }
 
     @Override

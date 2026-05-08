@@ -43,7 +43,7 @@ public class SharedViewModel extends BaseViewModel
     private static final String KEY_SVG_URI             = "svg_uri";
     private static final String DEFAULT_SELECTED_DEVICE = "All Device";
 
-    // Publication settings
+    // Publication settings (same as AreaClientListActivity)
     private static final int GENERIC_ONOFF_CLIENT = 0x1001;
     private static final int GENERIC_ONOFF_SERVER = 0x1000;
 
@@ -100,7 +100,7 @@ public class SharedViewModel extends BaseViewModel
         // ── Restore simple prefs ───────────────────────────────────────────
         proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
-        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_100));
+        signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
 
         final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
         if (savedSvgUri != null) svgUri.setValue(Uri.parse(savedSvgUri));
@@ -157,6 +157,11 @@ public class SharedViewModel extends BaseViewModel
     // AUTO PUBLICATION SETUP
     // Called automatically when NrfMeshRepository completes auto-bind for a node
     // =========================================================================
+
+    /**
+     * Called by NrfMeshRepository when all AppKey binds are done for a node.
+     * Triggers bidirectional publication setup automatically — no Activity needed.
+     */
     private void onAutoSetupComplete(@NonNull ProvisionedMeshNode node) {
         Log.d(TAG, "🔔 onAutoSetupComplete: node=0x"
                 + String.format("%04X", node.getUnicastAddress())
@@ -175,30 +180,22 @@ public class SharedViewModel extends BaseViewModel
 
         List<ApplicationKey> appKeys = getNetworkLiveData().getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
-            Log.e(TAG, "triggerPublicationSetup: no AppKey available");
+            Log.e(TAG, "triggerPublicationSetup: no AppKey");
             return;
         }
         int appKeyIndex = appKeys.get(0).getKeyIndex();
 
-        SharedPreferences meshPrefs  = mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
-        if (storePrefs == null) {
-            Log.e(TAG, "triggerPublicationSetup: storePrefs null");
-            return;
-        }
-
+        SharedPreferences meshPrefs = mContext.getSharedPreferences(
+                PREFS_NAME, Context.MODE_PRIVATE);
         Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
-        if (provisionedKeys.isEmpty()) {
-            Log.d(TAG, "triggerPublicationSetup: no provisioned keys");
-            return;
-        }
+        if (provisionedKeys.isEmpty()) return;
 
         boolean anyScheduled = false;
         long delayOffset = 0;
 
-        // ── Iterate over all server keys (each server has elementId + receiveId) ──
         for (String serverKey : provisionedKeys) {
 
+            // ── Server address ────────────────────────────────────────────
             int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
             if (serverAddr == -1) continue;
             if (!isNodeInNetwork(serverAddr)) {
@@ -207,172 +204,195 @@ public class SharedViewModel extends BaseViewModel
                 continue;
             }
 
-            // ── elementId → Server publishes to Client element ────────────────
-            int elementId = ClientServerElementStore.getServerSvgElementId(serverKey);
+            // ── Area prefix ───────────────────────────────────────────────
             String areaPrefix = serverKey.contains(":")
-                    ? serverKey.split(":")[0].trim().toLowerCase() : "";
-            String keyName = serverKey.contains(":")
-                    ? serverKey.split(":")[1].trim().toLowerCase()
-                    : serverKey.toLowerCase();
+                    ? serverKey.split(":")[0].trim().toLowerCase()
+                    : "";
 
-            // Find client key in same area
-            String clientKey = findClientKeyInArea(storePrefs, areaPrefix);
-            if (clientKey == null) {
-                Log.d(TAG, "  No client key found for area=" + areaPrefix);
+            // ── Client name — same area me element_addr_ wala device ─────
+            String clientNamePart = findClientNameForArea(areaPrefix);
+            if (clientNamePart == null) {
+                Log.d(TAG, "  No client found for area=" + areaPrefix
+                        + " serverKey=" + serverKey + " — skip");
                 continue;
             }
 
-            // Direction 1: Server → Client (elementId based)
-            if (elementId != -1) {
-                int clientAddr = ClientServerElementStore.getClientAddress(clientKey, elementId);
-                if (clientAddr != -1 && isNodeInNetwork(clientAddr)) {
-                    if (!AutoPublicationHelper.isPublicationSetupComplete(
-                            meshPrefs, serverAddr, clientAddr)) {
-
-                        Log.d(TAG, "  📤 S→C: Server=0x" + String.format("%04X", serverAddr)
-                                + " → ClientElem=0x" + String.format("%04X", clientAddr)
-                                + " (elementId=" + elementId + ", delay=" + delayOffset + "ms)");
-
-                        final int fServerAddr  = serverAddr;
-                        final int fClientAddr  = clientAddr;
-                        final int fAppKeyIndex = appKeyIndex;
-                        final long fDelay      = delayOffset;
-
-                        new Handler(Looper.getMainLooper()).postDelayed(
-                                () -> setupSinglePublication(
-                                        fServerAddr, fClientAddr,
-                                        GENERIC_ONOFF_SERVER, fAppKeyIndex,
-                                        "Server→Client"),
-                                fDelay);
-
-                        delayOffset += 2000;
-                        anyScheduled = true;
-                    } else {
-                        Log.d(TAG, "  S→C already complete: 0x"
-                                + String.format("%04X", serverAddr)
-                                + " → 0x" + String.format("%04X", clientAddr));
-                    }
-                }
+            // ── elementId → C→S address ───────────────────────────────────
+            int svgElementId = ClientServerElementStore.getServerSvgElementId(serverKey);
+            if (svgElementId == -1) {
+                Log.w(TAG, "  svgElementId=-1 for key=" + serverKey + " — was pre-saved by onDeviceTapped? Checking...");
+                Log.d(TAG, "  Skipping key=" + serverKey + " (no svgElementId)");
+                continue;
+            }
+            int cToSAddr = ClientServerElementStore.getClientAddress(
+                    clientNamePart, svgElementId);
+            if (cToSAddr == -1) {
+                Log.d(TAG, "  C→S addr not found: clientName=" + clientNamePart
+                        + " elementId=" + svgElementId);
+                continue;
+            }
+            if (!isNodeInNetwork(cToSAddr)) {
+                Log.d(TAG, "  C→S client 0x" + String.format("%04X", cToSAddr)
+                        + " not in network — skip");
+                continue;
             }
 
-            // Direction 2: Client → Server (receiveId based)
-            String receiveId = ClientServerElementStore.getReceiveId(serverKey);
-            if (receiveId != null && !receiveId.trim().isEmpty()) {
+            // ── receiveId → S→C address ───────────────────────────────────
+            String receiveIdStr = ClientServerElementStore.getReceiveId(serverKey);
+            int sToCAddr = -1;
+            if (receiveIdStr != null && !receiveIdStr.trim().isEmpty()) {
                 try {
-                    int receiveIndex = Integer.parseInt(receiveId.trim());
-                    int clientSendAddr = ClientServerElementStore.getClientAddress(
-                            clientKey, receiveIndex);
-
-                    if (clientSendAddr != -1 && isNodeInNetwork(clientSendAddr)) {
-                        if (!AutoPublicationHelper.isPublicationSetupComplete(
-                                meshPrefs, clientSendAddr, serverAddr)) {
-
-                            Log.d(TAG, "  📤 C→S: ClientElem=0x"
-                                    + String.format("%04X", clientSendAddr)
-                                    + " → Server=0x" + String.format("%04X", serverAddr)
-                                    + " (receiveId=" + receiveId + ", delay=" + delayOffset + "ms)");
-
-                            final int fClientSendAddr = clientSendAddr;
-                            final int fServerAddr2    = serverAddr;
-                            final int fAppKeyIndex2   = appKeyIndex;
-                            final long fDelay2        = delayOffset;
-
-                            new Handler(Looper.getMainLooper()).postDelayed(
-                                    () -> setupSinglePublication(
-                                            fClientSendAddr, fServerAddr2,
-                                            GENERIC_ONOFF_CLIENT, fAppKeyIndex2,
-                                            "Client→Server"),
-                                    fDelay2);
-
-                            delayOffset += 2000;
-                            anyScheduled = true;
-                        } else {
-                            Log.d(TAG, "  C→S already complete: 0x"
-                                    + String.format("%04X", clientSendAddr)
-                                    + " → 0x" + String.format("%04X", serverAddr));
-                        }
-                    }
+                    int receiveIndex = Integer.parseInt(receiveIdStr.trim());
+                    sToCAddr = ClientServerElementStore.getClientAddress(
+                            clientNamePart, receiveIndex);
+                    Log.d(TAG, "  receiveId=" + receiveIndex
+                            + " → S→C addr=0x" + String.format("%04X", sToCAddr));
                 } catch (NumberFormatException e) {
-                    Log.e(TAG, "  receiveId parse error: " + receiveId);
+                    Log.w(TAG, "  Invalid receiveId=" + receiveIdStr);
                 }
             }
+
+            // ── Already done? ─────────────────────────────────────────────
+            if (AutoPublicationHelper.isPublicationSetupComplete(
+                    meshPrefs, cToSAddr, serverAddr)) {
+                Log.d(TAG, "  Already complete: 0x"
+                        + String.format("%04X", cToSAddr)
+                        + " ↔ 0x" + String.format("%04X", serverAddr));
+                continue;
+            }
+
+            // ── Log pair ──────────────────────────────────────────────────
+            Log.d(TAG, "  📤 Scheduling pair for key=" + serverKey);
+            Log.d(TAG, "     C→S: 0x" + String.format("%04X", cToSAddr)
+                    + " (elem=" + svgElementId + ")"
+                    + " → Server 0x" + String.format("%04X", serverAddr));
+            if (sToCAddr != -1)
+                Log.d(TAG, "     S→C: Server 0x" + String.format("%04X", serverAddr)
+                        + " → 0x" + String.format("%04X", sToCAddr)
+                        + " (receiveId=" + receiveIdStr + ")");
+            else
+                Log.d(TAG, "     S→C: skipped (no receiveId or addr not found)");
+
+            final int fCToSAddr   = cToSAddr;
+            final int fSToCAddr   = sToCAddr;
+            final int fServerAddr = serverAddr;
+            final int fAppKey     = appKeyIndex;
+            final long fDelay     = delayOffset;
+
+            new Handler(Looper.getMainLooper()).postDelayed(() ->
+                            setupPublicationPairDirectional(
+                                    fCToSAddr, fSToCAddr, fServerAddr, fAppKey),
+                    fDelay);
+
+            delayOffset += 3000;
+            anyScheduled = true;
         }
 
-        if (anyScheduled) {
-            Log.d(TAG, "✅ triggerPublicationSetup: scheduled with staggered delays");
-        } else {
+        if (anyScheduled)
+            Log.d(TAG, "✅ triggerPublicationSetup: pairs scheduled");
+        else
             Log.d(TAG, "triggerPublicationSetup: nothing to schedule");
-        }
     }
 
     @Nullable
-    private String findClientKeyInArea(SharedPreferences storePrefs, String areaPrefix) {
-        if (areaPrefix == null || areaPrefix.isEmpty()) return null;
-        String normalizedArea = areaPrefix.trim().toLowerCase();
+    private String findClientNameForArea(String areaPrefix) {
+        SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
+        if (storePrefs == null) return null;
 
-        Set<String> allKeys = storePrefs.getAll().keySet();
-        for (String prefKey : allKeys) {
-            if (!prefKey.startsWith("element_addr_")) continue;
-            // element_addr_<clientKey>_<index>
-            String rest = prefKey.substring("element_addr_".length());
+        String normalizedArea = areaPrefix.toLowerCase().trim();
+        Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
+
+        for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
+            String k = e.getKey();
+            if (!k.startsWith("element_addr_")) continue;
+
+            // element_addr_<name>_<index> → name part nikalo
+            String rest = k.substring("element_addr_".length());
             int lastUnderscore = rest.lastIndexOf("_");
             if (lastUnderscore == -1) continue;
-            String candidateKey = rest.substring(0, lastUnderscore);
-            if (candidateKey.startsWith(normalizedArea + ":")
-                    || candidateKey.startsWith(normalizedArea + " ")) {
-                return candidateKey;
+            String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+
+            // Same area ki provisioned key me match karo
+            for (String provKey : provisioned) {
+                String provArea = provKey.contains(":")
+                        ? provKey.split(":")[0].trim().toLowerCase() : "";
+                String provName = provKey.contains(":")
+                        ? provKey.split(":")[1].trim().toLowerCase()
+                        : provKey.toLowerCase();
+
+                if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
+                    Log.d(TAG, "findClientNameForArea: area=" + areaPrefix
+                            + " → clientName=" + storedName);
+                    return storedName;
+                }
             }
         }
+
+        Log.w(TAG, "findClientNameForArea: no client found for area=" + areaPrefix);
         return null;
     }
+    private void setupPublicationPairDirectional(
+            int cToSAddr, int sToCAddr, int serverAddr, int appKeyIndex) {
 
-    private void setupSinglePublication(int sourceElemAddr, int targetAddr,
-                                        int modelId, int appKeyIndex,
-                                        String direction) {
-        Log.d(TAG, "setupSinglePublication: " + direction
-                + " src=0x" + String.format("%04X", sourceElemAddr)
-                + " → dst=0x" + String.format("%04X", targetAddr));
+        Log.d(TAG, "setupPublicationPairDirectional:"
+                + " C→S=0x" + String.format("%04X", cToSAddr)
+                + " S→C=0x" + String.format("%04X", sToCAddr)
+                + " Server=0x" + String.format("%04X", serverAddr));
 
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes == null) return;
 
-        ProvisionedMeshNode sourceNode = null;
+        // Find nodes by element address
+        ProvisionedMeshNode clientNode = null;
+        ProvisionedMeshNode serverNode = null;
+
         for (ProvisionedMeshNode n : nodes) {
             for (Element el : n.getElements().values()) {
-                if (el.getElementAddress() == sourceElemAddr) {
-                    sourceNode = n;
-                    break;
-                }
+                if (el.getElementAddress() == cToSAddr) clientNode = n;
+                if (el.getElementAddress() == serverAddr) serverNode = n;
             }
-            if (sourceNode != null) break;
         }
 
-        if (sourceNode == null) {
-            Log.e(TAG, "setupSinglePublication: sourceNode not found for 0x"
-                    + String.format("%04X", sourceElemAddr));
+        if (clientNode == null || serverNode == null) {
+            Log.e(TAG, "  Node not found: client="
+                    + (clientNode == null ? "NULL" : "OK")
+                    + " server=" + (serverNode == null ? "NULL" : "OK"));
             return;
         }
 
-        try {
-            no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationSet pubSet =
-                    new no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationSet(
-                            sourceElemAddr,
-                            targetAddr,
-                            appKeyIndex,
-                            false,   // credentialFlag
-                            5,       // ttl
-                            0,       // publicationSteps
-                            0,       // publicationResolution
-                            3,       // retransmitCount
-                            2,       // retransmitInterval
-                            modelId
-                    );
-            getMeshManagerApi().createMeshPdu(sourceNode.getUnicastAddress(), pubSet);
-            Log.d(TAG, "✅ PDU sent: " + direction);
-        } catch (IllegalArgumentException e) {
-            Log.e(TAG, "setupSinglePublication failed: " + e.getMessage());
+        int cToSElemIdx = AutoPublicationHelper.getElementIndex(clientNode, cToSAddr);
+        int serverElemIdx = AutoPublicationHelper.getElementIndex(serverNode, serverAddr);
+
+        if (cToSElemIdx == -1 || serverElemIdx == -1) {
+            Log.e(TAG, "  Element index not found");
+            return;
+        }
+
+        // ── C→S: clientElem[elementId] → server ──────────────────────────
+        AutoPublicationHelper.setupPublication(
+                this, clientNode, cToSAddr,
+                GENERIC_ONOFF_CLIENT, serverAddr,
+                appKeyIndex, "C→S");
+
+        // ── S→C: server → clientElem[receiveId] ──────────────────────────
+        final ProvisionedMeshNode fServerNode = serverNode;
+        final int fAppKeyIndex = appKeyIndex;
+        final int fSToCAddr = sToCAddr;
+        final int fServerAddr2 = serverAddr;
+
+        if (fSToCAddr != -1 && isNodeInNetwork(fSToCAddr)) {
+            new Handler(Looper.getMainLooper()).postDelayed(() ->
+                            AutoPublicationHelper.setupPublication(
+                                    this, fServerNode, fServerAddr2,
+                                    GENERIC_ONOFF_SERVER, fSToCAddr,
+                                    fAppKeyIndex, "S→C"),
+                    1500);
         }
     }
+    /**
+     * Same area me client device ka name dhundta hai
+     * (jo element_addr_ entries store karta hai)
+     */
     /**
      * Sets up bidirectional publication between one client-server pair.
      */
@@ -744,14 +764,14 @@ public class SharedViewModel extends BaseViewModel
     }
 
     public void setSignalThreshold(int threshold) {
-        signalThreshold.setValue(threshold);
-        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, threshold).apply();
-        mScannerRepository.setRssiThreshold(threshold);
-        Log.d(TAG, "setSignalThreshold: " + threshold);
+        int sanitized = (threshold == DevicesAdapter.SIGNAL_100)
+                ? DevicesAdapter.SIGNAL_100 : DevicesAdapter.SIGNAL_DEFAULT;
+        signalThreshold.setValue(sanitized);
+        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, sanitized).apply();
     }
 
     public void clearSignalThreshold() {
-        setSignalThreshold(DevicesAdapter.SIGNAL_100);
+        setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
     }
 
     // =========================================================================
@@ -852,18 +872,9 @@ public class SharedViewModel extends BaseViewModel
         StringBuilder sb = new StringBuilder();
         if (!getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE))
             sb.append("Device: ").append(getSelectedDeviceValue());
-
-        int threshold = getSignalThresholdValue();
-        if (threshold != DevicesAdapter.SIGNAL_DEFAULT) {
+        if (getSignalThresholdValue() == DevicesAdapter.SIGNAL_100) {
             if (sb.length() > 0) sb.append(" | ");
-            if (threshold == DevicesAdapter.SIGNAL_VERY_CLOSE)
-                sb.append("Signal: Very Close (~0.5m)");
-            else if (threshold == DevicesAdapter.SIGNAL_100)
-                sb.append("Signal: Strong (~1m)");
-            else if (threshold == DevicesAdapter.SIGNAL_50)
-                sb.append("Signal: Medium (~2-3m)");
-            else if (threshold == DevicesAdapter.SIGNAL_20)
-                sb.append("Signal: Weak (~5m)");
+            sb.append("Signal ≥ 100%");
         }
         return sb.length() > 0 ? "Filter: " + sb : "No filter active";
     }

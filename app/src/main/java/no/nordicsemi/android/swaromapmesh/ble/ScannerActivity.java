@@ -81,6 +81,7 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
     // ✅ Member variable — survives across all launcher callbacks
     private String mSvgDeviceId = null;
+    private String mReceiveId   = null;
 
     // -----------------------------------------------------------------------
     // Activity Result Launchers
@@ -142,17 +143,11 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
                     final Intent returnIntent = new Intent();
                     returnIntent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, mIsNewlyProvisioned);
                     returnIntent.putExtra(Utils.PROVISIONING_COMPLETED, true);
-
-                    // ✅ Attach svgDeviceId
                     if (mSvgDeviceId != null) {
                         returnIntent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
-                        Log.d(TAG, "reconnect callback — attaching mSvgDeviceId=" + mSvgDeviceId);
                     }
-
-                    // ✅ Flag to skip GroupsFragment and go directly to configuration
-                    if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
-                        returnIntent.putExtra("DIRECT_TO_CONFIG", true);
-                        Log.d(TAG, "Setting DIRECT_TO_CONFIG flag for newly provisioned device");
+                    if (mReceiveId != null) {
+                        returnIntent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID, mReceiveId); // ← ADD
                     }
 
                     // Copy device from ReconnectActivity result if present
@@ -201,6 +196,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         // ✅ Read svgDeviceId from incoming intent
         if (getIntent() != null) {
             mSvgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
+            mReceiveId   = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID); // ← ADD
+
             Log.d(TAG, "onCreate — mSvgDeviceId from intent: " + mSvgDeviceId);
 
             mScanWithProxyService = getIntent().getBooleanExtra(
@@ -427,16 +424,15 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         if (mScanWithProxyService) {
             final Intent intent = new Intent(this, ProvisioningActivity.class);
             intent.putExtra(Utils.EXTRA_DEVICE, device);
-
-            // ✅ Forward svgDeviceId to ProvisioningActivity
             if (mSvgDeviceId != null) {
                 intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
-                Log.d(TAG, "onItemClick — forwarding mSvgDeviceId=" + mSvgDeviceId);
             }
-
+            if (mReceiveId != null) {
+                intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID, mReceiveId); // ← ADD
+            }
             provisioner.launch(intent);
-
-        } else {
+        }
+        else {
             final Intent intent = new Intent(this, ReconnectActivity.class);
             intent.putExtra(Utils.EXTRA_DEVICE, device);
             intent.putExtra(Utils.EXTRA_SILENT_CONNECT, false);
@@ -777,7 +773,9 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         data.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, mIsNewlyProvisioned);
         if (mSvgDeviceId != null) {
             data.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
-            Log.d(TAG, "setResultIntent — attaching mSvgDeviceId=" + mSvgDeviceId);
+        }
+        if (mReceiveId != null) {
+            data.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID, mReceiveId); // ← ADD
         }
         setResult(Activity.RESULT_OK, data);
         finish();
