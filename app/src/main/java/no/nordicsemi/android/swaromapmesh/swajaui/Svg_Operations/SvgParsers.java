@@ -206,18 +206,25 @@ public class SvgParsers {
         if (rg == null) return result;
         String rawText = rg.getTextContent();
         if (rawText == null || rawText.trim().isEmpty()) return result;
+
+        // Format: (Icon ID | deviceId1, deviceId2, deviceId3)
         Pattern p = Pattern.compile(
-                "\\(\\s*([\\w:.\\-]+(?:\\s+[\\w:.\\-]+)*)\\s+([\\w:.\\-]+)\\s*\\)");
+                "\\(\\s*([^|]+?)\\s*\\|\\s*((?:[\\w:.\\-]+\\s*,\\s*)*[\\w:.\\-]+)\\s*\\)");
         Matcher m = p.matcher(rawText);
         while (m.find()) {
-            String iconId   = m.group(1).trim();
-            String deviceId = m.group(2).trim();
-            if (!iconId.isEmpty() && !deviceId.isEmpty())
-                result.computeIfAbsent(iconId, k -> new HashSet<>()).add(deviceId);
+            String iconId      = m.group(1).trim();
+            String devicesPart = m.group(2).trim();
+
+            String[] deviceIds = devicesPart.split("\\s*,\\s*");
+            for (String deviceId : deviceIds) {
+                deviceId = deviceId.trim();
+                if (!iconId.isEmpty() && !deviceId.isEmpty()) {
+                    result.computeIfAbsent(iconId, k -> new HashSet<>()).add(deviceId);
+                }
+            }
         }
         return result;
     }
-
     // ══════════════════════════════════════════════════════════════════════
     //  SELECTION LAYER PARSING  (<g id="selection_layer">)
     // ══════════════════════════════════════════════════════════════════════

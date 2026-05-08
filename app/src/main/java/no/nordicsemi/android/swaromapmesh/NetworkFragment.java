@@ -792,19 +792,87 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
 
     private void handleSvgTap(float touchX, float touchY) {
-        if (svgDocument == null || deviceMap.isEmpty()) return;
-        float[]  c     = touchToSvgCoords(touchX, touchY);
-        String   hitId = findDeviceAt(c[0], c[1]);
+        if (svgDocument == null) return;
+        float[] c = touchToSvgCoords(touchX, touchY);
 
-        if (hitId != null) {
+        // 1. Pehle icon hit check
+        String hitIconId = findDeviceAt(c[0], c[1]);
+
+        if (hitIconId != null) {
             if (currentFocusAreaId != null) {
-                DeviceInfo info = deviceMap.get(hitId);
+                DeviceInfo info = deviceMap.get(hitIconId);
                 if (info == null || !currentFocusAreaId.equals(info.areaId)) return;
             }
-            onDeviceTapped(hitId);
-        } else {
-            deselectCurrentDevice();
+            onDeviceTapped(hitIconId);
+            return;
         }
+
+        // 2. Icon nahi mila → Relation device (physical Devices layer) check karo
+        String hitRelationDeviceId = findRelationDeviceAt(c[0], c[1]);
+        if (hitRelationDeviceId != null) {
+            onRelationDeviceTapped(hitRelationDeviceId);
+            return;
+        }
+
+        // 3. Kuch nahi mila → deselect
+        deselectCurrentDevice();
+    }
+
+    private void onRelationDeviceTapped(String iconId) {
+        DeviceInfo device = deviceMap.get(iconId);
+        if (device == null) return;
+
+        SharedPreferences prefs = requireContext()
+                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        Uri    svgUri       = mViewModel.getSvgUri().getValue();
+        String svgUriString = svgUri != null ? svgUri.toString() : "";
+        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
+
+        String      displayName    = extractPureDeviceName(iconId);
+        Set<String> relatedDevices = iconToDeviceRelations.getOrDefault(iconId, new HashSet<>());
+        String      relationDevName = relatedDevices.isEmpty()
+                ? null : relatedDevices.iterator().next();
+
+        Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
+                device.elementId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
+                device.receiveId);
+        intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
+        intent.putExtra("svg_name", svgName);
+        startActivity(intent);
+    }
+
+    private String findRelationDeviceAt(float svgX, float svgY) {
+        // iconToDeviceRelations: iconId → Set<deviceId>
+        // Hume reverse map chahiye: deviceId → iconId
+        for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
+            String      iconId    = entry.getKey();
+            Set<String> deviceIds = entry.getValue();
+
+            // Sirf provisioned icons ke relation devices check karo
+            if (!isProvisioned(iconId)) continue;
+
+            for (String deviceId : deviceIds) {
+                // Devices layer mein element dhundo
+                Element deviceEl = svgParser.findElementById(
+                        svgDocument.getDocumentElement(), deviceId);
+                if (deviceEl == null) continue;
+
+                RectF bounds = svgParser.computeBounds(deviceEl);
+                if (bounds == null || bounds.isEmpty()) continue;
+
+                RectF expanded = new RectF(bounds);
+                expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+                if (expanded.contains(svgX, svgY)) {
+                    return iconId; // iconId return karo taaki TestProvisionActivity sahi data mile
+                }
+            }
+        }
+        return null;
     }
 
     private float[] touchToSvgCoords(float touchX, float touchY) {

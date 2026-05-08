@@ -25,6 +25,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.transport.GenericLightSet;
+import no.nordicsemi.android.swaromapmesh.transport.GenericOnOffSet;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -194,49 +195,51 @@ public class TestProvisionActivity extends AppCompatActivity {
                     "Address saved: " + addrStr + " → Sending command...",
                     Toast.LENGTH_SHORT).show();
 
-            // Long command bhejo
             sendLongCommand(userAddress);
 
             btnSaveAddress.setEnabled(false);
             btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
         });
 
-        // ── BLE Test button ───────────────────────────────────────────────
+// ── BLE Test button — SHORT command ──────────────────────────────────
         btnTestBle.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
                 return;
             }
             if (mUnicastAddress == -1) {
-                Toast.makeText(this, "Unicast address not loaded yet!",
-                        Toast.LENGTH_SHORT).show();
-                return;
-            }
-            String addrStr = etAddress.getText() != null
-                    ? etAddress.getText().toString().trim() : "";
-            if (addrStr.isEmpty()) {
-                Toast.makeText(this, "Please enter an address!", Toast.LENGTH_SHORT).show();
-                etAddress.requestFocus();
-                return;
-            }
-            int userAddress;
-            try {
-                userAddress = Integer.parseInt(addrStr);
-                if (userAddress < 0 || userAddress > 255) {
-                    Toast.makeText(this, "Address must be 0–255", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-            } catch (NumberFormatException e) {
-                Toast.makeText(this, "Invalid address!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            sendLongCommand(userAddress);
+            ApplicationKey appKey = getFirstAppKey();
+            if (appKey == null) {
+                Toast.makeText(this, "No AppKey found!", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            try {
+                // Short command — GenericOnOffSet
+                int tid = tidCounter.getAndIncrement();
+                if (tid > MAX_TID) { tidCounter.set(0); tid = 0; }
+
+                GenericOnOffSet msg = new GenericOnOffSet(appKey, 0, 1, tid);
+                mViewModel.getMeshManagerApi().createMeshPdu(mUnicastAddress, msg);
+
+                Toast.makeText(this,
+                        String.format("Short CMD sent → addr=0x%04X TID=%d",
+                                mUnicastAddress, tid),
+                        Toast.LENGTH_SHORT).show();
+
+            } catch (Exception e) {
+                Log.e(TAG, "BLE short command failed", e);
+                Toast.makeText(this, "Send failed: " + e.getMessage(),
+                        Toast.LENGTH_SHORT).show();
+            }
 
             btnTestBle.setEnabled(false);
             btnTestBle.postDelayed(() -> btnTestBle.setEnabled(true), 2100);
         });
-
         // ── MQTT Test button ──────────────────────────────────────────────
         btnTestMqtt.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
