@@ -163,7 +163,7 @@ public class TestProvisionActivity extends AppCompatActivity {
                     ? etAddress.getText().toString().trim() : "";
 
             if (addrStr.isEmpty()) {
-                Toast.makeText(this, "Pehle address enter karo!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Assign Address!", Toast.LENGTH_SHORT).show();
                 etAddress.requestFocus();
                 return;
             }
@@ -172,8 +172,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             try {
                 userAddress = Integer.parseInt(addrStr);
                 if (userAddress < 1 || userAddress > 8) {
-                    Toast.makeText(this, "Address must be 1–8 ",
-                            Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Address must be 1–8", Toast.LENGTH_SHORT).show();
                     return;
                 }
             } catch (NumberFormatException e) {
@@ -187,23 +186,28 @@ public class TestProvisionActivity extends AppCompatActivity {
             }
 
             if (mUnicastAddress == -1) {
-                Toast.makeText(this, "Unicast address not loaded yet!",
-                        Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
                 return;
             }
 
-            devicePrefs.edit()
-                    .putString("address_" + deviceId, addrStr)
-                    .apply();
+            // ── Agar pehle se address saved hai toh confirm dialog ────
+            String existingAddr = devicePrefs.getString("address_" + deviceId, "");
+            if (!existingAddr.isEmpty() && !existingAddr.equals(addrStr)) {
+                final int finalUserAddress = userAddress;
+                new androidx.appcompat.app.AlertDialog.Builder(this)
+                        .setTitle("Address Change")
+                        .setMessage("Address already set to " + existingAddr
+                                + ".\nChange to " + addrStr + "?")
+                        .setPositiveButton("Yes, Change", (dialog, which) -> {
+                            saveAndSendAddress(addrStr, finalUserAddress);
+                        })
+                        .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
+                        .show();
+                return;
+            }
+            // ─────────────────────────────────────────────────────────
 
-            Toast.makeText(this,
-                    "Address saved: " + addrStr + " → Sending command...",
-                    Toast.LENGTH_SHORT).show();
-
-            sendLongCommand(userAddress);
-
-            btnSaveAddress.setEnabled(false);
-            btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
+            saveAndSendAddress(addrStr, userAddress);
         });
 
         // ── BLE Test button ───────────────────────────────────────────────────
@@ -319,6 +323,28 @@ public class TestProvisionActivity extends AppCompatActivity {
         });
     }
 
+    private void saveAndSendAddress(String addrStr, int userAddress) {
+        devicePrefs.edit()
+                .putString("address_" + deviceId, addrStr)
+                .apply();
+
+        etAddress.clearFocus();
+        android.view.inputmethod.InputMethodManager imm =
+                (android.view.inputmethod.InputMethodManager)
+                        getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(etAddress.getWindowToken(), 0);
+        // ─────────────────────────────────────────────────────────
+
+        Toast.makeText(this,
+                "Address saved: " + addrStr + " → Sending command...",
+                Toast.LENGTH_SHORT).show();
+
+        sendLongCommand(userAddress);
+
+        btnSaveAddress.setEnabled(false);
+        btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
+    }
+
     /**
      * Returns true if deviceId contains "LC Node" (case-insensitive)
      * after the last ':' separator.
@@ -349,7 +375,7 @@ public class TestProvisionActivity extends AppCompatActivity {
         int[] data = new int[8];
         data[0] = LONG_DATA_1;        // 11
         data[1] = LONG_DATA_2;        // 1
-        data[2] = userAddress;        // user input → data 3
+        data[2] = userAddress;        // user input
         data[3] = LONG_DATA_DEFAULT;  // 0
         data[4] = LONG_DATA_DEFAULT;  // 0
         data[5] = LONG_DATA_DEFAULT;  // 0
