@@ -12,15 +12,13 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 public class MeshCommandManager {
 
-    private static final String TAG = "MeshCommandManager";
-
-    private static final int HARDCODED_COMMAND = 2;
-    private static final int VALUE_OFF = 0;
-
-    private static final int DELAY_MS = 2000;
+    private static final String TAG             = "MeshCommandManager";
+    private static final int    HARDCODED_COMMAND = 2;
+    private static final int    VALUE_OFF         = 0;
+    private static final int    DELAY_MS          = 2000;
 
     // ─────────────────────────────────────────────────────────────
-    // Single Flow: ON → 2 sec → OFF (device-type-aware)
+    // Overload: Other devices → hardcoded cmd = 2
     // ─────────────────────────────────────────────────────────────
     public static void sendOnThenOff(
             Context context,
@@ -29,9 +27,25 @@ public class MeshCommandManager {
             int unicastAddress,
             String relationDeviceName
     ) {
-        Log.d(TAG, "=== SINGLE ON → OFF START ===");
+        sendOnThenOff(context, mViewModel, tidCounter,
+                unicastAddress, relationDeviceName, HARDCODED_COMMAND);
+    }
 
-        // Resolve ON value from device type (same logic as MQTT)
+    // ─────────────────────────────────────────────────────────────
+    // Main Flow: ON → 2 sec → OFF  (command is passed explicitly)
+    // LC Node  → cmd = 51–58
+    // Others   → cmd = 2  (via overload above)
+    // ─────────────────────────────────────────────────────────────
+    public static void sendOnThenOff(
+            Context context,
+            SharedViewModel mViewModel,
+            AtomicInteger tidCounter,
+            int unicastAddress,
+            String relationDeviceName,
+            int command
+    ) {
+        Log.d(TAG, "=== SINGLE ON → OFF START === cmd=" + command);
+
         String typeKey = MqttSettingsActivity.extractDeviceTypeKey(relationDeviceName);
         int onValue;
         try {
@@ -43,12 +57,12 @@ public class MeshCommandManager {
         final int finalOnValue = onValue;
         Log.d(TAG, "BLE ON value for type='" + typeKey + "' → " + finalOnValue);
 
-        sendMeshCommand(mViewModel, tidCounter, finalOnValue, unicastAddress);
-        Log.d(TAG, "Sent ON");
+        sendMeshCommand(mViewModel, tidCounter, finalOnValue, unicastAddress, command);
+        Log.d(TAG, "Sent ON cmd=" + command);
 
         new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            sendMeshCommand(mViewModel, tidCounter, VALUE_OFF, unicastAddress);
-            Log.d(TAG, "Sent OFF");
+            sendMeshCommand(mViewModel, tidCounter, VALUE_OFF, unicastAddress, command);
+            Log.d(TAG, "Sent OFF cmd=" + command);
             Log.d(TAG, "=== SINGLE ON → OFF END ===");
         }, DELAY_MS);
     }
@@ -60,7 +74,8 @@ public class MeshCommandManager {
             SharedViewModel mViewModel,
             AtomicInteger tidCounter,
             int dataValue,
-            int unicastAddress
+            int unicastAddress,
+            int command
     ) {
         try {
             java.util.List<no.nordicsemi.android.swaromapmesh.ApplicationKey> appKeys =
@@ -72,20 +87,17 @@ public class MeshCommandManager {
             }
 
             int tid = tidCounter.getAndIncrement();
-            if (tid > 255) {
-                tidCounter.set(0);
-                tid = 0;
-            }
+            if (tid > 255) { tidCounter.set(0); tid = 0; }
 
             Log.d(TAG, String.format(
                     "📤 CMD=0x%02X DATA=0x%02X TID=%d → 0x%04X",
-                    HARDCODED_COMMAND, dataValue, tid, unicastAddress));
+                    command, dataValue, tid, unicastAddress));
 
             mViewModel.getMeshManagerApi().createMeshPdu(
                     unicastAddress,
                     new no.nordicsemi.android.swaromapmesh.transport.GenericOnOffSet(
                             appKeys.get(0),
-                            HARDCODED_COMMAND,
+                            command,
                             dataValue,
                             tid
                     )

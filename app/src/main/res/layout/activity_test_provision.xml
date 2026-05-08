@@ -300,8 +300,7 @@
                             android:id="@+id/et_address"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:inputType="number"
-                            android:textColor="@android:color/white"
+                            android:hint="Enter Address (1–8)"                            android:textColor="@android:color/white"
                             android:textColorHint="#888" />
 
                     </com.google.android.material.textfield.TextInputLayout>

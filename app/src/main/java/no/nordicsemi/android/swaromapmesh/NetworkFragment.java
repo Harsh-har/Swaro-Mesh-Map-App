@@ -254,7 +254,14 @@ public class NetworkFragment extends Fragment {
         }
         return false;
     }
-
+    private static class RelationHitResult {
+        final String iconId;
+        final String tappedDeviceId;
+        RelationHitResult(String iconId, String tappedDeviceId) {
+            this.iconId        = iconId;
+            this.tappedDeviceId = tappedDeviceId;
+        }
+    }
     public boolean isAreaZoomed() { return areaLockedId != null; }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -795,9 +802,8 @@ public class NetworkFragment extends Fragment {
         if (svgDocument == null) return;
         float[] c = touchToSvgCoords(touchX, touchY);
 
-        // 1. Pehle icon hit check
+        // 1. Icon hit check
         String hitIconId = findDeviceAt(c[0], c[1]);
-
         if (hitIconId != null) {
             if (currentFocusAreaId != null) {
                 DeviceInfo info = deviceMap.get(hitIconId);
@@ -807,18 +813,16 @@ public class NetworkFragment extends Fragment {
             return;
         }
 
-        // 2. Icon nahi mila → Relation device (physical Devices layer) check karo
-        String hitRelationDeviceId = findRelationDeviceAt(c[0], c[1]);
-        if (hitRelationDeviceId != null) {
-            onRelationDeviceTapped(hitRelationDeviceId);
+        // 2. Relation device hit check
+        RelationHitResult hit = findRelationDeviceAt(c[0], c[1]);
+        if (hit != null) {
+            onRelationDeviceTapped(hit.iconId, hit.tappedDeviceId);
             return;
         }
 
-        // 3. Kuch nahi mila → deselect
         deselectCurrentDevice();
     }
-
-    private void onRelationDeviceTapped(String iconId) {
+    private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
         DeviceInfo device = deviceMap.get(iconId);
         if (device == null) return;
 
@@ -828,36 +832,28 @@ public class NetworkFragment extends Fragment {
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String      displayName    = extractPureDeviceName(iconId);
-        Set<String> relatedDevices = iconToDeviceRelations.getOrDefault(iconId, new HashSet<>());
-        String      relationDevName = relatedDevices.isEmpty()
-                ? null : relatedDevices.iterator().next();
 
+        String displayName = extractPureDeviceName(tappedDeviceId);
+
+        // ✅ only  tapped device name
         Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
-                device.elementId);
-        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
-                device.receiveId);
-        intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+        intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
         intent.putExtra("svg_name", svgName);
         startActivity(intent);
     }
-
-    private String findRelationDeviceAt(float svgX, float svgY) {
-        // iconToDeviceRelations: iconId → Set<deviceId>
-        // Hume reverse map chahiye: deviceId → iconId
+    private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
         for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
             String      iconId    = entry.getKey();
             Set<String> deviceIds = entry.getValue();
 
-            // Sirf provisioned icons ke relation devices check karo
             if (!isProvisioned(iconId)) continue;
 
             for (String deviceId : deviceIds) {
-                // Devices layer mein element dhundo
                 Element deviceEl = svgParser.findElementById(
                         svgDocument.getDocumentElement(), deviceId);
                 if (deviceEl == null) continue;
@@ -867,14 +863,15 @@ public class NetworkFragment extends Fragment {
 
                 RectF expanded = new RectF(bounds);
                 expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+
                 if (expanded.contains(svgX, svgY)) {
-                    return iconId; // iconId return karo taaki TestProvisionActivity sahi data mile
+
+                    return new RelationHitResult(iconId, deviceId);
                 }
             }
         }
         return null;
     }
-
     private float[] touchToSvgCoords(float touchX, float touchY) {
         Matrix inverse = new Matrix();
         if (!matrix.invert(inverse)) return new float[]{touchX, touchY};
@@ -933,7 +930,6 @@ public class NetworkFragment extends Fragment {
                 + " result=" + isProvisioned(deviceId));  // ← debug
 
         if (isProvisioned(deviceId)) {
-            // ← svgElementId save karo provisioned branch mein bhi
             if (device != null && device.elementId != null) {
                 try {
                     int svgId = Integer.parseInt(device.elementId.trim());
@@ -954,7 +950,6 @@ public class NetworkFragment extends Fragment {
             return;
         }
 
-        // ← Unprovision branch mein svgElementId save karo
         if (device != null && device.elementId != null) {
             try {
                 int svgId = Integer.parseInt(device.elementId.trim());

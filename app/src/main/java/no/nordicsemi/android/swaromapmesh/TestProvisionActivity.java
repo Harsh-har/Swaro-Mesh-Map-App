@@ -24,8 +24,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
 import no.nordicsemi.android.swaromapmesh.transport.GenericLightSet;
-import no.nordicsemi.android.swaromapmesh.transport.GenericOnOffSet;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -67,7 +67,7 @@ public class TestProvisionActivity extends AppCompatActivity {
     private MaterialButton    btnSaveAddress;
     private TextInputEditText etAddress;
 
-    private SharedPreferences devicePrefs;   // ← instance variable
+    private SharedPreferences devicePrefs;
 
     private SharedViewModel       mViewModel;
     private final AtomicInteger   tidCounter             = new AtomicInteger(0);
@@ -141,7 +141,13 @@ public class TestProvisionActivity extends AppCompatActivity {
 
         updateMqttTopicDisplay(relationDeviceName);
         updateStatus();
-
+       // ── Show Address input & Save button only for LC Node devices ─────────
+        android.view.View layoutAddress  = findViewById(R.id.layout_address);
+        boolean isLcNode = isLcNodeDevice(deviceId);
+        layoutAddress.setVisibility(isLcNode
+                ? android.view.View.VISIBLE : android.view.View.GONE);
+        btnSaveAddress.setVisibility(isLcNode
+                ? android.view.View.VISIBLE : android.view.View.GONE);
         // ── Node observer ─────────────────────────────────────────────────
         mViewModel.getNodes().observe(this, nodes -> {
             if (nodes == null || nodes.isEmpty()) {
@@ -165,8 +171,8 @@ public class TestProvisionActivity extends AppCompatActivity {
             int userAddress;
             try {
                 userAddress = Integer.parseInt(addrStr);
-                if (userAddress < 0 || userAddress > 255) {
-                    Toast.makeText(this, "Address 0–255 ke beech hona chahiye",
+                if (userAddress < 1 || userAddress > 8) {
+                    Toast.makeText(this, "Address must be 1–8 ",
                             Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -186,7 +192,6 @@ public class TestProvisionActivity extends AppCompatActivity {
                 return;
             }
 
-            // Save karo
             devicePrefs.edit()
                     .putString("address_" + deviceId, addrStr)
                     .apply();
@@ -201,7 +206,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
         });
 
-// ── BLE Test button — SHORT command ──────────────────────────────────
+        // ── BLE Test button ───────────────────────────────────────────────────
         btnTestBle.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
@@ -212,29 +217,38 @@ public class TestProvisionActivity extends AppCompatActivity {
                 return;
             }
 
-            ApplicationKey appKey = getFirstAppKey();
-            if (appKey == null) {
-                Toast.makeText(this, "No AppKey found!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            try {
-                // Short command — GenericOnOffSet
-                int tid = tidCounter.getAndIncrement();
-                if (tid > MAX_TID) { tidCounter.set(0); tid = 0; }
-
-                GenericOnOffSet msg = new GenericOnOffSet(appKey, 0, 1, tid);
-                mViewModel.getMeshManagerApi().createMeshPdu(mUnicastAddress, msg);
-
+            // ── LC Node: address-based command ────────────────────────────
+            if (isLcNodeDevice(deviceId)) {
+                String savedAddr = devicePrefs.getString("address_" + deviceId, "");
+                if (savedAddr.isEmpty()) {
+                    Toast.makeText(this, "Pehle address save karo!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                int userAddress;
+                try {
+                    userAddress = Integer.parseInt(savedAddr);
+                    if (userAddress < 1 || userAddress > 8) {
+                        Toast.makeText(this, "Saved address invalid (1–8)!", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, "Saved address invalid!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                int bleCommand = 50 + userAddress;
+                MeshCommandManager.sendOnThenOff(
+                        this, mViewModel, tidCounter,
+                        mUnicastAddress, relationDeviceName, bleCommand);
                 Toast.makeText(this,
-                        String.format("Short CMD sent → addr=0x%04X TID=%d",
-                                mUnicastAddress, tid),
+                        "Short CMD → cmd=" + bleCommand + " (addr=" + userAddress + ")",
                         Toast.LENGTH_SHORT).show();
 
-            } catch (Exception e) {
-                Log.e(TAG, "BLE short command failed", e);
-                Toast.makeText(this, "Send failed: " + e.getMessage(),
-                        Toast.LENGTH_SHORT).show();
+            } else {
+                // ── Other devices: purana hardcoded cmd=2 flow ────────────
+                MeshCommandManager.sendOnThenOff(
+                        this, mViewModel, tidCounter,
+                        mUnicastAddress, relationDeviceName);
+                Toast.makeText(this, "Sending ON → OFF...", Toast.LENGTH_SHORT).show();
             }
 
             btnTestBle.setEnabled(false);
@@ -303,6 +317,22 @@ public class TestProvisionActivity extends AppCompatActivity {
                 });
             });
         });
+    }
+
+    /**
+     * Returns true if deviceId contains "LC Node" (case-insensitive)
+     * after the last ':' separator.
+     * e.g. "Area1 : LC Node 3"  → true
+     *      "Area1 : Dimmer 2"   → false
+     */
+    private boolean isLcNodeDevice(String id) {
+        if (id == null) return false;
+        String part = id;
+        int colon = id.lastIndexOf(":");
+        if (colon != -1) {
+            part = id.substring(colon + 1).trim();
+        }
+        return part.toLowerCase().contains("lc node");
     }
 
     // =========================================================================
