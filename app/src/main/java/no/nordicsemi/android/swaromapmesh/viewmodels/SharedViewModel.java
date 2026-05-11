@@ -176,17 +176,17 @@ public class SharedViewModel extends BaseViewModel
      * Finds all client-server pairs that need publication, then sets them up.
      */
     private void triggerPublicationSetup(@NonNull ProvisionedMeshNode completedNode) {
-        Log.d(TAG, "📡 triggerPublicationSetup: checking all pairs...");
+        Log.d(TAG, "📡 triggerPublicationSetup: node=0x"
+                + String.format("%04X", completedNode.getUnicastAddress())
+                + " name=" + completedNode.getNodeName());
 
         List<ApplicationKey> appKeys = getNetworkLiveData().getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
-            Log.e(TAG, "triggerPublicationSetup: no AppKey");
-            return;
+            Log.e(TAG, "triggerPublicationSetup: no AppKey"); return;
         }
         int appKeyIndex = appKeys.get(0).getKeyIndex();
 
-        SharedPreferences meshPrefs = mContext.getSharedPreferences(
-                PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences meshPrefs = mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
         if (provisionedKeys.isEmpty()) return;
 
@@ -195,7 +195,7 @@ public class SharedViewModel extends BaseViewModel
 
         for (String serverKey : provisionedKeys) {
 
-            // ── Server address ────────────────────────────────────────────
+            // ── 1. Server unicast address ──────────────────────────────────────
             int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
             if (serverAddr == -1) continue;
             if (!isNodeInNetwork(serverAddr)) {
@@ -204,40 +204,46 @@ public class SharedViewModel extends BaseViewModel
                 continue;
             }
 
-            // ── Area prefix ───────────────────────────────────────────────
-            String areaPrefix = serverKey.contains(":")
-                    ? serverKey.split(":")[0].trim().toLowerCase()
-                    : "";
-
-            // ── Client name — same area me element_addr_ wala device ─────
-            String clientNamePart = findClientNameForArea(areaPrefix);
-            if (clientNamePart == null) {
-                Log.d(TAG, "  No client found for area=" + areaPrefix
-                        + " serverKey=" + serverKey + " — skip");
+            // ── 2. Verify yeh actually server node hai (OnOff Server model hona chahiye) ──
+            if (!isServerNode(serverAddr)) {
+                Log.w(TAG, "  0x" + String.format("%04X", serverAddr)
+                        + " has no OnOff Server model — client node hai, skip");
                 continue;
             }
 
-            // ── elementId → C→S address ───────────────────────────────────
+            // ── 3. Area prefix ─────────────────────────────────────────────────
+            String areaPrefix = serverKey.contains(":")
+                    ? serverKey.split(":")[0].trim().toLowerCase() : "";
+
+            // ── 4. elementId ───────────────────────────────────────────────────
             int svgElementId = ClientServerElementStore.getServerSvgElementId(serverKey);
             if (svgElementId == -1) {
-                Log.w(TAG, "  svgElementId=-1 for key=" + serverKey + " — was pre-saved by onDeviceTapped? Checking...");
-                Log.d(TAG, "  Skipping key=" + serverKey + " (no svgElementId)");
+                Log.w(TAG, "  svgElementId=-1 for key=" + serverKey + " — skip");
                 continue;
             }
-            int cToSAddr = ClientServerElementStore.getClientAddress(
-                    clientNamePart, svgElementId);
+
+            // ── 5. elementId se directly client name dhundo (name matching nahi) ──
+            String clientNamePart = findClientNameByElementId(areaPrefix, svgElementId);
+            if (clientNamePart == null) {
+                Log.d(TAG, "  No client found with elementId=" + svgElementId
+                        + " area=" + areaPrefix + " serverKey=" + serverKey + " — skip");
+                continue;
+            }
+
+            // ── 6. C→S address ─────────────────────────────────────────────────
+            int cToSAddr = ClientServerElementStore.getClientAddress(clientNamePart, svgElementId);
             if (cToSAddr == -1) {
                 Log.d(TAG, "  C→S addr not found: clientName=" + clientNamePart
                         + " elementId=" + svgElementId);
                 continue;
             }
             if (!isNodeInNetwork(cToSAddr)) {
-                Log.d(TAG, "  C→S client 0x" + String.format("%04X", cToSAddr)
+                Log.d(TAG, "  C→S 0x" + String.format("%04X", cToSAddr)
                         + " not in network — skip");
                 continue;
             }
 
-            // ── receiveId → S→C address ───────────────────────────────────
+            // ── 7. receiveId → S→C address ────────────────────────────────────
             String receiveIdStr = ClientServerElementStore.getReceiveId(serverKey);
             int sToCAddr = -1;
             if (receiveIdStr != null && !receiveIdStr.trim().isEmpty()) {
@@ -251,20 +257,32 @@ public class SharedViewModel extends BaseViewModel
                     Log.w(TAG, "  Invalid receiveId=" + receiveIdStr);
                 }
             }
+            if (sToCAddr != -1 && !isNodeInNetwork(sToCAddr)) {
+                Log.d(TAG, "  S→C 0x" + String.format("%04X", sToCAddr)
+                        + " not in network — clearing");
+                sToCAddr = -1;
+            }
 
-            // ── Already done? ─────────────────────────────────────────────
-            if (AutoPublicationHelper.isPublicationSetupComplete(
-                    meshPrefs, cToSAddr, serverAddr)) {
+            // ── 8. Already done? ───────────────────────────────────────────────
+            if (AutoPublicationHelper.isPublicationSetupComplete(meshPrefs, cToSAddr, serverAddr)) {
                 Log.d(TAG, "  Already complete: 0x"
                         + String.format("%04X", cToSAddr)
                         + " ↔ 0x" + String.format("%04X", serverAddr));
                 continue;
             }
 
-            // ── Log pair ──────────────────────────────────────────────────
-            Log.d(TAG, "  📤 Scheduling pair for key=" + serverKey);
+            // ── 9. In-flight guard ─────────────────────────────────────────────
+            String pairKey = cToSAddr + "_" + serverAddr;
+            if (meshPrefs.getBoolean("pub_inflight_" + pairKey, false)) {
+                Log.d(TAG, "  Already in-flight: " + pairKey + " — skip");
+                continue;
+            }
+            meshPrefs.edit().putBoolean("pub_inflight_" + pairKey, true).apply();
+
+            // ── 10. Log & schedule ─────────────────────────────────────────────
+            Log.d(TAG, "  Scheduling pair: " + serverKey);
             Log.d(TAG, "     C→S: 0x" + String.format("%04X", cToSAddr)
-                    + " (elem=" + svgElementId + ")"
+                    + " (elementId=" + svgElementId + ")"
                     + " → Server 0x" + String.format("%04X", serverAddr));
             if (sToCAddr != -1)
                 Log.d(TAG, "     S→C: Server 0x" + String.format("%04X", serverAddr)
@@ -277,14 +295,16 @@ public class SharedViewModel extends BaseViewModel
             final int fSToCAddr   = sToCAddr;
             final int fServerAddr = serverAddr;
             final int fAppKey     = appKeyIndex;
-            final long fDelay     = delayOffset;
+            final String fPairKey = pairKey;
 
-            new Handler(Looper.getMainLooper()).postDelayed(() ->
-                            setupPublicationPairDirectional(
-                                    fCToSAddr, fSToCAddr, fServerAddr, fAppKey),
-                    fDelay);
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                setupPublicationPairDirectional(fCToSAddr, fSToCAddr, fServerAddr, fAppKey);
+                new Handler(Looper.getMainLooper()).postDelayed(
+                        () -> meshPrefs.edit().remove("pub_inflight_" + fPairKey).apply(),
+                        10_000);
+            }, delayOffset);
 
-            delayOffset += 3000;
+            delayOffset += 4000;
             anyScheduled = true;
         }
 
@@ -293,7 +313,67 @@ public class SharedViewModel extends BaseViewModel
         else
             Log.d(TAG, "triggerPublicationSetup: nothing to schedule");
     }
+    // elementId se directly client name dhundta hai — name matching nahi, index-based exact match
+    @Nullable
+    private String findClientNameByElementId(String areaPrefix, int svgElementId) {
+        SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
+        if (storePrefs == null) return null;
 
+        String targetSuffix = "_" + svgElementId;
+        String normalizedArea = areaPrefix.toLowerCase().trim();
+        Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
+
+        for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
+            String k = e.getKey();
+            if (!k.startsWith("element_addr_")) continue;
+            if (!k.endsWith(targetSuffix)) continue;
+
+            String rest = k.substring("element_addr_".length());
+            int lastUnderscore = rest.lastIndexOf("_");
+            if (lastUnderscore == -1) continue;
+            String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+
+            // area prefix se validate karo
+            if (!normalizedArea.isEmpty()) {
+                boolean areaMatch = false;
+                for (String provKey : provisioned) {
+                    String provArea = provKey.contains(":")
+                            ? provKey.split(":")[0].trim().toLowerCase() : "";
+                    String provName = provKey.contains(":")
+                            ? provKey.split(":")[1].trim().toLowerCase()
+                            : provKey.toLowerCase();
+                    if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
+                        areaMatch = true; break;
+                    }
+                }
+                if (!areaMatch) continue;
+            }
+
+            Log.d(TAG, "findClientNameByElementId: area=" + areaPrefix
+                    + " elementId=" + svgElementId + " → " + storedName);
+            return storedName;
+        }
+        Log.w(TAG, "findClientNameByElementId: not found area=" + areaPrefix
+                + " elementId=" + svgElementId);
+        return null;
+    }
+
+    // Verify karta hai ki given element address pe GenericOnOffServer (0x1000) model hai
+    private boolean isServerNode(int unicastAddr) {
+        List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
+        if (nodes == null) return false;
+        for (ProvisionedMeshNode node : nodes) {
+            for (Element el : node.getElements().values()) {
+                if (el.getElementAddress() == unicastAddr) {
+                    boolean hasServer = el.getMeshModels().containsKey(0x1000);
+                    Log.d(TAG, "isServerNode: 0x" + String.format("%04X", unicastAddr)
+                            + " hasOnOffServer=" + hasServer);
+                    return hasServer;
+                }
+            }
+        }
+        return false;
+    }
     @Nullable
     private String findClientNameForArea(String areaPrefix) {
         SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();

@@ -85,6 +85,19 @@ public final class ClientServerElementStore {
         return true;
     }
 
+    private static final String PRE_CLIENT_UNICAST = "client_unicast_";
+
+    public static void saveClientUnicastAddress(String deviceId, int unicastAddress) {
+        if (!checkInit("saveClientUnicastAddress") || isEmpty(deviceId, "saveClientUnicastAddress")) return;
+        String key = normalize(deviceId);
+        getPrefs().edit().putInt(PRE_CLIENT_UNICAST + key, unicastAddress).apply();
+        Log.d(TAG, "✅ saveClientUnicastAddress: " + key + " = 0x" + String.format("%04X", unicastAddress));
+    }
+
+    public static int getClientUnicastAddress(String deviceId) {
+        if (!checkInit("getClientUnicastAddress") || deviceId == null) return -1;
+        return getPrefs().getInt(PRE_CLIENT_UNICAST + normalize(deviceId), -1);
+    }
     private static boolean isEmpty(String value, String caller) {
         if (value == null || value.trim().isEmpty()) {
             Log.e(TAG, caller + ": key is null/empty");
@@ -385,7 +398,6 @@ public final class ClientServerElementStore {
 
     public static boolean isProvisioned(String deviceId) {
         if (!checkInit("isProvisioned") || deviceId == null) return false;
-        if (getServerUnicastAddress(deviceId) != -1) return true;
         return getProvisionedKeys().contains(normalize(deviceId));
     }
 

@@ -225,7 +225,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             if (isLcNodeDevice(deviceId)) {
                 String savedAddr = devicePrefs.getString("address_" + deviceId, "");
                 if (savedAddr.isEmpty()) {
-                    Toast.makeText(this, "Pehle address save karo!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Firstly Assign Address!", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 int userAddress;

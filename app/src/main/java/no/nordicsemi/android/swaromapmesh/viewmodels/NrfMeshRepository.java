@@ -1121,8 +1121,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             final int existingClientUnicast =
                     ClientServerElementStore.getServerUnicastAddress(rawName);
             if (existingClientUnicast == -1) {
-                ClientServerElementStore.saveServerUnicastAddress(
-                        rawName, node.getUnicastAddress());
+                ClientServerElementStore.saveClientUnicastAddress(rawName, node.getUnicastAddress());
                 Log.d(TAG_BIND, "✅ Client unicast saved: key='" + rawName + "'");
             }
         }
