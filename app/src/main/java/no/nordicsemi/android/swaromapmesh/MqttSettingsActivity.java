@@ -140,12 +140,12 @@ public class MqttSettingsActivity extends AppCompatActivity {
 
     public static String getOnValueForType(String typeKey) {
         switch (typeKey) {
-            case "s":  return "250";
-            case "st": return "250";
-            case "d":  return "100";
-            case "f":  return "10";
+            case "s":  return "80";
+            case "st": return "80";
+            case "d":  return "80";
+            case "f":  return "8";
             case "ex": return "4";
-            case "b":  return "100";
+            case "b":  return "70";
             case "r":  return "1";
             default:   return "1";
         }

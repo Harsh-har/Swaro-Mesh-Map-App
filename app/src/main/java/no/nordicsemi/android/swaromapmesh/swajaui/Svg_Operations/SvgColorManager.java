@@ -321,38 +321,49 @@ public class SvgColorManager {
 
     public void dimOtherAreas(String focusedAreaId,
                               Map<String, Element> selectionLayerElements,
-                              Map<String, RectF>   selectionLayerBounds) {
+                              Map<String, RectF>   selectionLayerBounds,
+                              RectF                focusedAreaBounds)  {
         if (focusedAreaId == null) {
             restoreAllAreas(selectionLayerElements, selectionLayerBounds);
             return;
         }
+
+        // ✅ FIX: If no selection_layer exists, skip overlay dim entirely
+        // but still dim furniture for the focused area
+        boolean hasSelectionLayer = !selectionLayerElements.isEmpty();
+
+        // ✅ Always clear stale state first
+        restoreFurnitureVisibility();
+        setWallsOpacity(false);
+        restoreAllDoors();
+
         dimmedAreaId = focusedAreaId;
 
-        // 1. Style selection_layer rects
-        for (Map.Entry<String, Element> entry : selectionLayerElements.entrySet()) {
-            String  areaId = entry.getKey();
-            Element areaEl = entry.getValue();
+        if (hasSelectionLayer) {
+            for (Map.Entry<String, Element> entry : selectionLayerElements.entrySet()) {
+                String  areaId = entry.getKey();
+                Element areaEl = entry.getValue();
 
-            if (!originalAreaStyles.containsKey(areaId)) {
-                String orig = areaEl.getAttribute("style");
-                originalAreaStyles.put(areaId,
-                        (orig == null || orig.isEmpty()) ? STYLE_AREA_DEFAULT : orig);
+                if (!originalAreaStyles.containsKey(areaId)) {
+                    String orig = areaEl.getAttribute("style");
+                    originalAreaStyles.put(areaId,
+                            (orig == null || orig.isEmpty()) ? STYLE_AREA_DEFAULT : orig);
+                }
+
+                if (areaId.equals(focusedAreaId))
+                    areaEl.setAttribute("style", STYLE_AREA_FOCUSED);
+                else
+                    areaEl.setAttribute("style", STYLE_AREA_DIM);
             }
-
-            if (areaId.equals(focusedAreaId))
-                areaEl.setAttribute("style", STYLE_AREA_FOCUSED);
-            else
-                areaEl.setAttribute("style", STYLE_AREA_DIM);
+            setWallsOpacity(true);
         }
 
-        // 2. Dim Walls layer
-        setWallsOpacity(true);
-
-        // 3. Dim furniture outside focused area
-        dimFurnitureOutsideArea(focusedAreaId);
-
-        // 4. Highlight doors in focused area
-        highlightDoorsInArea(focusedAreaId, selectionLayerBounds.get(focusedAreaId));
+        dimFurnitureOutsideArea(focusedAreaId, focusedAreaBounds);
+        RectF areaBounds = selectionLayerBounds.get(focusedAreaId);
+        if (areaBounds != null) {
+            highlightDoorsInArea(focusedAreaId, areaBounds);
+        }
+        // ✅ No warning log spam when bounds simply don't exist
     }
 
     /**
@@ -377,11 +388,28 @@ public class SvgColorManager {
 
     // ── Furniture ─────────────────────────────────────────────────────────
 
-    private void dimFurnitureOutsideArea(String focusedAreaId) {
+    private void dimFurnitureOutsideArea(String focusedAreaId, RectF focusBounds) {
         if (svgDocument == null || focusedAreaId == null) return;
         Element furnitureGroup =
                 parser.findElementById(svgDocument.getDocumentElement(), "Furniture");
-        if (furnitureGroup == null) return;
+        if (furnitureGroup == null) {
+            Log.w(TAG, "dimFurnitureOutsideArea: Furniture group not found");
+            return;
+        }
+
+        Log.d(TAG, "dimFurnitureOutsideArea: focusedAreaId=" + focusedAreaId
+                + " focusBounds=" + focusBounds);
+
+        restoreFurnitureVisibility();
+
+        if (focusBounds == null && parser.selectionLayerBounds != null) {
+            focusBounds = parser.selectionLayerBounds.get(focusedAreaId);
+        }
+
+        if (focusBounds == null) {
+            Log.w(TAG, "dimFurnitureOutsideArea: no bounds available, skipping dim");
+            return;
+        }
 
         if (!furnitureGroup.hasAttribute("data-orig-group-style")) {
             String gs = furnitureGroup.getAttribute("style");
@@ -390,13 +418,19 @@ public class SvgColorManager {
         }
         furnitureGroup.removeAttribute("style");
 
-        String normFocus  = parser.normalize(focusedAreaId);
         NodeList children = furnitureGroup.getChildNodes();
+        int matched = 0, dimmed = 0;
+
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
             Element el = (Element) child;
-            String  id = el.getAttribute("id");
+
+            // ✅ KEY FIX: Only process named <g> sub-groups, skip bare <path>/<line> etc.
+            String tag = el.getTagName().toLowerCase().replace("svg:", "");
+            if (!"g".equals(tag)) continue;
+
+            String id = el.getAttribute("id");
             if (id == null || id.isEmpty()) continue;
 
             if (!el.hasAttribute("data-orig-display")) {
@@ -405,16 +439,66 @@ public class SvgColorManager {
                         (orig != null && !orig.isEmpty()) ? orig : "__visible__");
             }
 
-            if (parser.isFuzzyMatch(parser.normalize(id), normFocus)) {
+            boolean belongsToFocus = false;
+
+            // Strategy 1: ID fuzzy match
+            belongsToFocus = parser.isFuzzyMatch(parser.normalize(id),
+                    parser.normalize(focusedAreaId));
+
+            // Strategy 2: Spatial containment
+// Strategy 2: Spatial containment using passed bounds
+            if (!belongsToFocus) {
+                RectF elBounds = parser.computeBounds(el);
+                if (elBounds != null && !elBounds.isEmpty()) {
+                    Log.d(TAG, "  checking id=" + id + " bounds=" + elBounds);
+
+                    // Center point check
+                    if (focusBounds.contains(elBounds.centerX(), elBounds.centerY())) {
+                        belongsToFocus = true;
+                        Log.d(TAG, "  [CENTER MATCH] " + id);
+                    }
+
+                    // ✅ FIX: Any corner of focusBounds inside elBounds (reverse containment)
+                    if (!belongsToFocus) {
+                        if (elBounds.contains(focusBounds.centerX(), focusBounds.centerY())) {
+                            belongsToFocus = true;
+                            Log.d(TAG, "  [REVERSE CENTER MATCH] " + id);
+                        }
+                    }
+
+                    // ✅ FIX: Lower overlap threshold to 5%
+                    if (!belongsToFocus) {
+                        RectF intersection = new RectF(elBounds);
+                        if (intersection.intersect(focusBounds)) {
+                            float overlap   = intersection.width() * intersection.height();
+                            float elArea    = elBounds.width() * elBounds.height();
+                            float focusArea = focusBounds.width() * focusBounds.height();
+                            // ✅ Check against BOTH element area AND focus area
+                            float overlapRatioEl    = elArea    > 0 ? (overlap / elArea)    : 0;
+                            float overlapRatioFocus = focusArea > 0 ? (overlap / focusArea) : 0;
+                            if (overlapRatioEl > 0.05f || overlapRatioFocus > 0.3f) {
+                                belongsToFocus = true;
+                                Log.d(TAG, "  [OVERLAP MATCH] " + id
+                                        + " overlapEl%=" + (overlapRatioEl * 100)
+                                        + " overlapFocus%=" + (overlapRatioFocus * 100));
+                            }
+                        }
+                    }
+                }
+            }
+            if (belongsToFocus) {
+                matched++;
                 String saved = el.getAttribute("data-orig-display");
                 if ("__visible__".equals(saved)) el.removeAttribute("style");
                 else el.setAttribute("style", saved);
             } else {
-                el.setAttribute("style", "opacity:0.25;");
+                dimmed++;
+                el.setAttribute("style", "opacity:0.15;");
             }
         }
-    }
 
+        Log.d(TAG, "dimFurnitureOutsideArea done: matched=" + matched + " dimmed=" + dimmed);
+    }
     private void restoreFurnitureVisibility() {
         if (svgDocument == null) return;
         Element furnitureGroup =
@@ -433,6 +517,11 @@ public class SvgColorManager {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
             Element el = (Element) child;
+
+            // ✅ Only named <g> sub-groups
+            String tag = el.getTagName().toLowerCase().replace("svg:", "");
+            if (!"g".equals(tag)) continue;
+
             if (el.hasAttribute("data-orig-display")) {
                 String saved = el.getAttribute("data-orig-display");
                 if ("__visible__".equals(saved)) el.removeAttribute("style");
@@ -441,7 +530,6 @@ public class SvgColorManager {
             }
         }
     }
-
     // ── Walls ─────────────────────────────────────────────────────────────
 
     private void setWallsOpacity(boolean dim) {

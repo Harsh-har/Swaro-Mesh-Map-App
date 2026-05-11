@@ -73,7 +73,6 @@ public class NetworkFragment extends Fragment {
     private static final float TAP_MOVE_SLOP      = 10f;
     private static final long  TAP_MAX_DURATION   = 250;
 
-
     // ── Area / zoom lock state ────────────────────────────────────────────
     private float  areaLockedMinZoom  = -1f;
     private String areaLockedId       = null;
@@ -100,7 +99,7 @@ public class NetworkFragment extends Fragment {
     private String selectedDeviceId;
 
     // ── Helper classes ────────────────────────────────────────────────────
-    private final SvgParsers     svgParser    = new SvgParsers();
+    private final SvgParsers      svgParser    = new SvgParsers();
     private final SvgColorManager colorManager = new SvgColorManager();
 
     // ── SVG state ─────────────────────────────────────────────────────────
@@ -126,7 +125,10 @@ public class NetworkFragment extends Fragment {
     // ── Tap helpers ───────────────────────────────────────────────────────
     private float   tapDownX, tapDownY;
     private long    tapDownTime;
-    private boolean hasMoved = false;
+    private boolean hasMoved      = false;
+    // Tracks whether the current gesture involved 2+ fingers.
+    // When true, fling is suppressed so pinch-lift never jerks the map.
+    private boolean wasMultiTouch = false;
 
     // ══════════════════════════════════════════════════════════════════════
     //  LIFECYCLE
@@ -141,10 +143,7 @@ public class NetworkFragment extends Fragment {
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
         setupZoomAndPan();
         observeViewModel();
-
-//        showLoading(true);
         loadSvgFromAssets("office.svg");
-
         return binding.getRoot();
     }
 
@@ -160,7 +159,6 @@ public class NetworkFragment extends Fragment {
                 binding.autoSetupOverlay.setVisibility(View.VISIBLE);
                 binding.progressBar.setVisibility(View.VISIBLE);
                 binding.svgView.setOnTouchListener(null);
-
             } else {
                 binding.autoSetupOverlay.setVisibility(View.GONE);
                 binding.progressBar.setVisibility(View.GONE);
@@ -170,7 +168,6 @@ public class NetworkFragment extends Fragment {
                     Toast.makeText(requireContext(), "All process is complete", Toast.LENGTH_SHORT).show();
                 }
 
-                // Colors refresh + re-render only when transition hua ho
                 if (wasInProgress && svgDocument != null && !deviceMap.isEmpty()) {
                     selectedDeviceId = null;
                     refreshColors();
@@ -191,22 +188,29 @@ public class NetworkFragment extends Fragment {
             }
         });
 
-        // ✅ Provisioned devices update
         mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), ids -> {
             if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
             if (mAutoSetupInProgress) return;
-
             selectedDeviceId = null;
+            if (currentFocusAreaId == null && areaLockedId == null) {
+                colorManager.restoreAllAreas(
+                        svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+            }
             refreshColors();
             reRenderSvg();
         });
     }
+
     @Override
     public void onResume() {
         super.onResume();
         if (svgDocument == null || deviceMap.isEmpty()) return;
         if (mAutoSetupInProgress) return;
         selectedDeviceId = null;
+        if (currentFocusAreaId == null && areaLockedId == null) {
+            colorManager.restoreAllAreas(
+                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+        }
         colorManager.forceResnapshotAllDevices(deviceMap);
         refreshColors();
         reRenderSvg();
@@ -230,8 +234,8 @@ public class NetworkFragment extends Fragment {
 
     public boolean handleBackPress() {
         if (areaLockedId != null) {
-            areaLockedId      = null;
-            areaLockedMinZoom = -1f;
+            areaLockedId       = null;
+            areaLockedMinZoom  = -1f;
             currentFocusAreaId = null;
             colorManager.restoreAllAreas(
                     svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
@@ -254,51 +258,26 @@ public class NetworkFragment extends Fragment {
         }
         return false;
     }
+
+    public boolean isAreaZoomed() { return areaLockedId != null; }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  PRIVATE INNER TYPES
+    // ══════════════════════════════════════════════════════════════════════
+
     private static class RelationHitResult {
         final String iconId;
         final String tappedDeviceId;
         RelationHitResult(String iconId, String tappedDeviceId) {
-            this.iconId        = iconId;
+            this.iconId         = iconId;
             this.tappedDeviceId = tappedDeviceId;
         }
     }
-    public boolean isAreaZoomed() { return areaLockedId != null; }
 
     // ══════════════════════════════════════════════════════════════════════
     //  SVG LOADING
     // ══════════════════════════════════════════════════════════════════════
-    private void resetDeletedDeviceColors() {
-        Set<String> provisioned = getProvisionedSet();
 
-        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-            String deviceId = entry.getKey();
-            DeviceInfo info = entry.getValue();
-
-            // If device is NOT provisioned but has transparent/selected color, restore it
-            boolean shouldBeRestored = !provisioned.contains(deviceId.trim().toLowerCase());
-
-            if (shouldBeRestored) {
-                // Check current rect fill
-                NodeList children = info.element.getChildNodes();
-                for (int i = 0; i < children.getLength(); i++) {
-                    Node child = children.item(i);
-                    if (!(child instanceof Element)) continue;
-                    Element rect = (Element) child;
-                    if ("rect".equals(rect.getTagName().toLowerCase())) {
-                        String currentFill = rect.getAttribute("fill");
-                        String originalFill = rect.getAttribute("data-original-fill");
-
-                        // If current is transparent but shouldn't be
-                        if (COLOR_TRANSPARENT.equals(currentFill) && originalFill != null) {
-                            rect.setAttribute("fill", originalFill);
-                            Log.d(TAG, "Restored deleted device: " + deviceId + " to " + originalFill);
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-    }
     private void loadSvgFromAssets(String assetFileName) {
         showLoading(true);
         loadExecutor.execute(() -> {
@@ -394,9 +373,11 @@ public class NetworkFragment extends Fragment {
         renderSvg(svg, true);
         showLoading(false);
     }
+
     // ══════════════════════════════════════════════════════════════════════
     //  COLOR REFRESH
     // ══════════════════════════════════════════════════════════════════════
+
     private void refreshColors() {
         colorManager.refreshAllColors(
                 deviceMap,
@@ -406,7 +387,6 @@ public class NetworkFragment extends Fragment {
                 currentFocusAreaId
         );
     }
-
 
     // ══════════════════════════════════════════════════════════════════════
     //  AREA ZOOM
@@ -431,7 +411,10 @@ public class NetworkFragment extends Fragment {
         currentFocusAreaId = areaId;
 
         colorManager.dimOtherAreas(
-                areaId, svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+                areaId,
+                svgParser.selectionLayerElements,
+                svgParser.selectionLayerBounds,
+                new RectF(areaBounds));
         refreshColors();
         reRenderSvg();
 
@@ -477,17 +460,14 @@ public class NetworkFragment extends Fragment {
         areaLockedMinZoom = -1f;
         colorManager.restoreAllAreas(
                 svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
-        if (currentFocusAreaId != null) refreshColors();
-        else                            refreshColors();
-
+        refreshColors();
         reRenderSvg();
         binding.svgView.post(() -> fitFloorPlanToView(true));
     }
 
-
     // ══════════════════════════════════════════════════════════════════════
-    //  PROVISIONED HELPERS  ← CORE FIX
-    //
+    //  PROVISIONED HELPERS
+    // ══════════════════════════════════════════════════════════════════════
 
     private boolean isProvisioned(String deviceId) {
         return ClientServerElementStore.isProvisioned(deviceId);
@@ -497,12 +477,11 @@ public class NetworkFragment extends Fragment {
         return ClientServerElementStore.getProvisionedKeys();
     }
 
-
     // ══════════════════════════════════════════════════════════════════════
     //  FLOOR PLAN FIT
+    //  FIX: Uses vbW/vbH (viewBox dimensions) instead of drawable intrinsic
+    //       size so the boundary is correct even without a selection_layer.
     // ══════════════════════════════════════════════════════════════════════
-
-
 
     private void fitFloorPlanToView(boolean animate) {
         if (binding == null || binding.svgView.getDrawable() == null) return;
@@ -512,16 +491,20 @@ public class NetworkFragment extends Fragment {
 
         RectF fp = getFloorPlanBounds();
         if (fp == null || fp.isEmpty()) {
-            float dW    = binding.svgView.getDrawable().getIntrinsicWidth();
-            float dH    = binding.svgView.getDrawable().getIntrinsicHeight();
-            float scale = Math.min(vW / dW, vH / dH);
+            // ── FIX: use SVG viewBox dimensions, not drawable intrinsic size ──
+            float svgW  = svgParser.vbW > 0 ? svgParser.vbW : binding.svgView.getDrawable().getIntrinsicWidth();
+            float svgH  = svgParser.vbH > 0 ? svgParser.vbH : binding.svgView.getDrawable().getIntrinsicHeight();
+            float scale = Math.min(vW / svgW, vH / svgH);
             minZoom = scale;
-            if (animate)
-                animateToMatrix(scale, (vW - dW * scale) / 2f, (vH - dH * scale) / 2f);
-            else {
+            // Centre the viewBox content (account for vbX/vbY offset)
+            float transX = (vW - svgW * scale) / 2f - svgParser.vbX * scale;
+            float transY = (vH - svgH * scale) / 2f - svgParser.vbY * scale;
+            if (animate) {
+                animateToMatrix(scale, transX, transY);
+            } else {
                 matrix.reset();
                 matrix.postScale(scale, scale);
-                matrix.postTranslate((vW - dW * scale) / 2f, (vH - dH * scale) / 2f);
+                matrix.postTranslate(transX, transY);
                 clampMatrix();
                 binding.svgView.setImageMatrix(matrix);
             }
@@ -673,16 +656,31 @@ public class NetworkFragment extends Fragment {
 
         scaleDetector = new ScaleGestureDetector(requireContext(),
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+
+                    // ── FIX: clamp factor before postScale to avoid drift ──
                     @Override
                     public boolean onScale(ScaleGestureDetector d) {
-                        float cur  = getScale();
-                        float next = Math.max(minZoom,
-                                Math.min(MAX_ZOOM, cur * d.getScaleFactor()));
-                        matrix.postScale(next / cur, next / cur,
-                                d.getFocusX(), d.getFocusY());
-                        clampMatrix();
+                        float cur    = getScale();
+                        float factor = d.getScaleFactor();
+
+                        // Clamp factor so scale never exceeds min/max
+                        float next = cur * factor;
+                        if (next < minZoom)  factor = minZoom  / cur;
+                        if (next > MAX_ZOOM) factor = MAX_ZOOM / cur;
+
+                        matrix.postScale(factor, factor, d.getFocusX(), d.getFocusY());
+
+                        // During active pinch: only clamp translation, NOT scale
+                        clampTranslationOnly();
                         binding.svgView.setImageMatrix(matrix);
                         return true;
+                    }
+
+                    // ── FIX: full clamp once gesture ends (imperceptible snap) ──
+                    @Override
+                    public void onScaleEnd(ScaleGestureDetector detector) {
+                        clampMatrix();
+                        binding.svgView.setImageMatrix(matrix);
                     }
                 });
 
@@ -704,6 +702,10 @@ public class NetworkFragment extends Fragment {
                     @Override
                     public boolean onFling(MotionEvent e1, MotionEvent e2,
                                            float vx, float vy) {
+                        // Suppress fling if the gesture involved 2+ fingers.
+                        // GestureDetector fires onFling from ACTION_UP even
+                        // after a pinch, causing a jerk when fingers lift.
+                        if (wasMultiTouch) return false;
                         startFling(vx, vy);
                         return true;
                     }
@@ -726,16 +728,18 @@ public class NetworkFragment extends Fragment {
                 activePointerId = event.getPointerId(0);
                 lastTouchX  = event.getX();
                 lastTouchY  = event.getY();
-                isDragging  = true;
-                tapDownX    = event.getX();
-                tapDownY    = event.getY();
-                tapDownTime = event.getEventTime();
-                hasMoved    = false;
+                isDragging    = true;
+                tapDownX      = event.getX();
+                tapDownY      = event.getY();
+                tapDownTime   = event.getEventTime();
+                hasMoved      = false;
+                wasMultiTouch = false;   // fresh gesture — assume single finger
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
-                isDragging = false;
-                hasMoved   = true;
+                isDragging    = false;
+                hasMoved      = true;
+                wasMultiTouch = true;    // 2+ fingers → block fling on lift
                 break;
 
             case MotionEvent.ACTION_MOVE:
@@ -764,6 +768,7 @@ public class NetworkFragment extends Fragment {
                 activePointerId = MotionEvent.INVALID_POINTER_ID;
                 isDragging      = false;
                 hasMoved        = false;
+                wasMultiTouch   = false;  // reset for next gesture
                 if (velocityTracker != null) {
                     velocityTracker.recycle();
                     velocityTracker = null;
@@ -774,6 +779,7 @@ public class NetworkFragment extends Fragment {
                 activePointerId = MotionEvent.INVALID_POINTER_ID;
                 isDragging      = false;
                 hasMoved        = true;
+                wasMultiTouch   = false;  // reset for next gesture
                 if (velocityTracker != null) {
                     velocityTracker.recycle();
                     velocityTracker = null;
@@ -822,6 +828,7 @@ public class NetworkFragment extends Fragment {
 
         deselectCurrentDevice();
     }
+
     private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
         DeviceInfo device = deviceMap.get(iconId);
         if (device == null) return;
@@ -832,10 +839,8 @@ public class NetworkFragment extends Fragment {
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-
         String displayName = extractPureDeviceName(tappedDeviceId);
 
-        // ✅ only  tapped device name
         Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
@@ -846,6 +851,7 @@ public class NetworkFragment extends Fragment {
         intent.putExtra("svg_name", svgName);
         startActivity(intent);
     }
+
     private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
         for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
             String      iconId    = entry.getKey();
@@ -865,13 +871,13 @@ public class NetworkFragment extends Fragment {
                 expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
 
                 if (expanded.contains(svgX, svgY)) {
-
                     return new RelationHitResult(iconId, deviceId);
                 }
             }
         }
         return null;
     }
+
     private float[] touchToSvgCoords(float touchX, float touchY) {
         Matrix inverse = new Matrix();
         if (!matrix.invert(inverse)) return new float[]{touchX, touchY};
@@ -898,8 +904,9 @@ public class NetworkFragment extends Fragment {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  DEVICE TAP  ← CORE FIX
-    //
+    //  DEVICE TAP
+    // ══════════════════════════════════════════════════════════════════════
+
     private void onDeviceTapped(String deviceId) {
         DeviceInfo device = deviceMap.get(deviceId);
 
@@ -921,13 +928,13 @@ public class NetworkFragment extends Fragment {
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String      displayName     = extractPureDeviceName(deviceId);
-        Set<String> relatedDevices  = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
+        String      displayName    = extractPureDeviceName(deviceId);
+        Set<String> relatedDevices = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
         String      relationDevName = relatedDevices.isEmpty()
                 ? null : relatedDevices.iterator().next();
 
         Log.d(TAG, "isProvisioned check: deviceId=" + deviceId
-                + " result=" + isProvisioned(deviceId));  // ← debug
+                + " result=" + isProvisioned(deviceId));
 
         if (isProvisioned(deviceId)) {
             if (device != null && device.elementId != null) {
@@ -971,7 +978,9 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
                 device != null ? device.receiveId : null);
         startActivity(intent);
-    }    private String extractPureDeviceName(String fullDeviceId) {
+    }
+
+    private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
         String name = fullDeviceId;
         int ci = name.lastIndexOf(":");
@@ -990,7 +999,6 @@ public class NetworkFragment extends Fragment {
     private void deselectCurrentDevice() {
         if (selectedDeviceId == null) return;
         DeviceInfo device = deviceMap.get(selectedDeviceId);
-        // ✅ isProvisioned() — Store ke through
         if (device != null && !isProvisioned(selectedDeviceId)) {
             colorManager.restoreIconGroupColor(device.element);
             reRenderSvg();
@@ -1007,6 +1015,10 @@ public class NetworkFragment extends Fragment {
         return matrixValues[Matrix.MSCALE_X];
     }
 
+    /**
+     * Full clamp: enforces both scale floor/ceiling AND translation bounds.
+     * Call this at rest (gesture end, drag, fling). NOT during active pinch.
+     */
     private void clampMatrix() {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
@@ -1014,6 +1026,38 @@ public class NetworkFragment extends Fragment {
         float effectiveMin = (areaLockedMinZoom > 0) ? areaLockedMinZoom : minZoom;
         float scale = Math.max(effectiveMin,
                 Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
+
+        matrixValues[Matrix.MSCALE_X] = scale;
+        matrixValues[Matrix.MSCALE_Y] = scale;
+        matrix.setValues(matrixValues);
+
+        applyTranslationClamp(scale);
+    }
+
+    /**
+     * Translation-only clamp: does NOT touch scale values.
+     * Use this during active pinch gesture to avoid per-frame jitter/hang.
+     *
+     * FIX: When no selection_layer boundary exists, use SVG viewBox dimensions
+     * (vbW/vbH) instead of drawable intrinsic size, so the boundary is correct
+     * regardless of whether the SVG has a selection_layer group.
+     */
+    private void clampTranslationOnly() {
+        if (binding == null || binding.svgView.getDrawable() == null) return;
+        matrix.getValues(matrixValues);
+        float scale = matrixValues[Matrix.MSCALE_X];
+        applyTranslationClamp(scale);
+    }
+
+    /**
+     * Core translation-clamp logic shared by clampMatrix() and clampTranslationOnly().
+     * Extracts min/max TX/TY from either the area boundary or the full floor plan,
+     * then clamps matrixValues and writes them back.
+     */
+    private void applyTranslationClamp(float scale) {
+        if (binding == null || binding.svgView.getDrawable() == null) return;
+        matrix.getValues(matrixValues);
+
         float vW = binding.svgView.getWidth();
         float vH = binding.svgView.getHeight();
 
@@ -1024,11 +1068,13 @@ public class NetworkFragment extends Fragment {
         float minTX, maxTX, minTY, maxTY;
 
         if (boundary != null) {
+            // Selection-layer boundary is in SVG coords → convert to screen coords
             float bL = (boundary.left   - svgParser.vbX) * scale;
             float bT = (boundary.top    - svgParser.vbY) * scale;
             float bR = (boundary.right  - svgParser.vbX) * scale;
             float bB = (boundary.bottom - svgParser.vbY) * scale;
-            float bW = bR - bL, bH = bB - bT;
+            float bW = bR - bL;
+            float bH = bB - bT;
 
             if (bW >= vW) { minTX = vW - bR; maxTX = -bL; }
             else          { float cx = vW / 2f - (bL + bW / 2f); minTX = maxTX = cx; }
@@ -1036,20 +1082,27 @@ public class NetworkFragment extends Fragment {
             if (bH >= vH) { minTY = vH - bB; maxTY = -bT; }
             else          { float cy = vH / 2f - (bT + bH / 2f); minTY = maxTY = cy; }
         } else {
-            float dW = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
-            float dH = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+            // ── FIX: use viewBox dimensions, not drawable intrinsic size ──
+            // Drawable intrinsic == rendered pixel size, which ignores vbX/vbY
+            // offsets and produces wrong min/max translation when zooming out.
+            float svgW = svgParser.vbW > 0
+                    ? svgParser.vbW
+                    : binding.svgView.getDrawable().getIntrinsicWidth();
+            float svgH = svgParser.vbH > 0
+                    ? svgParser.vbH
+                    : binding.svgView.getDrawable().getIntrinsicHeight();
+
+            float dW = svgW * scale;
+            float dH = svgH * scale;
+
             minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0f, vW - dW);
             maxTX = (dW < vW) ? (vW - dW) / 2f : 0f;
             minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0f, vH - dH);
             maxTY = (dH < vH) ? (vH - dH) / 2f : 0f;
         }
 
-        matrixValues[Matrix.MSCALE_X] = scale;
-        matrixValues[Matrix.MSCALE_Y] = scale;
-        matrixValues[Matrix.MTRANS_X] = Math.max(minTX,
-                Math.min(maxTX, matrixValues[Matrix.MTRANS_X]));
-        matrixValues[Matrix.MTRANS_Y] = Math.max(minTY,
-                Math.min(maxTY, matrixValues[Matrix.MTRANS_Y]));
+        matrixValues[Matrix.MTRANS_X] = Math.max(minTX, Math.min(maxTX, matrixValues[Matrix.MTRANS_X]));
+        matrixValues[Matrix.MTRANS_Y] = Math.max(minTY, Math.min(maxTY, matrixValues[Matrix.MTRANS_Y]));
         matrix.setValues(matrixValues);
     }
 
@@ -1085,9 +1138,12 @@ public class NetworkFragment extends Fragment {
         zoomAnimator.addUpdateListener(anim -> {
             if (binding == null) return;
             float val = (float) anim.getAnimatedValue();
-            matrix.postScale(val / getScale(), val / getScale(), pivotX, pivotY);
-            clampMatrix();
-            binding.svgView.setImageMatrix(matrix);
+            float cur = getScale();
+            if (cur > 0) {
+                matrix.postScale(val / cur, val / cur, pivotX, pivotY);
+                clampMatrix();
+                binding.svgView.setImageMatrix(matrix);
+            }
         });
         zoomAnimator.start();
     }
@@ -1096,8 +1152,15 @@ public class NetworkFragment extends Fragment {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
         float scale = matrixValues[Matrix.MSCALE_X];
-        float dW    = binding.svgView.getDrawable().getIntrinsicWidth()  * scale;
-        float dH    = binding.svgView.getDrawable().getIntrinsicHeight() * scale;
+
+        // ── FIX: use viewBox dimensions here too ──
+        float svgW = svgParser.vbW > 0
+                ? svgParser.vbW : binding.svgView.getDrawable().getIntrinsicWidth();
+        float svgH = svgParser.vbH > 0
+                ? svgParser.vbH : binding.svgView.getDrawable().getIntrinsicHeight();
+        float dW = svgW * scale;
+        float dH = svgH * scale;
+
         float vW    = binding.svgView.getWidth();
         float vH    = binding.svgView.getHeight();
         int startX  = (int) matrixValues[Matrix.MTRANS_X];

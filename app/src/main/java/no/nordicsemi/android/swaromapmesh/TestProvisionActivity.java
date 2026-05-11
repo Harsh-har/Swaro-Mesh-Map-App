@@ -274,7 +274,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             final String finalTopic = getMqttTopicForPublish();
 
             if (finalTopic == null || finalTopic.isEmpty()) {
-                Toast.makeText(this, "Topic build nahi hua! SVG name check karo.",
+                Toast.makeText(this, "Topic build nahi hua! SVG name check.",
                         Toast.LENGTH_LONG).show();
                 return;
             }

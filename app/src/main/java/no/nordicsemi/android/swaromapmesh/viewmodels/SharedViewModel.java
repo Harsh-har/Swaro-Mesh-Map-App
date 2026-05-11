@@ -7,25 +7,32 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+
 import javax.inject.Inject;
+
 import dagger.hilt.android.lifecycle.HiltViewModel;
 import dagger.hilt.android.qualifiers.ApplicationContext;
+
 import no.nordicsemi.android.swaromapmesh.ApplicationKey;
 import no.nordicsemi.android.swaromapmesh.MeshNetwork;
 import no.nordicsemi.android.swaromapmesh.NodeKey;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.swajaui.AutoPublicationHelper;
+import no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationStatus;
 import no.nordicsemi.android.swaromapmesh.transport.Element;
 import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
@@ -43,13 +50,15 @@ public class SharedViewModel extends BaseViewModel
     private static final String KEY_SVG_URI             = "svg_uri";
     private static final String DEFAULT_SELECTED_DEVICE = "All Device";
 
-    // Publication settings (same as AreaClientListActivity)
+    // Publication model IDs
     private static final int GENERIC_ONOFF_CLIENT = 0x1001;
     private static final int GENERIC_ONOFF_SERVER = 0x1000;
 
-    private final SharedPreferences prefs;
+    // ── Publication retry constants ────────────────────────────────────────
+    private static final int  PUB_MAX_RETRIES = 3;
+    private static final long PUB_TIMEOUT_MS  = 8_000L; // 8 seconds per attempt
 
-    // ── Application context (for publication setup) ────────────────────────
+    private final SharedPreferences prefs;
     private final Context mContext;
 
     // ── Repositories ───────────────────────────────────────────────────────
@@ -74,7 +83,11 @@ public class SharedViewModel extends BaseViewModel
     // ── In-memory UUID → SVG ID map ────────────────────────────────────────
     private final Map<String, String> nodeToSvgMap = new HashMap<>();
 
-    // ── Last provisioned node (set by provisioning flow) ──────────────────
+    // ── Publication retry tracking ─────────────────────────────────────────
+    // Key = "elemAddr_publishAddr"  e.g. "3_5"
+    private final Map<String, PublicationAttempt> mPendingPublications = new HashMap<>();
+
+    // ── Last provisioned node ──────────────────────────────────────────────
     private ProvisionedMeshNode lastProvisionedNode;
 
     // =========================================================================
@@ -105,7 +118,7 @@ public class SharedViewModel extends BaseViewModel
         final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
         if (savedSvgUri != null) svgUri.setValue(Uri.parse(savedSvgUri));
 
-        // ── Load provisioned set from Store (single source of truth) ──────
+        // ── Load provisioned set from Store ────────────────────────────────
         syncFromStore();
 
         // ── On node list change → re-sync ─────────────────────────────────
@@ -114,8 +127,11 @@ public class SharedViewModel extends BaseViewModel
         // ── After network import → re-sync ────────────────────────────────
         mNrfMeshRepository.setOnNetworkImportedCallback(this::onNetworkImported);
 
-        // ── Register auto-setup complete callback → triggers publication ───
+        // ── Auto-setup complete → publication ─────────────────────────────
         mNrfMeshRepository.setAutoSetupCompleteListener(this::onAutoSetupComplete);
+
+        // ── Observe publication status for retry logic ─────────────────────
+        observePublicationStatus();
     }
 
     @Override
@@ -125,6 +141,8 @@ public class SharedViewModel extends BaseViewModel
             mNrfMeshRepository.disconnect();
         }
         mScannerRepository.unregisterBroadcastReceivers();
+        // Cancel all pending publication timeouts
+        cancelAllPublicationTimeouts();
     }
 
     public void syncFromStore() {
@@ -140,7 +158,6 @@ public class SharedViewModel extends BaseViewModel
             Log.w(TAG, "onNetworkImported: no nodes");
             return;
         }
-        // Rebuild UUID → SVG map from persisted node_svg_ keys
         for (ProvisionedMeshNode node : nodes) {
             String svgId = prefs.getString("node_svg_" + node.getUuid(), null);
             if (svgId != null) {
@@ -155,26 +172,16 @@ public class SharedViewModel extends BaseViewModel
 
     // =========================================================================
     // AUTO PUBLICATION SETUP
-    // Called automatically when NrfMeshRepository completes auto-bind for a node
     // =========================================================================
 
-    /**
-     * Called by NrfMeshRepository when all AppKey binds are done for a node.
-     * Triggers bidirectional publication setup automatically — no Activity needed.
-     */
     private void onAutoSetupComplete(@NonNull ProvisionedMeshNode node) {
         Log.d(TAG, "🔔 onAutoSetupComplete: node=0x"
                 + String.format("%04X", node.getUnicastAddress())
                 + " name=" + node.getNodeName());
-
-        // 500ms delay — store ko settle hone do
         new Handler(Looper.getMainLooper())
                 .postDelayed(() -> triggerPublicationSetup(node), 500);
     }
 
-    /**
-     * Finds all client-server pairs that need publication, then sets them up.
-     */
     private void triggerPublicationSetup(@NonNull ProvisionedMeshNode completedNode) {
         Log.d(TAG, "📡 triggerPublicationSetup: node=0x"
                 + String.format("%04X", completedNode.getUnicastAddress())
@@ -182,7 +189,8 @@ public class SharedViewModel extends BaseViewModel
 
         List<ApplicationKey> appKeys = getNetworkLiveData().getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
-            Log.e(TAG, "triggerPublicationSetup: no AppKey"); return;
+            Log.e(TAG, "triggerPublicationSetup: no AppKey");
+            return;
         }
         int appKeyIndex = appKeys.get(0).getKeyIndex();
 
@@ -195,62 +203,57 @@ public class SharedViewModel extends BaseViewModel
 
         for (String serverKey : provisionedKeys) {
 
-            // ── 1. Server unicast address ──────────────────────────────────────
+            // ── 1. Server unicast address ──────────────────────────────────
             int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
             if (serverAddr == -1) continue;
             if (!isNodeInNetwork(serverAddr)) {
-                Log.d(TAG, "  Server 0x" + String.format("%04X", serverAddr)
-                        + " not in network — skip");
+                Log.d(TAG, "  Server 0x" + String.format("%04X", serverAddr) + " not in network — skip");
                 continue;
             }
 
-            // ── 2. Verify yeh actually server node hai (OnOff Server model hona chahiye) ──
+            // ── 2. Verify server node (must have OnOff Server model) ───────
             if (!isServerNode(serverAddr)) {
-                Log.w(TAG, "  0x" + String.format("%04X", serverAddr)
-                        + " has no OnOff Server model — client node hai, skip");
+                Log.w(TAG, "  0x" + String.format("%04X", serverAddr) + " has no OnOff Server model — skip");
                 continue;
             }
 
-            // ── 3. Area prefix ─────────────────────────────────────────────────
+            // ── 3. Area prefix ─────────────────────────────────────────────
             String areaPrefix = serverKey.contains(":")
                     ? serverKey.split(":")[0].trim().toLowerCase() : "";
 
-            // ── 4. elementId ───────────────────────────────────────────────────
+            // ── 4. elementId ───────────────────────────────────────────────
             int svgElementId = ClientServerElementStore.getServerSvgElementId(serverKey);
             if (svgElementId == -1) {
                 Log.w(TAG, "  svgElementId=-1 for key=" + serverKey + " — skip");
                 continue;
             }
 
-            // ── 5. elementId se directly client name dhundo (name matching nahi) ──
+            // ── 5. Client name via elementId ───────────────────────────────
             String clientNamePart = findClientNameByElementId(areaPrefix, svgElementId);
             if (clientNamePart == null) {
                 Log.d(TAG, "  No client found with elementId=" + svgElementId
-                        + " area=" + areaPrefix + " serverKey=" + serverKey + " — skip");
+                        + " area=" + areaPrefix + " — skip");
                 continue;
             }
 
-            // ── 6. C→S address ─────────────────────────────────────────────────
+            // ── 6. C→S address ─────────────────────────────────────────────
             int cToSAddr = ClientServerElementStore.getClientAddress(clientNamePart, svgElementId);
             if (cToSAddr == -1) {
-                Log.d(TAG, "  C→S addr not found: clientName=" + clientNamePart
-                        + " elementId=" + svgElementId);
+                Log.d(TAG, "  C→S addr not found: clientName=" + clientNamePart);
                 continue;
             }
             if (!isNodeInNetwork(cToSAddr)) {
-                Log.d(TAG, "  C→S 0x" + String.format("%04X", cToSAddr)
-                        + " not in network — skip");
+                Log.d(TAG, "  C→S 0x" + String.format("%04X", cToSAddr) + " not in network — skip");
                 continue;
             }
 
-            // ── 7. receiveId → S→C address ────────────────────────────────────
+            // ── 7. S→C address via receiveId ──────────────────────────────
             String receiveIdStr = ClientServerElementStore.getReceiveId(serverKey);
             int sToCAddr = -1;
             if (receiveIdStr != null && !receiveIdStr.trim().isEmpty()) {
                 try {
                     int receiveIndex = Integer.parseInt(receiveIdStr.trim());
-                    sToCAddr = ClientServerElementStore.getClientAddress(
-                            clientNamePart, receiveIndex);
+                    sToCAddr = ClientServerElementStore.getClientAddress(clientNamePart, receiveIndex);
                     Log.d(TAG, "  receiveId=" + receiveIndex
                             + " → S→C addr=0x" + String.format("%04X", sToCAddr));
                 } catch (NumberFormatException e) {
@@ -258,12 +261,11 @@ public class SharedViewModel extends BaseViewModel
                 }
             }
             if (sToCAddr != -1 && !isNodeInNetwork(sToCAddr)) {
-                Log.d(TAG, "  S→C 0x" + String.format("%04X", sToCAddr)
-                        + " not in network — clearing");
+                Log.d(TAG, "  S→C 0x" + String.format("%04X", sToCAddr) + " not in network — clearing");
                 sToCAddr = -1;
             }
 
-            // ── 8. Already done? ───────────────────────────────────────────────
+            // ── 8. Already done? ───────────────────────────────────────────
             if (AutoPublicationHelper.isPublicationSetupComplete(meshPrefs, cToSAddr, serverAddr)) {
                 Log.d(TAG, "  Already complete: 0x"
                         + String.format("%04X", cToSAddr)
@@ -271,7 +273,7 @@ public class SharedViewModel extends BaseViewModel
                 continue;
             }
 
-            // ── 9. In-flight guard ─────────────────────────────────────────────
+            // ── 9. In-flight guard ─────────────────────────────────────────
             String pairKey = cToSAddr + "_" + serverAddr;
             if (meshPrefs.getBoolean("pub_inflight_" + pairKey, false)) {
                 Log.d(TAG, "  Already in-flight: " + pairKey + " — skip");
@@ -279,15 +281,13 @@ public class SharedViewModel extends BaseViewModel
             }
             meshPrefs.edit().putBoolean("pub_inflight_" + pairKey, true).apply();
 
-            // ── 10. Log & schedule ─────────────────────────────────────────────
+            // ── 10. Log & schedule ─────────────────────────────────────────
             Log.d(TAG, "  Scheduling pair: " + serverKey);
             Log.d(TAG, "     C→S: 0x" + String.format("%04X", cToSAddr)
-                    + " (elementId=" + svgElementId + ")"
                     + " → Server 0x" + String.format("%04X", serverAddr));
             if (sToCAddr != -1)
                 Log.d(TAG, "     S→C: Server 0x" + String.format("%04X", serverAddr)
-                        + " → 0x" + String.format("%04X", sToCAddr)
-                        + " (receiveId=" + receiveIdStr + ")");
+                        + " → 0x" + String.format("%04X", sToCAddr));
             else
                 Log.d(TAG, "     S→C: skipped (no receiveId or addr not found)");
 
@@ -313,13 +313,13 @@ public class SharedViewModel extends BaseViewModel
         else
             Log.d(TAG, "triggerPublicationSetup: nothing to schedule");
     }
-    // elementId se directly client name dhundta hai — name matching nahi, index-based exact match
+
     @Nullable
     private String findClientNameByElementId(String areaPrefix, int svgElementId) {
         SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
         if (storePrefs == null) return null;
 
-        String targetSuffix = "_" + svgElementId;
+        String targetSuffix   = "_" + svgElementId;
         String normalizedArea = areaPrefix.toLowerCase().trim();
         Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
 
@@ -333,7 +333,6 @@ public class SharedViewModel extends BaseViewModel
             if (lastUnderscore == -1) continue;
             String storedName = rest.substring(0, lastUnderscore).toLowerCase();
 
-            // area prefix se validate karo
             if (!normalizedArea.isEmpty()) {
                 boolean areaMatch = false;
                 for (String provKey : provisioned) {
@@ -343,7 +342,8 @@ public class SharedViewModel extends BaseViewModel
                             ? provKey.split(":")[1].trim().toLowerCase()
                             : provKey.toLowerCase();
                     if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
-                        areaMatch = true; break;
+                        areaMatch = true;
+                        break;
                     }
                 }
                 if (!areaMatch) continue;
@@ -358,7 +358,6 @@ public class SharedViewModel extends BaseViewModel
         return null;
     }
 
-    // Verify karta hai ki given element address pe GenericOnOffServer (0x1000) model hai
     private boolean isServerNode(int unicastAddr) {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes == null) return false;
@@ -374,6 +373,7 @@ public class SharedViewModel extends BaseViewModel
         }
         return false;
     }
+
     @Nullable
     private String findClientNameForArea(String areaPrefix) {
         SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
@@ -386,13 +386,11 @@ public class SharedViewModel extends BaseViewModel
             String k = e.getKey();
             if (!k.startsWith("element_addr_")) continue;
 
-            // element_addr_<name>_<index> → name part nikalo
             String rest = k.substring("element_addr_".length());
             int lastUnderscore = rest.lastIndexOf("_");
             if (lastUnderscore == -1) continue;
             String storedName = rest.substring(0, lastUnderscore).toLowerCase();
 
-            // Same area ki provisioned key me match karo
             for (String provKey : provisioned) {
                 String provArea = provKey.contains(":")
                         ? provKey.split(":")[0].trim().toLowerCase() : "";
@@ -411,6 +409,12 @@ public class SharedViewModel extends BaseViewModel
         Log.w(TAG, "findClientNameForArea: no client found for area=" + areaPrefix);
         return null;
     }
+
+    // =========================================================================
+    // setupPublicationPairDirectional
+    // Uses schedulePublicationWithRetry() instead of direct AutoPublicationHelper calls
+    // =========================================================================
+
     private void setupPublicationPairDirectional(
             int cToSAddr, int sToCAddr, int serverAddr, int appKeyIndex) {
 
@@ -422,7 +426,6 @@ public class SharedViewModel extends BaseViewModel
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes == null) return;
 
-        // Find nodes by element address
         ProvisionedMeshNode clientNode = null;
         ProvisionedMeshNode serverNode = null;
 
@@ -440,7 +443,7 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        int cToSElemIdx = AutoPublicationHelper.getElementIndex(clientNode, cToSAddr);
+        int cToSElemIdx  = AutoPublicationHelper.getElementIndex(clientNode, cToSAddr);
         int serverElemIdx = AutoPublicationHelper.getElementIndex(serverNode, serverAddr);
 
         if (cToSElemIdx == -1 || serverElemIdx == -1) {
@@ -448,34 +451,34 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        // ── C→S: clientElem[elementId] → server ──────────────────────────
-        AutoPublicationHelper.setupPublication(
-                this, clientNode, cToSAddr,
-                GENERIC_ONOFF_CLIENT, serverAddr,
-                appKeyIndex, "C→S");
+        // ── C→S: client element → server  (with retry) ────────────────────
+        schedulePublicationWithRetry(
+                clientNode,
+                cToSAddr,
+                GENERIC_ONOFF_CLIENT,
+                serverAddr,
+                appKeyIndex,
+                "C→S");
 
-        // ── S→C: server → clientElem[receiveId] ──────────────────────────
-        final ProvisionedMeshNode fServerNode = serverNode;
-        final int fAppKeyIndex = appKeyIndex;
-        final int fSToCAddr = sToCAddr;
-        final int fServerAddr2 = serverAddr;
+        // ── S→C: server → client element  (with retry, 1.5s delay) ───────
+        final ProvisionedMeshNode fServerNode  = serverNode;
+        final int                 fAppKeyIndex = appKeyIndex;
+        final int                 fSToCAddr    = sToCAddr;
+        final int                 fServerAddr  = serverAddr;
 
         if (fSToCAddr != -1 && isNodeInNetwork(fSToCAddr)) {
             new Handler(Looper.getMainLooper()).postDelayed(() ->
-                            AutoPublicationHelper.setupPublication(
-                                    this, fServerNode, fServerAddr2,
-                                    GENERIC_ONOFF_SERVER, fSToCAddr,
-                                    fAppKeyIndex, "S→C"),
+                            schedulePublicationWithRetry(
+                                    fServerNode,
+                                    fServerAddr,
+                                    GENERIC_ONOFF_SERVER,
+                                    fSToCAddr,
+                                    fAppKeyIndex,
+                                    "S→C"),
                     1500);
         }
     }
-    /**
-     * Same area me client device ka name dhundta hai
-     * (jo element_addr_ entries store karta hai)
-     */
-    /**
-     * Sets up bidirectional publication between one client-server pair.
-     */
+
     private void setupPublicationPair(int clientAddr, int serverAddr, int appKeyIndex) {
         Log.d(TAG, "setupPublicationPair: 0x" + String.format("%04X", clientAddr)
                 + " ↔ 0x" + String.format("%04X", serverAddr));
@@ -517,24 +520,11 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        Log.d(TAG, "  Client node=0x" + String.format("%04X", clientNode.getUnicastAddress())
-                + " elemIdx=" + clientElemIndex);
-        Log.d(TAG, "  Server node=0x" + String.format("%04X", serverNode.getUnicastAddress())
-                + " elemIdx=" + serverElemIndex);
-
         AutoPublicationHelper.setupBidirectionalPublication(
-                this,
-                clientNode,
-                serverNode,
-                clientElemIndex,
-                serverElemIndex,
-                appKeyIndex
-        );
+                this, clientNode, serverNode,
+                clientElemIndex, serverElemIndex, appKeyIndex);
     }
 
-    /**
-     * Checks whether a node with the given unicast address exists in the mesh network.
-     */
     private boolean isNodeInNetwork(int unicastAddr) {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes == null) return false;
@@ -545,6 +535,217 @@ public class SharedViewModel extends BaseViewModel
             }
         }
         return false;
+    }
+
+    // =========================================================================
+    // PUBLICATION RETRY LOGIC
+    // =========================================================================
+
+    /**
+     * Observes CONFIG_MODEL_PUBLICATION_STATUS messages from the mesh network.
+     * On success → clears the pending attempt.
+     * On fail    → triggers retry logic.
+     */
+    private void observePublicationStatus() {
+        getMeshMessageLiveData().observeForever(meshMessage -> {
+            if (meshMessage == null) return;
+
+            // CONFIG_MODEL_PUBLICATION_STATUS opcode = 0x8019
+            if (!(meshMessage instanceof ConfigModelPublicationStatus)) return;
+
+            ConfigModelPublicationStatus status = (ConfigModelPublicationStatus) meshMessage;
+
+            int publishAddr = status.getPublishAddress();
+            int elementAddr = status.getElementAddress();
+            String key      = elementAddr + "_" + publishAddr;
+
+            PublicationAttempt attempt = mPendingPublications.get(key);
+            if (attempt == null) {
+                // Not one of our tracked attempts — ignore
+                return;
+            }
+
+            boolean success = status.isSuccessful(); // status code 0x00 = success
+
+            if (success) {
+                Log.d(TAG, "✅ Publication STATUS SUCCESS [" + attempt.label
+                        + "] key=" + key + " attempt=" + attempt.attemptCount);
+                onPublicationSuccess(key, attempt);
+            } else {
+                Log.w(TAG, "⚠️ Publication STATUS FAILED [" + attempt.label
+                        + "] key=" + key + " statusCode=" + status.getStatusCode());
+                onPublicationFailed(key, attempt, "Status code: " + status.getStatusCode());
+            }
+        });
+    }
+
+    /**
+     * Sends the publication message and starts an 8-second timeout.
+     * If no CONFIG_MODEL_PUBLICATION_STATUS arrives within the timeout,
+     * treats it as a failure and triggers retry.
+     *
+     * @param node           The ProvisionedMeshNode that owns the source element
+     * @param elementAddress Source element address (the one being configured to publish)
+     * @param modelId        Model ID on that element (OnOff Client or Server)
+     * @param publishAddress Destination address to publish to
+     * @param appKeyIndex    AppKey index to use
+     * @param label          Human-readable label — "C→S" or "S→C" — for logs/toast
+     */
+    private void schedulePublicationWithRetry(
+            @NonNull ProvisionedMeshNode node,
+            int elementAddress,
+            int modelId,
+            int publishAddress,
+            int appKeyIndex,
+            @NonNull String label) {
+
+        String key = elementAddress + "_" + publishAddress;
+
+        // Reuse existing attempt object on retry path; create new on first call
+        PublicationAttempt attempt = mPendingPublications.get(key);
+        if (attempt == null) {
+            attempt = new PublicationAttempt(node, elementAddress, publishAddress,
+                    modelId, appKeyIndex, label);
+            mPendingPublications.put(key, attempt);
+        }
+
+        attempt.attemptCount++;
+        final int currentAttempt = attempt.attemptCount;
+        final PublicationAttempt fAttempt = attempt;
+
+        Log.d(TAG, "📡 schedulePublicationWithRetry [" + label + "]"
+                + " attempt=" + currentAttempt + "/" + PUB_MAX_RETRIES
+                + " elem=0x" + String.format("%04X", elementAddress)
+                + " → publish=0x" + String.format("%04X", publishAddress));
+
+        // Show retry toast (not on first attempt)
+        if (currentAttempt > 1) {
+            new Handler(Looper.getMainLooper()).post(() ->
+                    Toast.makeText(
+                            mContext,
+                            "🔄 Retrying publication [" + label + "]  attempt "
+                                    + currentAttempt + " / " + PUB_MAX_RETRIES,
+                            Toast.LENGTH_SHORT).show());
+        }
+
+        // ── Send the actual publication PDU ────────────────────────────────
+        AutoPublicationHelper.setupPublication(
+                this, node, elementAddress,
+                modelId, publishAddress,
+                appKeyIndex, label);
+
+        // ── Cancel any existing timeout for this key ───────────────────────
+        if (fAttempt.timeoutRunnable != null) {
+            new Handler(Looper.getMainLooper()).removeCallbacks(fAttempt.timeoutRunnable);
+        }
+
+        // ── Schedule timeout ───────────────────────────────────────────────
+        fAttempt.timeoutRunnable = () -> {
+            // Guard: if a newer attempt already started, or attempt was resolved, skip
+            PublicationAttempt current = mPendingPublications.get(key);
+            if (current == null) return;
+            if (current.attemptCount != currentAttempt) return;
+
+            Log.w(TAG, "⏱️ Publication TIMEOUT [" + label + "]"
+                    + " attempt=" + currentAttempt
+                    + " elem=0x" + String.format("%04X", elementAddress));
+            onPublicationFailed(key, current, "Timeout (no STATUS received)");
+        };
+
+        new Handler(Looper.getMainLooper())
+                .postDelayed(fAttempt.timeoutRunnable, PUB_TIMEOUT_MS);
+    }
+
+    /**
+     * Called when CONFIG_MODEL_PUBLICATION_STATUS arrives with success (0x00).
+     */
+    private void onPublicationSuccess(@NonNull String key,
+                                      @NonNull PublicationAttempt attempt) {
+        // Cancel the timeout — no longer needed
+        if (attempt.timeoutRunnable != null) {
+            new Handler(Looper.getMainLooper()).removeCallbacks(attempt.timeoutRunnable);
+            attempt.timeoutRunnable = null;
+        }
+
+        mPendingPublications.remove(key);
+
+        Log.d(TAG, "✅ Publication fully confirmed [" + attempt.label + "] key=" + key
+                + " after " + attempt.attemptCount + " attempt(s)");
+
+        // Clean up inflight pref flag if it was set
+        SharedPreferences meshPrefs =
+                mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        meshPrefs.edit().remove("pub_inflight_" + key).apply();
+    }
+
+    /**
+     * Called when publication fails (timeout or bad status code).
+     * Retries up to PUB_MAX_RETRIES times with progressive delay, then shows final error toast.
+     */
+    private void onPublicationFailed(@NonNull String key,
+                                     @NonNull PublicationAttempt attempt,
+                                     @NonNull String reason) {
+        // Cancel current timeout
+        if (attempt.timeoutRunnable != null) {
+            new Handler(Looper.getMainLooper()).removeCallbacks(attempt.timeoutRunnable);
+            attempt.timeoutRunnable = null;
+        }
+
+        if (attempt.attemptCount < PUB_MAX_RETRIES) {
+            // ── Schedule retry with progressive delay ──────────────────────
+            // Attempt 1 failed → retry after 2s
+            // Attempt 2 failed → retry after 4s
+            long retryDelay = 2_000L * attempt.attemptCount;
+
+            Log.d(TAG, "↩️ Will retry publication [" + attempt.label + "] in "
+                    + retryDelay + "ms  reason=" + reason);
+
+            final PublicationAttempt fAttempt = attempt;
+            new Handler(Looper.getMainLooper()).postDelayed(() ->
+                            schedulePublicationWithRetry(
+                                    fAttempt.node,
+                                    fAttempt.elementAddress,
+                                    fAttempt.publishAddress,
+                                    fAttempt.modelId,
+                                    fAttempt.appKeyIndex,
+                                    fAttempt.label),
+                    retryDelay);
+
+        } else {
+            // ── All retries exhausted ──────────────────────────────────────
+            mPendingPublications.remove(key);
+
+            Log.e(TAG, "❌ Publication PERMANENTLY FAILED [" + attempt.label
+                    + "] after " + attempt.attemptCount + " attempts. reason=" + reason
+                    + " elem=0x" + String.format("%04X", attempt.elementAddress)
+                    + " → publish=0x" + String.format("%04X", attempt.publishAddress));
+
+            new Handler(Looper.getMainLooper()).post(() ->
+                    Toast.makeText(
+                            mContext,
+                            "❌ Publication setup failed [" + attempt.label + "] after "
+                                    + PUB_MAX_RETRIES + " attempts.\nPlease check device connection.",
+                            Toast.LENGTH_LONG).show());
+
+            // Cleanup inflight flag
+            SharedPreferences meshPrefs =
+                    mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            meshPrefs.edit().remove("pub_inflight_" + key).apply();
+        }
+    }
+
+    /**
+     * Cancels all pending publication timeouts (called from onCleared).
+     */
+    private void cancelAllPublicationTimeouts() {
+        Handler h = new Handler(Looper.getMainLooper());
+        for (PublicationAttempt attempt : mPendingPublications.values()) {
+            if (attempt.timeoutRunnable != null) {
+                h.removeCallbacks(attempt.timeoutRunnable);
+            }
+        }
+        mPendingPublications.clear();
+        Log.d(TAG, "🧹 cancelAllPublicationTimeouts: cleared all pending publications");
     }
 
     // =========================================================================
@@ -605,13 +806,10 @@ public class SharedViewModel extends BaseViewModel
             return false;
         }
 
-        // ── Method 1: UUID → svgId map ────────────────────────────────────────
         String svgId = getSvgIdFromNode(realNode);
 
-        // ── Method 2: Fallback — unicast address se reverse lookup ────────────
         if (svgId == null) {
-            svgId = ClientServerElementStore
-                    .getKeyByUnicastAddress(realNode.getUnicastAddress());
+            svgId = ClientServerElementStore.getKeyByUnicastAddress(realNode.getUnicastAddress());
             Log.d(TAG, "fullyDeleteNode: svgId via unicast fallback = " + svgId);
         }
 
@@ -625,7 +823,6 @@ public class SharedViewModel extends BaseViewModel
             return false;
         }
 
-        // ── Clear Store ───────────────────────────────────────────────────────
         if (svgId != null) {
             ClientServerElementStore.clearDevice(svgId);
             Log.d(TAG, "✅ fullyDeleteNode: clearDevice(" + svgId + ")");
@@ -642,7 +839,6 @@ public class SharedViewModel extends BaseViewModel
             }
         }
 
-        // ── Clean in-memory + persisted UUID map ──────────────────────────────
         nodeToSvgMap.remove(realNode.getUuid());
         prefs.edit().remove("node_svg_" + realNode.getUuid()).apply();
 
@@ -672,7 +868,7 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // ELEMENT ID  (read-only — write via ClientServerElementStore.saveDevice())
+    // ELEMENT ID
     // =========================================================================
 
     @Nullable
@@ -682,7 +878,7 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // NODE ↔ SVG MAPPING  (UUID → svgDeviceId, in-memory + node_svg_ prefs)
+    // NODE ↔ SVG MAPPING
     // =========================================================================
 
     public void mapNodeToSvg(String nodeUuid, String svgId) {
@@ -716,7 +912,7 @@ public class SharedViewModel extends BaseViewModel
     // FOCUS AREA
     // =========================================================================
 
-    public LiveData<String> getFocusAreaId()    { return focusAreaId; }
+    public LiveData<String> getFocusAreaId()   { return focusAreaId; }
     public void setFocusAreaId(String areaId)  { focusAreaId.setValue(areaId); }
 
     // =========================================================================
@@ -1007,7 +1203,7 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // SELECTED SVG DEVICE ID  (transient — not persisted)
+    // SELECTED SVG DEVICE ID
     // =========================================================================
 
     public LiveData<String> getSelectedSvgDeviceIdLiveData() { return mSelectedSvgDeviceId; }
@@ -1025,7 +1221,7 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // SERVER SVG DEVICE ID  (persistent)
+    // SERVER SVG DEVICE ID
     // =========================================================================
 
     public void setServerSvgDeviceId(@Nullable String serverSvgDeviceId) {
@@ -1106,7 +1302,34 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // Helper class — PublishConfig
+    // Inner class — PublicationAttempt
+    // Tracks retry state for a single publication pair
+    // =========================================================================
+
+    private static class PublicationAttempt {
+        final ProvisionedMeshNode node;
+        final int                 elementAddress; // source element being configured
+        final int                 publishAddress; // destination to publish to
+        final int                 modelId;
+        final int                 appKeyIndex;
+        final String              label;          // "C→S" or "S→C"
+        int                       attemptCount = 0;
+        Runnable                  timeoutRunnable;
+
+        PublicationAttempt(ProvisionedMeshNode node, int elementAddress,
+                           int publishAddress, int modelId,
+                           int appKeyIndex, String label) {
+            this.node           = node;
+            this.elementAddress = elementAddress;
+            this.publishAddress = publishAddress;
+            this.modelId        = modelId;
+            this.appKeyIndex    = appKeyIndex;
+            this.label          = label;
+        }
+    }
+
+    // =========================================================================
+    // Inner class — PublishConfig (kept for compatibility)
     // =========================================================================
 
     public static class PublishConfig {

@@ -881,6 +881,6 @@
     (smt:Relay Node1 | smt_r_1)
     (smt:Relay Node2 | smt_r_2)
     (smt:Relay Node3 | smt_r_3)
-    (smt:LC Node | smt_s_9_1_5)
+    (smt:LC Node | smt_s_9_1_5, smt_s_9_2_5)
 
   </g></svg>
