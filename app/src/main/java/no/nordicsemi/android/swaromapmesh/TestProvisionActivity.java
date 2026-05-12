@@ -134,14 +134,14 @@ public class TestProvisionActivity extends AppCompatActivity {
         devicePrefs = getSharedPreferences(PREFS_DEVICE_ADDR, MODE_PRIVATE);
 
         // ── Prefill saved address ─────────────────────────────────────────
-        String savedAddress = devicePrefs.getString("address_" + deviceId, "");
+        String savedAddress = devicePrefs.getString(getAddressKey(), "");
         if (!savedAddress.isEmpty()) {
             etAddress.setText(savedAddress);
         }
 
         updateMqttTopicDisplay(relationDeviceName);
         updateStatus();
-       // ── Show Address input & Save button only for LC Node devices ─────────
+        // ── Show Address input & Save button only for LC Node devices ─────────
         android.view.View layoutAddress  = findViewById(R.id.layout_address);
         boolean isLcNode = isLcNodeDevice(deviceId);
         layoutAddress.setVisibility(isLcNode
@@ -191,7 +191,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             }
 
             // ── Agar pehle se address saved hai toh confirm dialog ────
-            String existingAddr = devicePrefs.getString("address_" + deviceId, "");
+            String existingAddr = devicePrefs.getString(getAddressKey(), "");
             if (!existingAddr.isEmpty() && !existingAddr.equals(addrStr)) {
                 final int finalUserAddress = userAddress;
                 new androidx.appcompat.app.AlertDialog.Builder(this)
@@ -223,7 +223,7 @@ public class TestProvisionActivity extends AppCompatActivity {
 
             // ── LC Node: address-based command ────────────────────────────
             if (isLcNodeDevice(deviceId)) {
-                String savedAddr = devicePrefs.getString("address_" + deviceId, "");
+                String savedAddr = devicePrefs.getString(getAddressKey(), "");
                 if (savedAddr.isEmpty()) {
                     Toast.makeText(this, "Firstly Assign Address!", Toast.LENGTH_SHORT).show();
                     return;
@@ -323,9 +323,23 @@ public class TestProvisionActivity extends AppCompatActivity {
         });
     }
 
+    private String getAddressKey() {
+
+        if (relationDeviceName != null &&
+                !relationDeviceName.trim().isEmpty()) {
+
+            return "address_" +
+                    relationDeviceName.trim().toLowerCase();
+        }
+
+        return "address_" +
+                (deviceId != null
+                        ? deviceId.trim().toLowerCase()
+                        : "unknown");
+    }
     private void saveAndSendAddress(String addrStr, int userAddress) {
         devicePrefs.edit()
-                .putString("address_" + deviceId, addrStr)
+                .putString(getAddressKey(), addrStr)
                 .apply();
 
         etAddress.clearFocus();

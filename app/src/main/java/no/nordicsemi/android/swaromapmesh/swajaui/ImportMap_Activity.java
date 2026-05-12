@@ -48,7 +48,17 @@ public class ImportMap_Activity extends AppCompatActivity {
                         Log.e(TAG, "Permission error", e);
                     }
 
-                    if (btnUpload != null) btnUpload.setEnabled(true);
+                    if (btnUpload != null) {
+                        btnUpload.setEnabled(true);
+
+                        // ── Blue color on SVG select ──────────────────────────
+                        btnUpload.setBackgroundTintList(
+                                android.content.res.ColorStateList.valueOf(
+                                        android.graphics.Color.parseColor("#00A1F1")));
+                        btnUpload.setTextColor(
+                                android.graphics.Color.WHITE);
+                    }
+
                     Toast.makeText(this, "SVG selected!", Toast.LENGTH_SHORT).show();
                 }
             });

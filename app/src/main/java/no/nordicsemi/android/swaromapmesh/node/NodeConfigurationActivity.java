@@ -3,6 +3,8 @@ package no.nordicsemi.android.swaromapmesh.node;
 import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -107,6 +109,19 @@ public class NodeConfigurationActivity extends BaseActivity implements
         if (mSvgDeviceId != null) {
             mSharedViewModel.setSelectedSvgDeviceId(mSvgDeviceId);
             String deviceName = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME);
+            // AUTO_RESET: long press se aaya — reset dialog auto-show karo
+            if (getIntent().getBooleanExtra("AUTO_RESET", false)) {
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    if (isFinishing() || isDestroyed()) return;
+                    ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+                    if (node == null) return;
+                    DialogFragmentResetNode resetNodeFragment =
+                            DialogFragmentResetNode.newInstance(
+                                    getString(R.string.title_reset_node),
+                                    getString(R.string.reset_node_rationale_summary));
+                    resetNodeFragment.show(getSupportFragmentManager(), null);
+                }, 800);
+            }
             if (deviceName != null) {
                 Log.d(TAG, "Device name from intent: " + deviceName);
             }

@@ -53,6 +53,7 @@ import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
+import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.DeviceInfo;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgParsers;
@@ -698,6 +699,11 @@ public class NetworkFragment extends Fragment {
                         }
                         return true;
                     }
+                    @Override
+                    public void onLongPress(MotionEvent e) {
+                        hasMoved = true;
+                        handleSvgLongPress(e.getX(), e.getY());
+                    }
 
                     @Override
                     public boolean onFling(MotionEvent e1, MotionEvent e2,
@@ -712,6 +718,63 @@ public class NetworkFragment extends Fragment {
                 });
 
         binding.svgView.setOnTouchListener(this::handleTouch);
+    }
+
+    private void handleSvgLongPress(float touchX, float touchY) {
+        if (svgDocument == null) return;
+        float[] c = touchToSvgCoords(touchX, touchY);
+
+        String hitIconId = findDeviceAt(c[0], c[1]);
+        if (hitIconId == null) return;
+        if (!isProvisioned(hitIconId)) return;
+
+        DeviceInfo device = deviceMap.get(hitIconId);
+        if (device == null) return;
+
+        // ── Haptic feedback ───────────────────────────────────────────────
+        binding.svgView.performHapticFeedback(
+                android.view.HapticFeedbackConstants.LONG_PRESS);
+
+        // ── Proxy connection check ────────────────────────────────────────
+        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
+                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+
+        if (!isConnected) {
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Not Connected")
+                    .setMessage("Please connect to a proxy node before resetting the device.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        // ── Reset dialog ──────────────────────────────────────────────────
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Device Options")
+                .setMessage("Do you want to reset this device?")
+                .setPositiveButton("Reset Node", (dialog, which) ->
+                        openNodeConfigForReset(hitIconId, device))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+    private void openNodeConfigForReset(String deviceId, DeviceInfo device) {
+        SharedPreferences prefs = requireContext()
+                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        Uri    svgUri       = mViewModel.getSvgUri().getValue();
+        String svgUriString = svgUri != null ? svgUri.toString() : "";
+        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
+
+        String displayName = extractPureDeviceName(deviceId);
+
+        Intent intent = new Intent(requireContext(), NodeConfigurationActivity.class);
+        intent.putExtra("EXTRA_SVG_DEVICE_ID",                       deviceId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+        intent.putExtra("svg_name",   svgName);
+        intent.putExtra("AUTO_RESET", true);
+        startActivity(intent);
     }
 
     private boolean handleTouch(View v, MotionEvent event) {
