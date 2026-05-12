@@ -43,7 +43,7 @@
             android:textSize="16sp"
             android:layout_marginStart="16dp" />
 
-        <!-- Device Count Badge (gone when count = 0) -->
+        <!-- Device Count Badge (kept for compatibility, hidden) -->
         <TextView
             android:id="@+id/tvDeviceCount"
             android:layout_width="wrap_content"
@@ -60,15 +60,23 @@
             android:visibility="gone"
             android:text="0" />
 
+        <!-- Status Dot: green = all provisioned, orange = partial, invisible = none -->
+        <View
+            android:id="@+id/vStatusDot"
+            android:layout_width="10dp"
+            android:layout_height="10dp"
+            android:layout_marginStart="8dp"
+            android:background="@drawable/circle_dot"
+            android:visibility="invisible" />
+
     </LinearLayout>
-    <!-- Divider (hidden for last item in group) -->
+
+    <!-- Divider -->
     <View
         android:id="@+id/divider"
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:visibility="gone"
-        android:layout_marginStart="74dp"
-       />
-
+        android:layout_marginStart="74dp" />
 
 </LinearLayout>
