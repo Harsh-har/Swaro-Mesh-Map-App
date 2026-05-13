@@ -125,6 +125,14 @@ public class ExportNetworkViewModel extends BaseViewModel implements NetworkExpo
         }
     }
 
+    /**
+     * Returns the exported mesh network as a JSON string.
+     * Used for sending data to the API.
+     */
+    public String getExportedJson() throws IllegalArgumentException {
+        return export();
+    }
+
     public boolean exportNetwork(@NonNull final OutputStream outputStream) throws IOException {
         final String network = export();
         outputStream.write(network.getBytes());
