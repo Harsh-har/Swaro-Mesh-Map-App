@@ -134,20 +134,38 @@ public class TestProvisionActivity extends AppCompatActivity {
         devicePrefs = getSharedPreferences(PREFS_DEVICE_ADDR, MODE_PRIVATE);
 
         // ── Prefill saved address ─────────────────────────────────────────
+        // Priority 1: devicePrefs (PREFS_DEVICE_ADDR)
         String savedAddress = devicePrefs.getString(getAddressKey(), "");
+
+        // Priority 2: mesh_prefs fallback (import ke baad restore hoga yahan)
+        if (savedAddress.isEmpty()) {
+            String storeKey = (relationDeviceName != null && !relationDeviceName.trim().isEmpty())
+                    ? relationDeviceName.trim().toLowerCase()
+                    : (deviceId != null ? deviceId.trim().toLowerCase() : "unknown");
+            savedAddress = getSharedPreferences("mesh_prefs", Context.MODE_PRIVATE)
+                    .getString("address_" + storeKey, "");
+
+            // ── Agar mesh_prefs mein mila toh devicePrefs mein bhi sync karo
+            if (!savedAddress.isEmpty()) {
+                devicePrefs.edit().putString(getAddressKey(), savedAddress).apply();
+            }
+        }
+
         if (!savedAddress.isEmpty()) {
             etAddress.setText(savedAddress);
         }
 
         updateMqttTopicDisplay(relationDeviceName);
         updateStatus();
-        // ── Show Address input & Save button only for LC Node devices ─────────
-        android.view.View layoutAddress  = findViewById(R.id.layout_address);
+
+        // ── Show Address input & Save button only for LC Node devices ─────
+        android.view.View layoutAddress = findViewById(R.id.layout_address);
         boolean isLcNode = isLcNodeDevice(deviceId);
         layoutAddress.setVisibility(isLcNode
                 ? android.view.View.VISIBLE : android.view.View.GONE);
         btnSaveAddress.setVisibility(isLcNode
                 ? android.view.View.VISIBLE : android.view.View.GONE);
+
         // ── Node observer ─────────────────────────────────────────────────
         mViewModel.getNodes().observe(this, nodes -> {
             if (nodes == null || nodes.isEmpty()) {
@@ -190,7 +208,7 @@ public class TestProvisionActivity extends AppCompatActivity {
                 return;
             }
 
-            // ── Agar pehle se address saved hai toh confirm dialog ────
+            // ── Agar pehle se address saved hai toh confirm dialog ────────
             String existingAddr = devicePrefs.getString(getAddressKey(), "");
             if (!existingAddr.isEmpty() && !existingAddr.equals(addrStr)) {
                 final int finalUserAddress = userAddress;
@@ -198,19 +216,17 @@ public class TestProvisionActivity extends AppCompatActivity {
                         .setTitle("Address Change")
                         .setMessage("Address already set to " + existingAddr
                                 + ".\nChange to " + addrStr + "?")
-                        .setPositiveButton("Yes, Change", (dialog, which) -> {
-                            saveAndSendAddress(addrStr, finalUserAddress);
-                        })
+                        .setPositiveButton("Yes, Change", (dialog, which) ->
+                                saveAndSendAddress(addrStr, finalUserAddress))
                         .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
                         .show();
                 return;
             }
-            // ─────────────────────────────────────────────────────────
 
             saveAndSendAddress(addrStr, userAddress);
         });
 
-        // ── BLE Test button ───────────────────────────────────────────────────
+        // ── BLE Test button ───────────────────────────────────────────────
         btnTestBle.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
                 Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
@@ -221,7 +237,6 @@ public class TestProvisionActivity extends AppCompatActivity {
                 return;
             }
 
-            // ── LC Node: address-based command ────────────────────────────
             if (isLcNodeDevice(deviceId)) {
                 String savedAddr = devicePrefs.getString(getAddressKey(), "");
                 if (savedAddr.isEmpty()) {
@@ -248,7 +263,6 @@ public class TestProvisionActivity extends AppCompatActivity {
                         Toast.LENGTH_SHORT).show();
 
             } else {
-                // ── Other devices: purana hardcoded cmd=2 flow ────────────
                 MeshCommandManager.sendOnThenOff(
                         this, mViewModel, tidCounter,
                         mUnicastAddress, relationDeviceName);
@@ -258,6 +272,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             btnTestBle.setEnabled(false);
             btnTestBle.postDelayed(() -> btnTestBle.setEnabled(true), 2100);
         });
+
         // ── MQTT Test button ──────────────────────────────────────────────
         btnTestMqtt.setOnClickListener(v -> {
             if (!isProvisioned(deviceId)) {
@@ -338,27 +353,41 @@ public class TestProvisionActivity extends AppCompatActivity {
                         : "unknown");
     }
     private void saveAndSendAddress(String addrStr, int userAddress) {
+        // ── 1. devicePrefs mein save (existing) ──────────────────────────────
         devicePrefs.edit()
                 .putString(getAddressKey(), addrStr)
                 .apply();
 
+        // ── 2. mesh_prefs mein bhi save (serialize/import ke liye) ───────────
+        String storeKey = (relationDeviceName != null && !relationDeviceName.trim().isEmpty())
+                ? relationDeviceName.trim().toLowerCase()
+                : (deviceId != null ? deviceId.trim().toLowerCase() : "unknown");
+
+        getSharedPreferences("mesh_prefs", Context.MODE_PRIVATE)
+                .edit()
+                .putInt("lc_address_" + storeKey, userAddress)
+                .putString("address_" + storeKey, addrStr)
+                .apply();
+
+        // ── 3. Keyboard hide ──────────────────────────────────────────────────
         etAddress.clearFocus();
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager)
                         getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(etAddress.getWindowToken(), 0);
-        // ─────────────────────────────────────────────────────────
 
+        // ── 4. Toast ──────────────────────────────────────────────────────────
         Toast.makeText(this,
                 "Address saved: " + addrStr + " → Sending command...",
                 Toast.LENGTH_SHORT).show();
 
+        // ── 5. BLE command send ───────────────────────────────────────────────
         sendLongCommand(userAddress);
 
+        // ── 6. Button debounce ────────────────────────────────────────────────
         btnSaveAddress.setEnabled(false);
         btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
     }
-
     /**
      * Returns true if deviceId contains "LC Node" (case-insensitive)
      * after the last ':' separator.

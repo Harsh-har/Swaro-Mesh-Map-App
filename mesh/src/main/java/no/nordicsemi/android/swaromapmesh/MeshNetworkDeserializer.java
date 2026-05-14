@@ -129,7 +129,6 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
         android.content.SharedPreferences prefs =
                 mContext.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
 
-        // Get provisioned keys
         java.util.Set<String> keys = prefs.getStringSet("provisioned_devices", new java.util.HashSet<>());
 
         for (String key : keys) {
@@ -147,6 +146,15 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             String receiveId = prefs.getString("server_receive_id_" + key, null);
             if (receiveId != null && !receiveId.isEmpty()) entry.addProperty("receiveId", receiveId);
 
+            // ✅ ADD THIS — LC address save karo
+            int lcAddress = prefs.getInt("lc_address_" + key, -1);
+            if (lcAddress != -1) entry.addProperty("lcAddress", lcAddress);
+
+            // Also save devicePrefs address (address_<key>)
+            String assignedAddr = prefs.getString("address_" + key, null);
+            if (assignedAddr != null && !assignedAddr.isEmpty())
+                entry.addProperty("assignedAddress", assignedAddr);
+
             // Client element addresses
             final JsonObject clientAddrs = new JsonObject();
             for (int i = 0; i < 40; i++) {
@@ -160,8 +168,7 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
         }
 
         return root;
-    }
-    /**
+    }    /**
      * Reads swaromapData block from JSON and restores ClientServerElementStore.
      */
     private void deserializeSwaromapData(@NonNull final JsonObject swaromapData) {
@@ -193,6 +200,12 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             if (obj.has("receiveId"))
                 editor.putString("server_receive_id_" + key, obj.get("receiveId").getAsString());
 
+            if (obj.has("lcAddress"))
+                editor.putInt("lc_address_" + key, obj.get("lcAddress").getAsInt());
+
+// ✅ ADD THIS — assigned address (string) restore karo
+            if (obj.has("assignedAddress"))
+                editor.putString("address_" + key, obj.get("assignedAddress").getAsString());
             // Client element addresses
             if (obj.has("clientAddresses")) {
                 final JsonObject clientAddrs = obj.getAsJsonObject("clientAddresses");
