@@ -6,7 +6,6 @@ import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.security.Security;
@@ -18,7 +17,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map.Entry;
 import java.util.UUID;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import no.nordicsemi.android.swaromapmesh.data.ApplicationKeyDao;
@@ -129,7 +127,7 @@ public class MeshManagerApi implements MeshMngrApi {
         mHandler = new Handler(Looper.getMainLooper());
         mMeshProvisioningHandler = new MeshProvisioningHandler(context, internalTransportCallbacks, internalMeshMgrCallbacks);
         mMeshMessageHandler = new MeshMessageHandler(context, internalTransportCallbacks, networkLayerCallbacks, upperTransportLayerCallbacks);
-        mImportExportUtils = new ImportExportUtils();
+        mImportExportUtils = new ImportExportUtils(context);
         initBouncyCastle();
         //Init database
         initDb(context);

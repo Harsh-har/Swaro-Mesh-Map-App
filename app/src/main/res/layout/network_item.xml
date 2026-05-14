@@ -68,6 +68,7 @@
                 app:layout_constraintStart_toStartOf="@id/node_name"
                 app:layout_constraintTop_toBottomOf="@id/node_name">
 
+                <!-- Address -->
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/unicast_title"
                     android:layout_width="wrap_content"
@@ -93,7 +94,7 @@
                     app:layout_constraintTop_toTopOf="@id/unicast_title"
                     tools:ignore="HardcodedText" />
 
-                <!-- ✅ NEW: MAC Address Title -->
+                <!-- MAC Address -->
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/mac_title"
                     android:layout_width="wrap_content"
@@ -101,11 +102,10 @@
                     android:text="MAC:"
                     android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
                     android:textColor="?android:textColorSecondary"
-                    app:layout_constraintStart_toStartOf="@+id/unicast_title"
-                    app:layout_constraintTop_toBottomOf="@+id/unicast"
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/unicast"
                     tools:ignore="HardcodedText" />
 
-                <!-- ✅ NEW: MAC Address Value -->
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/macAddress"
                     android:layout_width="0dp"
@@ -120,6 +120,85 @@
                     app:layout_constraintTop_toTopOf="@id/mac_title"
                     tools:ignore="HardcodedText" />
 
+                <!-- Element ID -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/element_id_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Element ID:"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                    android:textColor="?android:textColorSecondary"
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/macAddress"
+                    tools:ignore="HardcodedText" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/elementId"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="—"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toEndOf="@id/element_id_title"
+                    app:layout_constraintTop_toTopOf="@id/element_id_title"
+                    tools:ignore="HardcodedText" />
+
+                <!-- Receive ID -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/receive_id_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Receive ID:"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                    android:textColor="?android:textColorSecondary"
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/elementId"
+                    tools:ignore="HardcodedText" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/receiveId"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="—"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toEndOf="@id/receive_id_title"
+                    app:layout_constraintTop_toTopOf="@id/receive_id_title"
+                    tools:ignore="HardcodedText" />
+
+                <!-- Area Name -->
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/area_title"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Area:"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                    android:textColor="?android:textColorSecondary"
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/receiveId"
+                    tools:ignore="HardcodedText" />
+
+                <com.google.android.material.textview.MaterialTextView
+                    android:id="@+id/areaName"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="16dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:text="—"
+                    android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
+                    app:layout_constraintEnd_toEndOf="parent"
+                    app:layout_constraintStart_toEndOf="@id/area_title"
+                    app:layout_constraintTop_toTopOf="@id/area_title"
+                    tools:ignore="HardcodedText" />
+
+                <!-- Company (hidden) -->
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/company_identifier_title"
                     android:layout_width="wrap_content"
@@ -128,8 +207,8 @@
                     android:visibility="gone"
                     android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
                     android:textColor="?android:textColorSecondary"
-                    app:layout_constraintStart_toStartOf="@+id/unicast_title"
-                    app:layout_constraintTop_toBottomOf="@+id/mac_title" />
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/areaName" />
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/company_identifier"
@@ -143,10 +222,11 @@
                     android:textColor="@color/textColorPrimary"
                     android:textSize="14sp"
                     app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintStart_toStartOf="@+id/unicast"
-                    app:layout_constraintTop_toBottomOf="@+id/mac_title"
+                    app:layout_constraintStart_toStartOf="@id/unicast"
+                    app:layout_constraintTop_toBottomOf="@id/areaName"
                     tools:ignore="RtlSymmetry" />
 
+                <!-- Elements -->
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/elements_title"
                     android:layout_width="wrap_content"
@@ -154,8 +234,8 @@
                     android:text="@string/elements"
                     android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
                     android:textColor="?android:textColorSecondary"
-                    app:layout_constraintStart_toStartOf="@+id/unicast_title"
-                    app:layout_constraintTop_toBottomOf="@+id/company_identifier" />
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/company_identifier" />
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/elements"
@@ -164,10 +244,11 @@
                     android:text="4"
                     android:textColor="@color/textColorSecondary"
                     android:textSize="14sp"
-                    app:layout_constraintStart_toStartOf="@+id/unicast"
-                    app:layout_constraintTop_toBottomOf="@+id/company_identifier"
+                    app:layout_constraintStart_toStartOf="@id/unicast"
+                    app:layout_constraintTop_toBottomOf="@id/company_identifier"
                     tools:ignore="HardcodedText" />
 
+                <!-- Models -->
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/models_title"
                     android:layout_width="wrap_content"
@@ -175,8 +256,8 @@
                     android:text="@string/models"
                     android:textAppearance="@style/TextAppearance.MaterialComponents.Body2"
                     android:textColor="?android:textColorSecondary"
-                    app:layout_constraintStart_toStartOf="@+id/unicast_title"
-                    app:layout_constraintTop_toBottomOf="@+id/elements" />
+                    app:layout_constraintStart_toStartOf="@id/unicast_title"
+                    app:layout_constraintTop_toBottomOf="@id/elements" />
 
                 <com.google.android.material.textview.MaterialTextView
                     android:id="@+id/models"
@@ -185,8 +266,8 @@
                     android:text="29"
                     android:textColor="@color/textColorPrimary"
                     android:textSize="14sp"
-                    app:layout_constraintStart_toStartOf="@+id/unicast"
-                    app:layout_constraintTop_toBottomOf="@+id/elements"
+                    app:layout_constraintStart_toStartOf="@id/unicast"
+                    app:layout_constraintTop_toBottomOf="@id/elements"
                     tools:ignore="HardcodedText" />
 
             </androidx.constraintlayout.widget.ConstraintLayout>

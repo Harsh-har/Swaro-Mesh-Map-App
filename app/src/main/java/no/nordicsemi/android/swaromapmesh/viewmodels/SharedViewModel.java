@@ -158,18 +158,35 @@ public class SharedViewModel extends BaseViewModel
             Log.w(TAG, "onNetworkImported: no nodes");
             return;
         }
+
+        // ── UUID → SVG map rebuild ─────────────────────────────────────────
         for (ProvisionedMeshNode node : nodes) {
             String svgId = prefs.getString("node_svg_" + node.getUuid(), null);
+            if (svgId == null) {
+                // Fallback: try to find by unicast address in store
+                svgId = ClientServerElementStore
+                        .getKeyByUnicastAddress(node.getUnicastAddress());
+                if (svgId != null) {
+                    // Re-persist the mapping so next time it's found directly
+                    prefs.edit()
+                            .putString("node_svg_" + node.getUuid(), svgId)
+                            .apply();
+                }
+            }
             if (svgId != null) {
                 nodeToSvgMap.put(node.getUuid(), svgId);
             }
         }
+
+        // ── Sync provisioned set from store (already restored by deserializer) ─
         syncFromStore();
+
         new Handler(Looper.getMainLooper())
                 .postDelayed(this::forceSvgRefresh, 1000);
-        Log.d(TAG, "✅ onNetworkImported: rebuilt " + nodeToSvgMap.size() + " UUID mappings");
-    }
 
+        Log.d(TAG, "✅ onNetworkImported: rebuilt "
+                + nodeToSvgMap.size() + " UUID mappings");
+    }
     // =========================================================================
     // AUTO PUBLICATION SETUP
     // =========================================================================

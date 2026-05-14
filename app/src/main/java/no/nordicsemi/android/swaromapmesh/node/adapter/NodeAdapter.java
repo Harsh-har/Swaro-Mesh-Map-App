@@ -7,19 +7,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.lifecycle.LiveData;
 import androidx.recyclerview.widget.AsyncListDiffer;
 import androidx.recyclerview.widget.RecyclerView;
-
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-
 import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.databinding.NetworkItemBinding;
 import no.nordicsemi.android.swaromapmesh.transport.Element;
@@ -27,6 +24,7 @@ import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.CompanyIdentifiers;
 import no.nordicsemi.android.swaromapmesh.utils.MeshAddress;
 import no.nordicsemi.android.swaromapmesh.utils.MeshParserUtils;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableViewHolder;
 
 public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
@@ -39,7 +37,6 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
     private final Set<Integer> expandedPositions = new HashSet<>();
     private OnItemClickListener mOnItemClickListener;
 
-    // backup list for filtering
     private List<ProvisionedMeshNode> allNodes = new ArrayList<>();
 
     public NodeAdapter(@NonNull final LifecycleOwner owner,
@@ -51,9 +48,9 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
                 allNodes = new ArrayList<>(nodes);
                 differ.submitList(new ArrayList<>(nodes));
 
-                // Debug: Log all MAC addresses
                 for (ProvisionedMeshNode node : nodes) {
-                    Log.d(TAG, "Node: " + node.getNodeName() + ", MAC: " + node.getMacAddress());
+                    Log.d(TAG, "Node: " + node.getNodeName()
+                            + ", MAC: " + node.getMacAddress());
                 }
             }
         });
@@ -67,7 +64,8 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
     @Override
     public ViewHolder onCreateViewHolder(@NonNull final ViewGroup parent, final int viewType) {
         return new ViewHolder(
-                NetworkItemBinding.inflate(LayoutInflater.from(parent.getContext()), parent, false)
+                NetworkItemBinding.inflate(
+                        LayoutInflater.from(parent.getContext()), parent, false)
         );
     }
 
@@ -89,13 +87,65 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
                         MeshAddress.addressIntToBytes(node.getUnicastAddress()), false)
         );
 
-        // MAC ADDRESS ⭐⭐ - DEBUG LOGGING
+        // MAC ADDRESS
         final String mac = node.getMacAddress();
-        Log.d(TAG, "Binding node: " + node.getNodeName() +
-                ", MAC from DB: " + mac +
-                ", Position: " + position);
-
+        Log.d(TAG, "Binding node: " + node.getNodeName()
+                + ", MAC: " + mac + ", Position: " + position);
         holder.macAddress.setText(!TextUtils.isEmpty(mac) ? mac : "--");
+
+        // ── Resolve store key by unicast address ──────────────────────────
+        String storeKey = ClientServerElementStore
+                .getKeyByUnicastAddress(node.getUnicastAddress());
+        Log.d(TAG, "storeKey for node " + node.getNodeName() + " = " + storeKey);
+
+        // ELEMENT ID
+        if (storeKey != null) {
+            int svgElementId = ClientServerElementStore.getServerSvgElementId(storeKey);
+            if (svgElementId != -1) {
+                holder.elementId.setText(String.valueOf(svgElementId));
+                holder.elementIdTitle.setVisibility(View.VISIBLE);
+                holder.elementId.setVisibility(View.VISIBLE);
+            } else {
+                holder.elementIdTitle.setVisibility(View.GONE);
+                holder.elementId.setVisibility(View.GONE);
+            }
+        } else {
+            holder.elementIdTitle.setVisibility(View.GONE);
+            holder.elementId.setVisibility(View.GONE);
+        }
+
+        // RECEIVE ID
+        if (storeKey != null) {
+            String receiveId = ClientServerElementStore.getReceiveId(storeKey);
+            if (!TextUtils.isEmpty(receiveId)) {
+                holder.receiveId.setText(receiveId);
+                holder.receiveIdTitle.setVisibility(View.VISIBLE);
+                holder.receiveId.setVisibility(View.VISIBLE);
+            } else {
+                holder.receiveIdTitle.setVisibility(View.GONE);
+                holder.receiveId.setVisibility(View.GONE);
+            }
+        } else {
+            holder.receiveIdTitle.setVisibility(View.GONE);
+            holder.receiveId.setVisibility(View.GONE);
+        }
+
+        // AREA NAME
+        if (storeKey != null && storeKey.contains(":")) {
+            String area = storeKey.split(":")[0].trim();
+            if (!area.isEmpty()) {
+                area = area.substring(0, 1).toUpperCase() + area.substring(1);
+                holder.areaName.setText(area);
+                holder.areaTitleView.setVisibility(View.VISIBLE);
+                holder.areaName.setVisibility(View.VISIBLE);
+            } else {
+                holder.areaTitleView.setVisibility(View.GONE);
+                holder.areaName.setVisibility(View.GONE);
+            }
+        } else {
+            holder.areaTitleView.setVisibility(View.GONE);
+            holder.areaName.setVisibility(View.GONE);
+        }
 
         // NODE INFO
         final Map<Integer, Element> elements = node.getElements();
@@ -103,7 +153,8 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
             holder.nodeInfoContainer.setVisibility(View.VISIBLE);
             if (node.getCompanyIdentifier() != null) {
                 holder.companyIdentifier.setText(
-                        CompanyIdentifiers.getCompanyName(node.getCompanyIdentifier().shortValue()));
+                        CompanyIdentifiers.getCompanyName(
+                                node.getCompanyIdentifier().shortValue()));
             } else {
                 holder.companyIdentifier.setText(R.string.unknown);
             }
@@ -118,7 +169,6 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
 
         // CLICK
         holder.container.setOnClickListener(v -> {
-            // expand/collapse
             if (expanded) {
                 expandedPositions.remove(position);
             } else {
@@ -165,21 +215,24 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
             String lowerCaseQuery = query.toLowerCase().trim();
 
             for (ProvisionedMeshNode node : allNodes) {
-
-                // no.nordicsemi.android.swaromesh.Device Name
                 String nodeName = node.getNodeName() != null
-                        ? node.getNodeName().toLowerCase()
-                        : "";
+                        ? node.getNodeName().toLowerCase() : "";
 
-                // Unicast Address (convert to hex string like UI shows)
                 String addressHex = MeshParserUtils.bytesToHex(
-                        MeshAddress.addressIntToBytes(node.getUnicastAddress()),
-                        false
+                        MeshAddress.addressIntToBytes(node.getUnicastAddress()), false
                 ).toLowerCase();
 
-                if (nodeName.contains(lowerCaseQuery) ||
-                        addressHex.contains(lowerCaseQuery)) {
+                // ── Area name from storeKey ────────────────────────────────
+                String areaName = "";
+                String storeKey = ClientServerElementStore
+                        .getKeyByUnicastAddress(node.getUnicastAddress());
+                if (storeKey != null && storeKey.contains(":")) {
+                    areaName = storeKey.split(":")[0].trim().toLowerCase();
+                }
 
+                if (nodeName.contains(lowerCaseQuery)
+                        || addressHex.contains(lowerCaseQuery)
+                        || areaName.contains(lowerCaseQuery)) {
                     filteredList.add(node);
                 }
             }
@@ -188,7 +241,6 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
         expandedPositions.clear();
         differ.submitList(filteredList);
     }
-
     @FunctionalInterface
     public interface OnItemClickListener {
         void onConfigureClicked(final ProvisionedMeshNode node);
@@ -197,24 +249,36 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
     final class ViewHolder extends RemovableViewHolder {
 
         FrameLayout container;
-        TextView name;
-        View nodeInfoContainer;
-        TextView unicastAddress;
-        TextView macAddress;
-        TextView companyIdentifier;
-        TextView elements;
-        TextView models;
+        TextView    name;
+        View        nodeInfoContainer;
+        TextView    unicastAddress;
+        TextView    macAddress;
+        TextView    elementIdTitle;
+        TextView    elementId;
+        TextView    receiveIdTitle;
+        TextView    receiveId;
+        TextView    areaTitleView;
+        TextView    areaName;
+        TextView    companyIdentifier;
+        TextView    elements;
+        TextView    models;
 
         private ViewHolder(@NonNull final NetworkItemBinding binding) {
             super(binding.getRoot());
-            container = binding.container;
-            name = binding.nodeName;
+            container         = binding.container;
+            name              = binding.nodeName;
             nodeInfoContainer = binding.configuredNodeInfoContainer;
-            unicastAddress = binding.unicast;
-            macAddress = binding.macAddress;
+            unicastAddress    = binding.unicast;
+            macAddress        = binding.macAddress;
+            elementIdTitle    = binding.elementIdTitle;
+            elementId         = binding.elementId;
+            receiveIdTitle    = binding.receiveIdTitle;
+            receiveId         = binding.receiveId;
+            areaTitleView     = binding.areaTitle;
+            areaName          = binding.areaName;
             companyIdentifier = binding.companyIdentifier;
-            elements = binding.elements;
-            models = binding.models;
+            elements          = binding.elements;
+            models            = binding.models;
         }
     }
 }
