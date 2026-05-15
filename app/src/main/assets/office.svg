@@ -702,31 +702,31 @@
   </g>
   <g id="Devices">
     <g id="Production">
-      <path id="smt_r_3" d="M420.04,469.82c0,.63.51,1.14,1.14,1.14s1.14-.51,1.14-1.14-.51-1.14-1.14-1.14-1.14.51-1.14,1.14" fill="transparent"/>
+      <path id="smt_r_10" d="M420.04,469.82c0,.63.51,1.14,1.14,1.14s1.14-.51,1.14-1.14-.51-1.14-1.14-1.14-1.14.51-1.14,1.14" fill="transparent"/>
       <path id="smt_r_2" d="M420.02,423.83c0,.64.52,1.17,1.17,1.17s1.17-.52,1.17-1.17-.52-1.17-1.17-1.17-1.17.52-1.17,1.17" fill="transparent"/>
       <path id="smt_r_1" d="M420.02,377.93c0,.64.52,1.17,1.17,1.17s1.17-.52,1.17-1.17-.52-1.17-1.17-1.17-1.17.52-1.17,1.17" fill="transparent"/>
-      <path id="smt_s_9_1_5"
+      <path id="smt_s_11_1_2"
           d="M311.24,354.27c0,1.38,1.12,2.5,2.5,2.5s2.5-1.12,2.5-2.5-1.12-2.5-2.5-2.5-2.5,1.12-2.5,2.5"
           style="fill:#fb0;" />
-      <path id="smt_s_9_2_5"
+      <path id="smt_s_11_2_2"
           d="M374.45,354.27c0,1.38,1.12,2.5,2.5,2.5s2.5-1.12,2.5-2.5-1.12-2.5-2.5-2.5-2.5,1.12-2.5,2.5"
           style="fill:#fb0;" />
 
     </g>
     <g id="Casting">
-      <g id="casting_r_4">
+      <g id="casting_r_10">
         <path d="M530.73,211.21v19.19h-19.21v-19.19h19.21M531.48,210.46h-20.71v20.69h20.71v-20.69h0Z" fill="transparent"/>
       </g>
-      <g id="casting_r_8">
+      <g id="casting_r_20">
         <path d="M468.62,211.21v19.19h-19.21v-19.19h19.21M469.37,210.46h-20.71v20.69h20.71v-20.69h0Z" fill="transparent"/>
       </g>
-      <g id="casting_r_12">
+      <g id="casting_r_5">
         <path d="M489.33,149.09v19.21h-19.21v-19.21h19.21M490.08,148.34h-20.71v20.71h20.71v-20.71h0Z" fill="transparent"/>
       </g>
-      <g id="casting_s_9_1_5">
+      <g id="casting_s_15_1_2">
         <circle cx="544" cy="149.47" r="2.5" style="fill:#fb0;" />
       </g>
-      <g id="casting_s_9_2_5">
+      <g id="casting_s_15_2_2">
         <circle cx="544" cy="192.43" r="2.5" style="fill:#fb0;" />
       </g>
     </g>
@@ -873,14 +873,14 @@
   <g id="Relation">
     <!-- smt Production -->
 
-    (Casting:Relay Node1 | casting_r_4)
-    (Casting:Relay Node2 | casting_r_8)
-    (Casting:Relay Node3 | casting_r_12)
-    (Casting:LC Node | casting_s_9_1_5, casting_s_9_2_5)
+    (Casting:Relay Node1 | casting_r_10)
+    (Casting:Relay Node2 | casting_r_20)
+    (Casting:Relay Node3 | casting_r_5)
+    (Casting:LC Node | casting_s_15_1_2, casting_s_15_2_2)
 
     (smt:Relay Node1 | smt_r_1)
     (smt:Relay Node2 | smt_r_2)
-    (smt:Relay Node3 | smt_r_3)
-    (smt:LC Node | smt_s_9_1_5, smt_s_9_2_5)
+    (smt:Relay Node3 | smt_r_10)
+    (smt:LC Node | smt_s_11_1_2, smt_s_11_2_2)
 
   </g></svg>
