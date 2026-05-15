@@ -38,6 +38,7 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
     public MeshNetworkDeserializer(@NonNull android.content.Context context) {
         this.mContext = context.getApplicationContext();
     }
+
     @Override
     public MeshNetwork deserialize(final JsonElement json,
                                    final Type typeOfT,
@@ -123,15 +124,44 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
     // =========================================================================
     // SWAROMAP DATA — serialize / deserialize
     // =========================================================================
+
+    /**
+     * Serializes all device data from mesh_prefs into a swaromapData JSON block.
+     *
+     * Strategy:
+     * 1. Start from provisioned_devices set (server devices).
+     * 2. Also scan all keys in prefs for "address_*" and "lc_address_*" entries
+     *    that may belong to LC Node assigned addresses saved under relationDeviceName
+     *    keys — these may NOT be in provisioned_devices set.
+     */
     private JsonObject serializeSwaromapData() {
         final JsonObject root = new JsonObject();
 
         android.content.SharedPreferences prefs =
                 mContext.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
 
-        java.util.Set<String> keys = prefs.getStringSet("provisioned_devices", new java.util.HashSet<>());
+        // ── Step 1: All provisioned device keys ───────────────────────────
+        java.util.Set<String> provisionedKeys = new java.util.HashSet<>(
+                prefs.getStringSet("provisioned_devices", new java.util.HashSet<>()));
 
-        for (String key : keys) {
+        // ── Step 2: Also collect keys from address_* and lc_address_* ─────
+        // These are saved using relationDeviceName as key (e.g. "lc_node_3_relay"),
+        // which may differ from deviceId-based provisioned keys.
+        java.util.Set<String> allKeys = new java.util.HashSet<>(provisionedKeys);
+        for (Map.Entry<String, ?> entry : prefs.getAll().entrySet()) {
+            String k = entry.getKey();
+            if (k.startsWith("address_") && !k.startsWith("address_0x")) {
+                // e.g. "address_lc_node_3_relay" → extract "lc_node_3_relay"
+                String candidate = k.substring("address_".length());
+                if (!candidate.isEmpty()) allKeys.add(candidate);
+            }
+            if (k.startsWith("lc_address_")) {
+                String candidate = k.substring("lc_address_".length());
+                if (!candidate.isEmpty()) allKeys.add(candidate);
+            }
+        }
+
+        for (String key : allKeys) {
             final JsonObject entry = new JsonObject();
 
             int unicast = prefs.getInt("server_unicast_" + key, -1);
@@ -146,11 +176,11 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             String receiveId = prefs.getString("server_receive_id_" + key, null);
             if (receiveId != null && !receiveId.isEmpty()) entry.addProperty("receiveId", receiveId);
 
-            // ✅ ADD THIS — LC address save karo
+            // LC address (int) — the parsed address value 1-8
             int lcAddress = prefs.getInt("lc_address_" + key, -1);
             if (lcAddress != -1) entry.addProperty("lcAddress", lcAddress);
 
-            // Also save devicePrefs address (address_<key>)
+            // Assigned address (String) — the raw string saved from EditText
             String assignedAddr = prefs.getString("address_" + key, null);
             if (assignedAddr != null && !assignedAddr.isEmpty())
                 entry.addProperty("assignedAddress", assignedAddr);
@@ -164,20 +194,33 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             }
             if (clientAddrs.size() > 0) entry.add("clientAddresses", clientAddrs);
 
-            root.add(key, entry);
+            // Only add entry if it has at least one meaningful field
+            if (entry.size() > 0) {
+                root.add(key, entry);
+            }
         }
 
+        MeshLogger.verbose(TAG, "serializeSwaromapData: exported " + root.size() + " device(s)");
         return root;
-    }    /**
-     * Reads swaromapData block from JSON and restores ClientServerElementStore.
+    }
+
+    /**
+     * Reads swaromapData block from JSON and restores all device data into mesh_prefs.
+     * Also restores assigned address into device_address_prefs so TestProvisionActivity
+     * can read it immediately after import without needing a fallback lookup.
      */
     private void deserializeSwaromapData(@NonNull final JsonObject swaromapData) {
-        android.content.SharedPreferences prefs =
+        android.content.SharedPreferences meshPrefs =
                 mContext.getSharedPreferences(PREFS_NAME, android.content.Context.MODE_PRIVATE);
-        android.content.SharedPreferences.Editor editor = prefs.edit();
+        android.content.SharedPreferences.Editor meshEditor = meshPrefs.edit();
+
+        // Also restore into device_address_prefs so TestProvisionActivity reads it directly
+        android.content.SharedPreferences devicePrefs =
+                mContext.getSharedPreferences("device_address_prefs", android.content.Context.MODE_PRIVATE);
+        android.content.SharedPreferences.Editor deviceEditor = devicePrefs.edit();
 
         java.util.Set<String> provisionedKeys = new java.util.HashSet<>(
-                prefs.getStringSet("provisioned_devices", new java.util.HashSet<>()));
+                meshPrefs.getStringSet("provisioned_devices", new java.util.HashSet<>()));
 
         int restored = 0;
 
@@ -185,27 +228,35 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             final String     key = entry.getKey();
             final JsonObject obj = entry.getValue().getAsJsonObject();
 
-            if (obj.has("unicast"))
-                editor.putInt("server_unicast_" + key, obj.get("unicast").getAsInt());
+            if (obj.has("unicast")) {
+                int unicast = obj.get("unicast").getAsInt();
+                meshEditor.putInt("server_unicast_" + key, unicast);
+                meshEditor.putInt("server_primary_addr_" + key, unicast);
+                // Mark as provisioned only if it has a unicast address
+                provisionedKeys.add(key);
+            }
 
             if (obj.has("svgElementId"))
-                editor.putInt("server_svg_element_id_" + key, obj.get("svgElementId").getAsInt());
-
-            if (obj.has("unicast"))
-                editor.putInt("server_primary_addr_" + key, obj.get("unicast").getAsInt());
+                meshEditor.putInt("server_svg_element_id_" + key, obj.get("svgElementId").getAsInt());
 
             if (obj.has("mac"))
-                editor.putString("mac_" + key, obj.get("mac").getAsString());
+                meshEditor.putString("mac_" + key, obj.get("mac").getAsString());
 
             if (obj.has("receiveId"))
-                editor.putString("server_receive_id_" + key, obj.get("receiveId").getAsString());
+                meshEditor.putString("server_receive_id_" + key, obj.get("receiveId").getAsString());
 
             if (obj.has("lcAddress"))
-                editor.putInt("lc_address_" + key, obj.get("lcAddress").getAsInt());
+                meshEditor.putInt("lc_address_" + key, obj.get("lcAddress").getAsInt());
 
-// ✅ ADD THIS — assigned address (string) restore karo
-            if (obj.has("assignedAddress"))
-                editor.putString("address_" + key, obj.get("assignedAddress").getAsString());
+            // Restore assigned address to BOTH prefs
+            if (obj.has("assignedAddress")) {
+                String assignedAddr = obj.get("assignedAddress").getAsString();
+                // mesh_prefs — used as fallback in TestProvisionActivity
+                meshEditor.putString("address_" + key, assignedAddr);
+                // device_address_prefs — primary source in TestProvisionActivity
+                deviceEditor.putString("address_" + key, assignedAddr);
+            }
+
             // Client element addresses
             if (obj.has("clientAddresses")) {
                 final JsonObject clientAddrs = obj.getAsJsonObject("clientAddresses");
@@ -213,20 +264,21 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
                     try {
                         int index = Integer.parseInt(addrEntry.getKey());
                         int addr  = addrEntry.getValue().getAsInt();
-                        editor.putInt("element_addr_" + key + "_" + index, addr);
+                        meshEditor.putInt("element_addr_" + key + "_" + index, addr);
                     } catch (NumberFormatException ignored) {}
                 }
             }
 
-            provisionedKeys.add(key);
             restored++;
         }
 
-        editor.putStringSet("provisioned_devices", provisionedKeys);
-        editor.apply();
+        meshEditor.putStringSet("provisioned_devices", provisionedKeys);
+        meshEditor.apply();
+        deviceEditor.apply();
 
-        MeshLogger.verbose(TAG, "✅ deserializeSwaromapData: restored " + restored + " device(s)");
+        MeshLogger.verbose(TAG, "deserializeSwaromapData: restored " + restored + " device(s)");
     }
+
     // =========================================================================
     // Validation
     // =========================================================================

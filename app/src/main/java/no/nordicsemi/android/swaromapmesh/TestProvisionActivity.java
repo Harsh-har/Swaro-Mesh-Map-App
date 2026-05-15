@@ -137,15 +137,12 @@ public class TestProvisionActivity extends AppCompatActivity {
         // Priority 1: devicePrefs (PREFS_DEVICE_ADDR)
         String savedAddress = devicePrefs.getString(getAddressKey(), "");
 
-        // Priority 2: mesh_prefs fallback (import ke baad restore hoga yahan)
+        // Priority 2: mesh_prefs fallback (restored after import)
         if (savedAddress.isEmpty()) {
-            String storeKey = (relationDeviceName != null && !relationDeviceName.trim().isEmpty())
-                    ? relationDeviceName.trim().toLowerCase()
-                    : (deviceId != null ? deviceId.trim().toLowerCase() : "unknown");
-            savedAddress = getSharedPreferences("mesh_prefs", Context.MODE_PRIVATE)
-                    .getString("address_" + storeKey, "");
+            savedAddress = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .getString("address_" + getStoreKey(), "");
 
-            // ── Agar mesh_prefs mein mila toh devicePrefs mein bhi sync karo
+            // If found in mesh_prefs, sync back to devicePrefs
             if (!savedAddress.isEmpty()) {
                 devicePrefs.edit().putString(getAddressKey(), savedAddress).apply();
             }
@@ -181,7 +178,7 @@ public class TestProvisionActivity extends AppCompatActivity {
                     ? etAddress.getText().toString().trim() : "";
 
             if (addrStr.isEmpty()) {
-                Toast.makeText(this, "Assign Address!", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Please enter an address!", Toast.LENGTH_SHORT).show();
                 etAddress.requestFocus();
                 return;
             }
@@ -190,7 +187,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             try {
                 userAddress = Integer.parseInt(addrStr);
                 if (userAddress < 1 || userAddress > 8) {
-                    Toast.makeText(this, "Address must be 1–8", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Address must be between 1 and 8", Toast.LENGTH_SHORT).show();
                     return;
                 }
             } catch (NumberFormatException e) {
@@ -208,14 +205,14 @@ public class TestProvisionActivity extends AppCompatActivity {
                 return;
             }
 
-            // ── Agar pehle se address saved hai toh confirm dialog ────────
+            // ── Confirm dialog if address already saved ───────────────────
             String existingAddr = devicePrefs.getString(getAddressKey(), "");
             if (!existingAddr.isEmpty() && !existingAddr.equals(addrStr)) {
                 final int finalUserAddress = userAddress;
                 new androidx.appcompat.app.AlertDialog.Builder(this)
                         .setTitle("Address Change")
-                        .setMessage("Address already set to " + existingAddr
-                                + ".\nChange to " + addrStr + "?")
+                        .setMessage("Address is already set to " + existingAddr
+                                + ".\nDo you want to change it to " + addrStr + "?")
                         .setPositiveButton("Yes, Change", (dialog, which) ->
                                 saveAndSendAddress(addrStr, finalUserAddress))
                         .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
@@ -240,18 +237,18 @@ public class TestProvisionActivity extends AppCompatActivity {
             if (isLcNodeDevice(deviceId)) {
                 String savedAddr = devicePrefs.getString(getAddressKey(), "");
                 if (savedAddr.isEmpty()) {
-                    Toast.makeText(this, "Firstly Assign Address!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Please assign an address first!", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 int userAddress;
                 try {
                     userAddress = Integer.parseInt(savedAddr);
                     if (userAddress < 1 || userAddress > 8) {
-                        Toast.makeText(this, "Saved address invalid (1–8)!", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(this, "Saved address is invalid (must be 1-8)!", Toast.LENGTH_SHORT).show();
                         return;
                     }
                 } catch (NumberFormatException e) {
-                    Toast.makeText(this, "Saved address invalid!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Saved address is invalid!", Toast.LENGTH_SHORT).show();
                     return;
                 }
                 int bleCommand = 50 + userAddress;
@@ -289,7 +286,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             final String finalTopic = getMqttTopicForPublish();
 
             if (finalTopic == null || finalTopic.isEmpty()) {
-                Toast.makeText(this, "Topic build nahi hua! SVG name check.",
+                Toast.makeText(this, "Topic could not be built! Please check SVG name.",
                         Toast.LENGTH_LONG).show();
                 return;
             }
@@ -307,7 +304,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             String onValue = MqttSettingsActivity.getOnValue(mqttPrefs, relationDeviceName);
             if (onValue.isEmpty()) {
                 Toast.makeText(this,
-                        "ON value resolve nahi hua for " + deviceId,
+                        "ON value could not be resolved for device: " + deviceId,
                         Toast.LENGTH_LONG).show();
                 return;
             }
@@ -331,63 +328,75 @@ public class TestProvisionActivity extends AppCompatActivity {
                         Toast.makeText(this, "Sending Command 2...", Toast.LENGTH_SHORT).show());
                 publishMqtt(finalHost, finalPort, finalUser, finalPass, finalTopic, payloadOff);
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "✓ Both commands sent!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Both commands sent successfully!", Toast.LENGTH_SHORT).show();
                     btnTestMqtt.postDelayed(() -> btnTestMqtt.setEnabled(true), 500);
                 });
             });
         });
     }
 
-    private String getAddressKey() {
+    // =========================================================================
+    // Key helpers — SINGLE SOURCE OF TRUTH
+    // =========================================================================
 
-        if (relationDeviceName != null &&
-                !relationDeviceName.trim().isEmpty()) {
-
-            return "address_" +
-                    relationDeviceName.trim().toLowerCase();
+    /**
+     * Returns the store key used in mesh_prefs.
+     * Always prefers relationDeviceName, falls back to deviceId.
+     */
+    private String getStoreKey() {
+        if (relationDeviceName != null && !relationDeviceName.trim().isEmpty()) {
+            return relationDeviceName.trim().toLowerCase();
         }
-
-        return "address_" +
-                (deviceId != null
-                        ? deviceId.trim().toLowerCase()
-                        : "unknown");
+        return deviceId != null ? deviceId.trim().toLowerCase() : "unknown";
     }
+
+    /**
+     * Returns the key used in devicePrefs (device_address_prefs).
+     * Kept consistent with getStoreKey() so both prefs always agree.
+     */
+    private String getAddressKey() {
+        return "address_" + getStoreKey();
+    }
+
+    // =========================================================================
+    // Save & Send
+    // =========================================================================
+
     private void saveAndSendAddress(String addrStr, int userAddress) {
-        // ── 1. devicePrefs mein save (existing) ──────────────────────────────
+        final String storeKey = getStoreKey();
+
+        // ── 1. Save to devicePrefs (device_address_prefs) ────────────────
         devicePrefs.edit()
                 .putString(getAddressKey(), addrStr)
                 .apply();
 
-        // ── 2. mesh_prefs mein bhi save (serialize/import ke liye) ───────────
-        String storeKey = (relationDeviceName != null && !relationDeviceName.trim().isEmpty())
-                ? relationDeviceName.trim().toLowerCase()
-                : (deviceId != null ? deviceId.trim().toLowerCase() : "unknown");
-
-        getSharedPreferences("mesh_prefs", Context.MODE_PRIVATE)
+        // ── 2. Save to mesh_prefs (for export/import) ─────────────────────
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit()
                 .putInt("lc_address_" + storeKey, userAddress)
                 .putString("address_" + storeKey, addrStr)
                 .apply();
 
-        // ── 3. Keyboard hide ──────────────────────────────────────────────────
+        // ── 3. Hide keyboard ───────────────────────────────────────────────
         etAddress.clearFocus();
         android.view.inputmethod.InputMethodManager imm =
                 (android.view.inputmethod.InputMethodManager)
                         getSystemService(Context.INPUT_METHOD_SERVICE);
         if (imm != null) imm.hideSoftInputFromWindow(etAddress.getWindowToken(), 0);
 
-        // ── 4. Toast ──────────────────────────────────────────────────────────
+        // ── 4. Toast ───────────────────────────────────────────────────────
         Toast.makeText(this,
                 "Address saved: " + addrStr + " → Sending command...",
                 Toast.LENGTH_SHORT).show();
 
-        // ── 5. BLE command send ───────────────────────────────────────────────
+        // ── 5. Send BLE command ────────────────────────────────────────────
         sendLongCommand(userAddress);
 
-        // ── 6. Button debounce ────────────────────────────────────────────────
+        // ── 6. Button debounce ─────────────────────────────────────────────
         btnSaveAddress.setEnabled(false);
         btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
     }
+
     /**
      * Returns true if deviceId contains "LC Node" (case-insensitive)
      * after the last ':' separator.
@@ -440,7 +449,7 @@ public class TestProvisionActivity extends AppCompatActivity {
                     appKey, LONG_CMD_LENGTH, LONG_CMD_COMMAND, data, tid);
             mViewModel.getMeshManagerApi().createMeshPdu(mUnicastAddress, msg);
             Toast.makeText(this,
-                    String.format("Long CMD sent → addr=0x%04X data3=%d TID=%d",
+                    String.format("Long command sent → addr=0x%04X data3=%d TID=%d",
                             mUnicastAddress, userAddress, tid),
                     Toast.LENGTH_LONG).show();
         } catch (Exception e) {
