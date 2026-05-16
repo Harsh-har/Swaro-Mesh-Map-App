@@ -53,8 +53,6 @@ public class RgbControllerFragment extends Fragment {
 
     public RgbControllerFragment() {}
 
-    @Nullable
-    @Override
     public View onCreateView(
             @NonNull LayoutInflater inflater,
             @Nullable ViewGroup container,
@@ -145,6 +143,44 @@ public class RgbControllerFragment extends Fragment {
                 fireCommandNow();
             }
         });
+
+        // ── Tunable White chip ──────────────────────────────────────────────
+        view.findViewById(R.id.chipSwitchTunable).setOnClickListener(v -> {
+
+            // Safely find the real container ID by walking up the view tree
+            int containerId = View.NO_ID;
+            android.view.ViewParent p = requireView().getParent();
+            while (p instanceof android.view.View) {
+                int pid = ((android.view.View) p).getId();
+                if (pid != View.NO_ID) {
+                    containerId = pid;
+                    break;
+                }
+                p = p.getParent();
+            }
+
+            if (containerId == View.NO_ID) {
+                android.util.Log.e("RgbControllerFragment",
+                        "chipSwitchTunable: could not find a valid container ID");
+                android.widget.Toast.makeText(requireContext(),
+                        "Navigation error: no container found",
+                        android.widget.Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            requireActivity().getSupportFragmentManager()
+                    .beginTransaction()
+                    .setCustomAnimations(
+                            android.R.anim.fade_in,   // enter
+                            android.R.anim.fade_out,  // exit
+                            android.R.anim.fade_in,   // popEnter
+                            android.R.anim.fade_out)  // popExit
+                    .replace(containerId, new TunableWhiteFragment())
+                    .addToBackStack("tunable")
+                    .commit();
+        });
+        // ───────────────────────────────────────────────────────────────────
+        // ───────────────────────────────────────────────────────────────────
 
         return view;
     }
