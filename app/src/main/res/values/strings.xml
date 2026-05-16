@@ -4,7 +4,7 @@
     <string name="title_configuration_complete">Configuration Complete</string>
 
 
-    <string name="app_name">Swaro Mesh</string>
+    <string name="app_name">Swaro Proxy Test</string>
     <string name="feature_name">Mesh</string>
     <string name="title_scanner">Scanner</string>
     <string name="sub_title_scanning_nodes">Looking for unprovisioned proxy nodes…</string>

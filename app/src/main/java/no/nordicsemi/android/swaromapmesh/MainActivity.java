@@ -29,7 +29,6 @@ public class MainActivity extends AppCompatActivity implements
     private SharedViewModel mViewModel;
 
     private RgbControllerFragment mNetworkFragment;
-
     private GroupsFragment mGroupsFragment;
     private ProxyFilterFragment mProxyFilterFragment;
     private Fragment mSettingsFragment;
@@ -53,11 +52,16 @@ public class MainActivity extends AppCompatActivity implements
             getSupportActionBar().setTitle(R.string.app_name);
         }
 
+        // fragment_network is now a FrameLayout — add RgbControllerFragment manually
+        if (savedInstanceState == null) {
+            getSupportFragmentManager().beginTransaction()
+                    .add(R.id.fragment_network, new RgbControllerFragment())
+                    .commit();
+        }
 
-        // Find fragments from XML
+        // Find fragments from XML (groups, proxy, settings are still <fragment> tags)
         mNetworkFragment = (RgbControllerFragment)
                 getSupportFragmentManager().findFragmentById(R.id.fragment_network);
-
 
         mGroupsFragment = (GroupsFragment)
                 getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
@@ -72,7 +76,6 @@ public class MainActivity extends AppCompatActivity implements
         bottomNavigationView.setOnItemSelectedListener(this);
         bottomNavigationView.setOnItemReselectedListener(this);
 
-        // 🔥 IMPORTANT: default fragment handling
         if (savedInstanceState == null) {
             bottomNavigationView.setSelectedItemId(R.id.action_network);
             onNavigationItemSelected(
@@ -85,6 +88,7 @@ public class MainActivity extends AppCompatActivity implements
                     bottomNavigationView.getMenu().findItem(selected)
             );
         }
+
         mViewModel.isConnectedToProxy().observe(this, connected -> {
             invalidateOptionsMenu();
         });
@@ -114,31 +118,22 @@ public class MainActivity extends AppCompatActivity implements
 
         if (isConnected == null || !isConnected) {
 
-            // DISCONNECTED → start blinking
             item = menu.findItem(R.id.action_disconnection_state);
 
             if (item != null) {
-
                 View view = findViewById(item.getItemId());
-
                 if (view != null) {
-
-                    Animation blink =
-                            AnimationUtils.loadAnimation(this, R.anim.blink);
-
+                    Animation blink = AnimationUtils.loadAnimation(this, R.anim.blink);
                     view.startAnimation(blink);
                 }
             }
 
         } else {
 
-            // CONNECTED → stop blinking
             item = menu.findItem(R.id.action_connection_state);
 
             if (item != null) {
-
                 View view = findViewById(item.getItemId());
-
                 if (view != null) {
                     view.clearAnimation();
                 }
@@ -147,6 +142,7 @@ public class MainActivity extends AppCompatActivity implements
 
         return true;
     }
+
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         if (item.getItemId() == R.id.action_connection_state) {
@@ -164,35 +160,41 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     public boolean onNavigationItemSelected(@NonNull MenuItem item) {
 
+        // When network tab is selected, pop back stack so RgbControllerFragment
+        // is visible again (in case TunableWhiteFragment was opened)
+        if (item.getItemId() == R.id.action_network) {
+            getSupportFragmentManager().popBackStack(
+                    "tunable",
+                    androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE
+            );
+        }
+
+        // Re-fetch mNetworkFragment after possible back stack pop
+        mNetworkFragment = (RgbControllerFragment)
+                getSupportFragmentManager().findFragmentById(R.id.fragment_network);
+
         FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
 
         if (item.getItemId() == R.id.action_network) {
-            ft.show(mNetworkFragment)
-                    .hide(mGroupsFragment)
-                    .hide(mProxyFilterFragment)
-                    .hide(mSettingsFragment);
-        }
-
-
-        else if (item.getItemId() == R.id.action_groups) {
-            ft.hide(mNetworkFragment)
-                    .show(mGroupsFragment)
-                    .hide(mProxyFilterFragment)
-                    .hide(mSettingsFragment);
-        }
-
-        else if (item.getItemId() == R.id.action_proxy) {
-            ft.hide(mNetworkFragment)
-                    .hide(mGroupsFragment)
-                    .show(mProxyFilterFragment)
-                    .hide(mSettingsFragment);
-        }
-
-        else if (item.getItemId() == R.id.action_settings) {
-            ft.hide(mNetworkFragment)
-                    .hide(mGroupsFragment)
-                    .hide(mProxyFilterFragment)
-                    .show(mSettingsFragment);
+            if (mNetworkFragment != null) ft.show(mNetworkFragment);
+            if (mGroupsFragment != null)  ft.hide(mGroupsFragment);
+            if (mProxyFilterFragment != null) ft.hide(mProxyFilterFragment);
+            if (mSettingsFragment != null)    ft.hide(mSettingsFragment);
+        } else if (item.getItemId() == R.id.action_groups) {
+            if (mNetworkFragment != null) ft.hide(mNetworkFragment);
+            if (mGroupsFragment != null)  ft.show(mGroupsFragment);
+            if (mProxyFilterFragment != null) ft.hide(mProxyFilterFragment);
+            if (mSettingsFragment != null)    ft.hide(mSettingsFragment);
+        } else if (item.getItemId() == R.id.action_proxy) {
+            if (mNetworkFragment != null) ft.hide(mNetworkFragment);
+            if (mGroupsFragment != null)  ft.hide(mGroupsFragment);
+            if (mProxyFilterFragment != null) ft.show(mProxyFilterFragment);
+            if (mSettingsFragment != null)    ft.hide(mSettingsFragment);
+        } else if (item.getItemId() == R.id.action_settings) {
+            if (mNetworkFragment != null) ft.hide(mNetworkFragment);
+            if (mGroupsFragment != null)  ft.hide(mGroupsFragment);
+            if (mProxyFilterFragment != null) ft.hide(mProxyFilterFragment);
+            if (mSettingsFragment != null)    ft.show(mSettingsFragment);
         }
 
         ft.commit();
@@ -205,7 +207,3 @@ public class MainActivity extends AppCompatActivity implements
         // No-op
     }
 }
-
-
-
-

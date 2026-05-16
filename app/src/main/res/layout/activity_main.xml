@@ -25,17 +25,15 @@
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <fragment
+    <!-- Changed from <fragment> to <FrameLayout> so replace() works inside it -->
+    <FrameLayout
         android:id="@+id/fragment_network"
-        android:name="no.nordicsemi.android.swaromapmesh.RgbControllerFragment"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintBottom_toTopOf="@+id/bottom_navigation_view"
         app:layout_constraintLeft_toLeftOf="parent"
         app:layout_constraintRight_toRightOf="parent"
         app:layout_constraintTop_toBottomOf="@+id/app_bar_layout" />
-
-
 
     <fragment
         android:id="@+id/fragment_groups"

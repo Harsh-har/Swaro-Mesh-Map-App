@@ -50,44 +50,64 @@
         android:textSize="14sp"
         android:fontFamily="sans-serif-medium" />
 
-    <!-- Brightness Slider -->
-    <FrameLayout
+    <!-- Brightness Slider Row -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="58dp">
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/slider_brightness_track" />
-
-        <View
-            android:id="@+id/brightnessFill"
+        <FrameLayout
             android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:background="@drawable/slider_brightness_fill" />
+            android:layout_height="44dp"
+            android:layout_weight="1">
 
-        <SeekBar
-            android:id="@+id/brightnessSeek"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:max="100"
-            android:progress="60"
-            android:progressDrawable="@android:color/transparent"
-            android:thumb="@android:color/transparent"
-            android:background="@android:color/transparent"
-            android:splitTrack="false"
-            android:paddingStart="0dp"
-            android:paddingEnd="0dp" />
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/slider_brightness_track" />
 
-        <View
-            android:id="@+id/brightnessThumb"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_gravity="center_vertical"
-            android:background="@drawable/slider_thumb_inner_yellow"
-            android:elevation="4dp" />
+            <View
+                android:id="@+id/brightnessFill"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:background="@drawable/slider_brightness_fill" />
 
-    </FrameLayout>
+            <SeekBar
+                android:id="@+id/brightnessSeek"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:max="100"
+                android:progress="60"
+                android:progressDrawable="@android:color/transparent"
+                android:thumb="@android:color/transparent"
+                android:background="@android:color/transparent"
+                android:splitTrack="false"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp" />
+
+            <View
+                android:id="@+id/brightnessThumb"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center_vertical"
+                android:background="@drawable/slider_thumb_inner_yellow"
+                android:elevation="4dp" />
+
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/brightnessLabel"
+            android:layout_width="48dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="60%"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:gravity="start"
+            android:fontFamily="sans-serif-medium" />
+
+    </LinearLayout>
 
     <!-- Saturation Heading -->
     <TextView
@@ -100,43 +120,62 @@
         android:textSize="14sp"
         android:fontFamily="sans-serif-medium" />
 
-    <!-- Saturation Slider -->
-    <FrameLayout
+    <!-- Saturation Slider Row -->
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="58dp">
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/slider_brightness_track" />
-
-        <View
-            android:id="@+id/saturationFill"
+        <FrameLayout
             android:layout_width="0dp"
-            android:layout_height="match_parent"
-            android:background="@drawable/slider_saturation_fill" />
+            android:layout_height="44dp"
+            android:layout_weight="1">
 
-        <SeekBar
-            android:id="@+id/saturationSeek"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:max="100"
-            android:progress="100"
-            android:progressDrawable="@android:color/transparent"
-            android:thumb="@android:color/transparent"
-            android:background="@android:color/transparent"
-            android:splitTrack="false"
-            android:paddingStart="0dp"
-            android:paddingEnd="0dp" />
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/slider_brightness_track" />
 
-        <View
-            android:id="@+id/saturationThumb"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_gravity="center_vertical"
-            android:background="@drawable/slider_thumb_inner_red"
-            android:elevation="4dp" />
+            <View
+                android:id="@+id/saturationFill"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@drawable/slider_saturation_fill" />
 
-    </FrameLayout>
+            <SeekBar
+                android:id="@+id/saturationSeek"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:max="100"
+                android:progress="100"
+                android:progressDrawable="@android:color/transparent"
+                android:thumb="@android:color/transparent"
+                android:background="@android:color/transparent"
+                android:splitTrack="false"
+                android:paddingStart="0dp"
+                android:paddingEnd="0dp" />
+
+            <View
+                android:id="@+id/saturationThumb"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_gravity="center_vertical"
+                android:elevation="4dp" />
+
+        </FrameLayout>
+
+        <TextView
+            android:id="@+id/saturationLabel"
+            android:layout_width="48dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="100%"
+            android:textColor="#FFFFFF"
+            android:textSize="13sp"
+            android:gravity="start"
+            android:fontFamily="sans-serif-medium" />
+
+    </LinearLayout>
 
 </LinearLayout>

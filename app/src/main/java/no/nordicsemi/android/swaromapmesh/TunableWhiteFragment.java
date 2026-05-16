@@ -25,15 +25,14 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 public class TunableWhiteFragment extends Fragment {
 
-    private static final String TAG              = "TunableWhiteFragment";
-    private static final int    LONG_CMD_LENGTH  = 1;
-    private static final int    LONG_CMD_COMMAND = 5;   // different opcode from RGB (4)
-    private static final int    MAX_TID          = 255;
-    private static final long   DEBOUNCE_MS      = 500L;
+    private static final String TAG                  = "TunableWhiteFragment";
+    private static final int    LONG_CMD_LENGTH      = 1;
+    private static final int    LONG_CMD_COMMAND     = 5;
+    private static final int    MAX_TID              = 255;
+    private static final long   DEBOUNCE_MS          = 500L;
 
-    // Kelvin range
-    private static final int KELVIN_MIN            = 2700;
-    private static final int KELVIN_MAX            = 6500;
+    private static final int KELVIN_MIN              = 2700;
+    private static final int KELVIN_MAX              = 6500;
     private static final int SLIDER_CORNER_RADIUS_DP = 50;
 
     private final Handler       debounceHandler = new Handler(Looper.getMainLooper());
@@ -48,6 +47,7 @@ public class TunableWhiteFragment extends Fragment {
     private View     colorTempThumb;
     private View     colorTempTrack;
     private TextView kelvinLabel;
+    private TextView brightnessLabel;   // ← new
 
     private SharedViewModel mViewModel;
 
@@ -66,18 +66,21 @@ public class TunableWhiteFragment extends Fragment {
 
         View view = inflater.inflate(R.layout.fragment_tunable_white, container, false);
 
-        mViewModel       = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
+        mViewModel      = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 
-        // IDs match exactly what is declared in fragment_tunable_white.xml
-        brightnessSeek   = view.findViewById(R.id.tunableBrightnessSeek);
-        colorTempSeek    = view.findViewById(R.id.colorTempSeek);
-        brightnessFill   = view.findViewById(R.id.tunableBrightnessFill);
-        brightnessThumb  = view.findViewById(R.id.tunableBrightnessThumb);
-        colorTempThumb   = view.findViewById(R.id.colorTempThumb);
-        colorTempTrack   = view.findViewById(R.id.colorTempTrack);
-        kelvinLabel      = view.findViewById(R.id.kelvinLabel);
+        brightnessSeek  = view.findViewById(R.id.tunableBrightnessSeek);
+        colorTempSeek   = view.findViewById(R.id.colorTempSeek);
+        brightnessFill  = view.findViewById(R.id.tunableBrightnessFill);
+        brightnessThumb = view.findViewById(R.id.tunableBrightnessThumb);
+        colorTempThumb  = view.findViewById(R.id.colorTempThumb);
+        colorTempTrack  = view.findViewById(R.id.colorTempTrack);
+        kelvinLabel     = view.findViewById(R.id.kelvinLabel);
+        brightnessLabel = view.findViewById(R.id.tunableBrightnessLabel);  // ← new
 
-        // Init brightness slider after layout is measured
+        // Initial label
+        brightnessLabel.setText(brightness + "%");
+
+        // Init brightness slider
         brightnessSeek.getViewTreeObserver().addOnGlobalLayoutListener(
                 new ViewTreeObserver.OnGlobalLayoutListener() {
                     @Override public void onGlobalLayout() {
@@ -87,10 +90,11 @@ public class TunableWhiteFragment extends Fragment {
                                 brightnessFill, brightnessThumb,
                                 brightnessSeek.getProgress(),
                                 brightnessSeek.getWidth());
+                        brightnessLabel.setText(brightnessSeek.getProgress() + "%");
                     }
                 });
 
-        // Init color-temp slider after layout is measured
+        // Init color-temp slider
         colorTempSeek.getViewTreeObserver().addOnGlobalLayoutListener(
                 new ViewTreeObserver.OnGlobalLayoutListener() {
                     @Override public void onGlobalLayout() {
@@ -110,6 +114,7 @@ public class TunableWhiteFragment extends Fragment {
             public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
                 if (!fromUser) return;
                 brightness = progress;
+                brightnessLabel.setText(progress + "%");
                 updateSliderGeometry(brightnessFill, brightnessThumb,
                         progress, s.getWidth());
                 scheduleCommand();
@@ -117,6 +122,7 @@ public class TunableWhiteFragment extends Fragment {
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {
                 brightness = s.getProgress();
+                brightnessLabel.setText(brightness + "%");
                 updateSliderGeometry(brightnessFill, brightnessThumb,
                         brightness, s.getWidth());
                 fireCommandNow();
@@ -152,14 +158,11 @@ public class TunableWhiteFragment extends Fragment {
     }
 
     // =========================================================================
-    // Color temperature gradient helpers
+    // Color temperature helpers
     // =========================================================================
 
-    /**
-     * Interpolates between warm (2700K → #FFAA44) and cool (6500K → #AAD4FF).
-     */
     private int kelvinToColor(int kelvin) {
-        float t = (kelvin - KELVIN_MIN) / (float) (KELVIN_MAX - KELVIN_MIN); // 0..1
+        float t = (kelvin - KELVIN_MIN) / (float) (KELVIN_MAX - KELVIN_MIN);
         int r = Math.round(0xFF + t * (0xAA - 0xFF));
         int g = Math.round(0xAA + t * (0xD4 - 0xAA));
         int b = Math.round(0x44 + t * (0xFF - 0x44));
@@ -170,7 +173,6 @@ public class TunableWhiteFragment extends Fragment {
         int warmColor = kelvinToColor(KELVIN_MIN);
         int coolColor = kelvinToColor(KELVIN_MAX);
 
-        // Track: full warm → cool gradient
         GradientDrawable trackGrad = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{warmColor, coolColor});
@@ -187,29 +189,22 @@ public class TunableWhiteFragment extends Fragment {
         int kelvin     = pctToKelvin(progress);
         int thumbColor = kelvinToColor(kelvin);
 
-        // Thumb: colored fill + white stroke ring matching current kelvin
         GradientDrawable thumbBg = new GradientDrawable();
         thumbBg.setShape(GradientDrawable.OVAL);
         thumbBg.setColor(thumbColor);
         thumbBg.setStroke(dpToPx(5), Color.WHITE);
         colorTempThumb.setBackground(thumbBg);
 
-        // Position thumb horizontally
         int   trackH = ((View) colorTempThumb.getParent()).getHeight();
         float thumbX = (progress / 100f) * trackWidth - thumbW / 2f;
         thumbX = Math.max(0, Math.min(thumbX, trackWidth - thumbW));
         colorTempThumb.setX(thumbX);
 
-        // Center thumb vertically
         int thumbH = colorTempThumb.getHeight();
         if (thumbH == 0) thumbH = dpToPx(40);
         colorTempThumb.setY((trackH - thumbH) / 2f);
     }
 
-    /**
-     * FIX: uses string resource with placeholder instead of text concatenation.
-     * Add to strings.xml: {@code <string name="kelvin_value">%d K</string>}
-     */
     private void updateKelvinLabel(int progress) {
         int kelvin = pctToKelvin(progress);
         kelvinLabel.setText(String.format(java.util.Locale.US, "%d K", kelvin));
@@ -220,7 +215,7 @@ public class TunableWhiteFragment extends Fragment {
     }
 
     // =========================================================================
-    // Brightness slider geometry — fill width + thumb position
+    // Brightness slider geometry
     // =========================================================================
 
     private void updateSliderGeometry(View fillView, View thumbView,
@@ -231,16 +226,19 @@ public class TunableWhiteFragment extends Fragment {
         if (thumbW == 0) thumbW = dpToPx(40);
 
         int trackH    = ((View) thumbView.getParent()).getHeight();
-        int fillWidth = Math.round((progress / 100f) * trackWidth);
-        fillWidth = Math.max(thumbW / 2, Math.min(fillWidth, trackWidth));
+        int minOffset = dpToPx(4);
+        int extra     = dpToPx(35);
+
+        float thumbX = minOffset + (progress / 100f) * (trackWidth - thumbW - minOffset);
+        thumbX = Math.max(minOffset, Math.min(thumbX, trackWidth - thumbW));
+        thumbView.setX(thumbX);
+
+        int fillWidth = Math.round(minOffset + (progress / 100f) * (trackWidth - thumbW - minOffset));
+        fillWidth = Math.max(minOffset, Math.min(fillWidth + extra, trackWidth));
 
         ViewGroup.LayoutParams lp = fillView.getLayoutParams();
         lp.width = fillWidth;
         fillView.setLayoutParams(lp);
-
-        float thumbX = fillWidth - thumbW / 2f;
-        thumbX = Math.max(0, Math.min(thumbX, trackWidth - thumbW));
-        thumbView.setX(thumbX);
 
         int thumbH = thumbView.getHeight();
         if (thumbH == 0) thumbH = dpToPx(40);
@@ -277,7 +275,6 @@ public class TunableWhiteFragment extends Fragment {
                     Toast.LENGTH_SHORT).show();
             return;
         }
-
 
         int[] data = new int[]{
                 brightness,
@@ -321,14 +318,10 @@ public class TunableWhiteFragment extends Fragment {
 
     private int getNextTid() {
         int count = tidCounter.getAndIncrement();
-        if (count > MAX_TID) {
-            tidCounter.set(0);
-            count = 0;
-        }
+        if (count > MAX_TID) { tidCounter.set(0); count = 0; }
         return count;
     }
 
-    // FIX: renamed 'addr' → 'address' (typo/abbreviation warning)
     private int getTargetDeviceAddress() {
         List<ProvisionedMeshNode> nodes = mViewModel.getAllProvisionedNodes();
         if (nodes == null || nodes.isEmpty()) return -1;

@@ -11,6 +11,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.widget.SeekBar;
+import android.widget.TextView;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -42,6 +43,8 @@ public class RgbControllerFragment extends Fragment {
     private View           saturationFill;
     private View           brightnessThumb;
     private View           saturationThumb;
+    private TextView       brightnessLabel;
+    private TextView       saturationLabel;
 
     private SharedViewModel mViewModel;
 
@@ -68,6 +71,12 @@ public class RgbControllerFragment extends Fragment {
         saturationFill  = view.findViewById(R.id.saturationFill);
         brightnessThumb = view.findViewById(R.id.brightnessThumb);
         saturationThumb = view.findViewById(R.id.saturationThumb);
+        brightnessLabel = view.findViewById(R.id.brightnessLabel);
+        saturationLabel = view.findViewById(R.id.saturationLabel);
+
+        // Initial label values
+        brightnessLabel.setText(brightness + "%");
+        saturationLabel.setText(saturation + "%");
 
         // Init fills after layout measured
         brightnessSeek.getViewTreeObserver().addOnGlobalLayoutListener(
@@ -78,6 +87,7 @@ public class RgbControllerFragment extends Fragment {
                         updateSliderGeometry(brightnessFill, brightnessThumb,
                                 brightnessSeek.getProgress(),
                                 brightnessSeek.getWidth());
+                        brightnessLabel.setText(brightnessSeek.getProgress() + "%");
                     }
                 });
 
@@ -87,9 +97,9 @@ public class RgbControllerFragment extends Fragment {
                         saturationSeek.getViewTreeObserver()
                                 .removeOnGlobalLayoutListener(this);
                         updateSaturationGradient(selectedColor);
-                        updateSliderGeometry(saturationFill, saturationThumb,
-                                saturationSeek.getProgress(),
+                        moveSaturationThumbOnly(saturationSeek.getProgress(),
                                 saturationSeek.getWidth());
+                        saturationLabel.setText(saturationSeek.getProgress() + "%");
                     }
                 });
 
@@ -98,8 +108,7 @@ public class RgbControllerFragment extends Fragment {
             wheelAngle    = colorWheelView.getThumbAngle();
             selectedColor = color;
             updateSaturationGradient(selectedColor);
-            updateSliderGeometry(saturationFill, saturationThumb,
-                    saturationSeek.getProgress(),
+            moveSaturationThumbOnly(saturationSeek.getProgress(),
                     saturationSeek.getWidth());
             Log.d(TAG, String.format("Wheel: %d°  color=#%06X",
                     wheelAngle, selectedColor & 0xFFFFFF));
@@ -112,6 +121,7 @@ public class RgbControllerFragment extends Fragment {
             public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
                 if (!fromUser) return;
                 brightness = progress;
+                brightnessLabel.setText(progress + "%");
                 updateSliderGeometry(brightnessFill, brightnessThumb,
                         progress, s.getWidth());
                 scheduleCommand();
@@ -119,6 +129,7 @@ public class RgbControllerFragment extends Fragment {
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {
                 brightness = s.getProgress();
+                brightnessLabel.setText(brightness + "%");
                 updateSliderGeometry(brightnessFill, brightnessThumb,
                         brightness, s.getWidth());
                 fireCommandNow();
@@ -131,58 +142,79 @@ public class RgbControllerFragment extends Fragment {
             public void onProgressChanged(SeekBar s, int progress, boolean fromUser) {
                 if (!fromUser) return;
                 saturation = progress;
-                updateSliderGeometry(saturationFill, saturationThumb,
-                        progress, s.getWidth());
+                saturationLabel.setText(progress + "%");
+                moveSaturationThumbOnly(progress, s.getWidth());
                 scheduleCommand();
             }
             @Override public void onStartTrackingTouch(SeekBar s) {}
             @Override public void onStopTrackingTouch(SeekBar s) {
                 saturation = s.getProgress();
-                updateSliderGeometry(saturationFill, saturationThumb,
-                        saturation, s.getWidth());
+                saturationLabel.setText(saturation + "%");
+                moveSaturationThumbOnly(saturation, s.getWidth());
                 fireCommandNow();
             }
         });
 
         // ── Tunable White chip ──────────────────────────────────────────────
-        view.findViewById(R.id.chipSwitchTunable).setOnClickListener(v -> {
-
-            // Safely find the real container ID by walking up the view tree
-            int containerId = View.NO_ID;
-            android.view.ViewParent p = requireView().getParent();
-            while (p instanceof android.view.View) {
-                int pid = ((android.view.View) p).getId();
-                if (pid != View.NO_ID) {
-                    containerId = pid;
-                    break;
-                }
-                p = p.getParent();
-            }
-
-            if (containerId == View.NO_ID) {
-                android.util.Log.e("RgbControllerFragment",
-                        "chipSwitchTunable: could not find a valid container ID");
-                android.widget.Toast.makeText(requireContext(),
-                        "Navigation error: no container found",
-                        android.widget.Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            requireActivity().getSupportFragmentManager()
-                    .beginTransaction()
-                    .setCustomAnimations(
-                            android.R.anim.fade_in,   // enter
-                            android.R.anim.fade_out,  // exit
-                            android.R.anim.fade_in,   // popEnter
-                            android.R.anim.fade_out)  // popExit
-                    .replace(containerId, new TunableWhiteFragment())
-                    .addToBackStack("tunable")
-                    .commit();
-        });
-        // ───────────────────────────────────────────────────────────────────
-        // ───────────────────────────────────────────────────────────────────
+        // Replace inside R.id.fragment_network (FrameLayout) so toolbar
+        // and bottom nav stay visible
+        view.findViewById(R.id.chipSwitchTunable).setOnClickListener(v ->
+                requireActivity().getSupportFragmentManager()
+                        .beginTransaction()
+                        .setCustomAnimations(
+                                android.R.anim.fade_in,
+                                android.R.anim.fade_out,
+                                android.R.anim.fade_in,
+                                android.R.anim.fade_out)
+                        .replace(R.id.fragment_network, new TunableWhiteFragment())
+                        .addToBackStack("tunable")
+                        .commit()
+        );
 
         return view;
+    }
+
+    // =========================================================================
+    // Saturation thumb — position only
+    // =========================================================================
+
+    private void moveSaturationThumbOnly(int progress, int trackWidth) {
+        if (trackWidth <= 0) return;
+
+        int thumbW = saturationThumb.getWidth();
+        if (thumbW == 0) thumbW = dpToPx(40);
+
+        int thumbH = saturationThumb.getHeight();
+        if (thumbH == 0) thumbH = dpToPx(40);
+
+        int trackH = ((View) saturationThumb.getParent()).getHeight();
+
+        int minOffset = dpToPx(4);
+
+        float thumbX = minOffset + (progress / 100f) * (trackWidth - thumbW - minOffset);
+        thumbX = Math.max(minOffset, Math.min(thumbX, trackWidth - thumbW));
+        saturationThumb.setX(thumbX);
+
+        float thumbY = (trackH - thumbH) / 2f;
+        saturationThumb.setY(thumbY);
+
+        updateSaturationThumbColor(progress);
+    }
+
+    private void updateSaturationThumbColor(int progress) {
+        float ratio = progress / 100f;
+
+        int r = (int) (255 + ratio * (Color.red(selectedColor)   - 255));
+        int g = (int) (255 + ratio * (Color.green(selectedColor) - 255));
+        int b = (int) (255 + ratio * (Color.blue(selectedColor)  - 255));
+
+        int interpolatedColor = Color.rgb(r, g, b);
+
+        GradientDrawable thumbBg = new GradientDrawable();
+        thumbBg.setShape(GradientDrawable.OVAL);
+        thumbBg.setColor(interpolatedColor);
+        thumbBg.setStroke(dpToPx(5), Color.WHITE);
+        saturationThumb.setBackground(thumbBg);
     }
 
     @Override
@@ -202,23 +234,22 @@ public class RgbControllerFragment extends Fragment {
         int thumbW = thumbView.getWidth();
         if (thumbW == 0) thumbW = dpToPx(40);
 
-        int trackH = thumbView.getRootView() != null
-                ? ((View) thumbView.getParent()).getHeight() : dpToPx(58);
+        int trackH = ((View) thumbView.getParent()).getHeight();
 
-        int fillWidth = Math.round((progress / 100f) * trackWidth);
-        fillWidth = Math.max(thumbW / 2, Math.min(fillWidth, trackWidth));
+        int minOffset = dpToPx(4);
+        int extra     = dpToPx(35);
 
-        // Fill width
+        float thumbX = minOffset + (progress / 100f) * (trackWidth - thumbW - minOffset);
+        thumbX = Math.max(minOffset, Math.min(thumbX, trackWidth - thumbW));
+        thumbView.setX(thumbX);
+
+        int fillWidth = Math.round(minOffset + (progress / 100f) * (trackWidth - thumbW - minOffset));
+        fillWidth = Math.max(minOffset, Math.min(fillWidth + extra, trackWidth));
+
         ViewGroup.LayoutParams lp = fillView.getLayoutParams();
         lp.width = fillWidth;
         fillView.setLayoutParams(lp);
 
-        // Thumb X — center aligns with fill right edge
-        float thumbX = fillWidth - thumbW / 2f;
-        thumbX = Math.max(0, Math.min(thumbX, trackWidth - thumbW));
-        thumbView.setX(thumbX);
-
-        // Thumb Y — vertically centered in parent FrameLayout
         int thumbH = thumbView.getHeight();
         if (thumbH == 0) thumbH = dpToPx(40);
         float thumbY = (trackH - thumbH) / 2f;
@@ -226,7 +257,7 @@ public class RgbControllerFragment extends Fragment {
     }
 
     // =========================================================================
-    // Saturation gradient — white → wheel selected color
+    // Saturation gradient — white → selected color
     // =========================================================================
 
     private void updateSaturationGradient(int color) {
@@ -235,19 +266,12 @@ public class RgbControllerFragment extends Fragment {
                 Color.green(color),
                 Color.blue(color));
 
-        // Fill gradient
         GradientDrawable gradient = new GradientDrawable(
                 GradientDrawable.Orientation.LEFT_RIGHT,
                 new int[]{Color.WHITE, endColor});
         gradient.setCornerRadius(dpToPx(50));
         saturationFill.setBackground(gradient);
-
-        // Thumb — white ring + inner selected color
-        GradientDrawable thumbBg = new GradientDrawable();
-        thumbBg.setShape(GradientDrawable.OVAL);
-        thumbBg.setColor(endColor);
-        thumbBg.setStroke(dpToPx(5), Color.WHITE);
-        saturationThumb.setBackground(thumbBg);
+        updateSaturationThumbColor(saturationSeek.getProgress());
     }
 
     private int dpToPx(int dp) {
