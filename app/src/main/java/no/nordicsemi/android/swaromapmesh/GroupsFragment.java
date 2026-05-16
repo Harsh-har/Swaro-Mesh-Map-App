@@ -3,6 +3,8 @@ package no.nordicsemi.android.swaromapmesh;
 import android.bluetooth.BluetoothAdapter;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -31,7 +33,6 @@ import java.util.Set;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.AutoProxyConnectManager;
-import no.nordicsemi.android.swaromapmesh.ble.ReconnectActivity;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentGroupsBinding;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentDeleteNode;
@@ -54,15 +55,15 @@ public class GroupsFragment extends Fragment implements
         DialogFragmentDeleteNode.DialogFragmentDeleteNodeListener {
 
     private static final String TAG                    = "NetworkFragment";
-    private static final long   AUTO_PROXY_SCAN_WINDOW = 5000L;
-
+    // GroupsFragment.java
+    private static final long AUTO_PROXY_SCAN_WINDOW = 10000L; // 5000 → 10000
     private FragmentGroupsBinding binding;
     private SharedViewModel       mViewModel;
     private NodeAdapter           mNodeAdapter;
 
     // Auto-proxy
     private AutoProxyConnectManager mAutoProxyManager;
-    private boolean                 mAutoConnectInProgress          = false;
+    private boolean                 mAutoConnectInProgress           = false;
     private boolean                 mAutoConnectTriggeredThisSession = false;
 
     // ─────────────────────────────────────────────────────────────
@@ -72,10 +73,6 @@ public class GroupsFragment extends Fragment implements
     private final ActivityResultLauncher<Intent> provisioner =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
                     this::handleProvisioningResult);
-
-    private final ActivityResultLauncher<Intent> proxyConnector =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
-                    this::handleProxyConnectResult);
 
     // ─────────────────────────────────────────────────────────────
     // onCreateView
@@ -90,9 +87,9 @@ public class GroupsFragment extends Fragment implements
         binding    = FragmentGroupsBinding.inflate(getLayoutInflater());
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 
-        final ExtendedFloatingActionButton fab              = binding.fabAddNode;
+        final ExtendedFloatingActionButton fab               = binding.fabAddNode;
         final RecyclerView                 recyclerViewNodes = binding.recyclerViewProvisionedNodes;
-        final View                         noNetworksView   = binding.noNetworksConfigured.getRoot();
+        final View                         noNetworksView    = binding.noNetworksConfigured.getRoot();
 
         mNodeAdapter = new NodeAdapter(this, mViewModel.getNodes());
         mNodeAdapter.setOnItemClickListener(this);
@@ -119,11 +116,18 @@ public class GroupsFragment extends Fragment implements
             }
         });
 
+        // Observe proxy connection — hide progress bar automatically
         mViewModel.isConnectedToProxy().observe(getViewLifecycleOwner(), isConnected -> {
             requireActivity().invalidateOptionsMenu();
-            if (Boolean.TRUE.equals(isConnected) && mAutoConnectInProgress) {
-                Log.d(TAG, "Proxy connected — cancelling background scan");
-                stopAutoProxyScan();
+
+            // Always hide progress bar on any connection state change
+            if (binding != null) {
+                binding.connectingProgressBar.setVisibility(View.GONE);
+            }
+
+            if (Boolean.TRUE.equals(isConnected)) {
+                Log.d(TAG, "✅ Proxy connected");
+                if (mAutoConnectInProgress) stopAutoProxyScan();
             }
         });
 
@@ -245,6 +249,54 @@ public class GroupsFragment extends Fragment implements
     }
 
     // ─────────────────────────────────────────────────────────────
+    // Silent proxy connect — NO Activity, NO UI
+    // ─────────────────────────────────────────────────────────────
+
+    private void startProxyConnectInBackground(@Nullable String macAddress) {
+        if (macAddress == null) {
+            Log.w(TAG, "startProxyConnectInBackground: macAddress is null, skipping");
+            return;
+        }
+
+        final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
+        if (Boolean.TRUE.equals(isConnected)) {
+            Log.d(TAG, "Already connected to proxy — skipping");
+            return;
+        }
+
+        Log.d(TAG, "Silent proxy connect → " + macAddress);
+
+        if (binding != null) {
+            binding.connectingProgressBar.setVisibility(View.VISIBLE);
+        }
+
+        try {
+            final BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+            if (btAdapter == null) {
+                Log.e(TAG, "BluetoothAdapter null");
+                if (binding != null) binding.connectingProgressBar.setVisibility(View.GONE);
+                return;
+            }
+
+            final android.bluetooth.BluetoothDevice btDevice =
+                    btAdapter.getRemoteDevice(macAddress.toUpperCase());
+
+            final no.nordicsemi.android.support.v18.scanner.ScanResult scanResult =
+                    new no.nordicsemi.android.support.v18.scanner.ScanResult(
+                            btDevice, null, -70, 0);
+
+            final ExtendedBluetoothDevice device = new ExtendedBluetoothDevice(scanResult);
+
+            // ✅ Direct silent connect — no Activity, no UI, no logger delay
+            mViewModel.getNrfMeshRepository().connectSilent(device);
+
+        } catch (Exception e) {
+            Log.e(TAG, "startProxyConnectInBackground error: " + e.getMessage());
+            if (binding != null) binding.connectingProgressBar.setVisibility(View.GONE);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────
     // Node click — manual configure
     // ─────────────────────────────────────────────────────────────
 
@@ -269,59 +321,6 @@ public class GroupsFragment extends Fragment implements
         }
     }
 
-    private void startProxyConnectInBackground(@Nullable String macAddress) {
-        if (macAddress == null) {
-            Log.w(TAG, "startProxyConnectInBackground: macAddress is null, skipping");
-            return;
-        }
-
-        Log.d(TAG, "Direct silent connect to MAC: " + macAddress);
-
-        final ExtendedBluetoothDevice device = getDeviceFromMac(macAddress);
-        if (device == null) {
-            Log.e(TAG, "Could not build device for MAC: " + macAddress);
-            return;
-        }
-
-        // ✅ Progress bar dikhao
-        if (binding != null) {
-            binding.connectingProgressBar.setVisibility(View.VISIBLE);
-        }
-
-        final Intent intent = new Intent(requireContext(), ReconnectActivity.class);
-        intent.putExtra(Utils.EXTRA_DEVICE, device);
-        intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
-        proxyConnector.launch(intent);
-    }
-    @Nullable
-    private ExtendedBluetoothDevice getDeviceFromMac(String macAddress) {
-        try {
-            final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-            if (adapter == null) {
-                Log.e(TAG, "BluetoothAdapter is null");
-                return null;
-            }
-
-            final android.bluetooth.BluetoothDevice btDevice =
-                    adapter.getRemoteDevice(macAddress.toUpperCase());
-
-            final no.nordicsemi.android.support.v18.scanner.ScanResult nordicScanResult =
-                    new no.nordicsemi.android.support.v18.scanner.ScanResult(
-                            btDevice,
-                            null,
-                            -70,
-                            0
-                    );
-
-            return new ExtendedBluetoothDevice(nordicScanResult);
-
-        } catch (Exception e) {
-            Log.e(TAG, "getDeviceFromMac error: " + e.getMessage());
-            return null;
-        }
-    }
-
     // ─────────────────────────────────────────────────────────────
     // Swipe-to-delete
     // ─────────────────────────────────────────────────────────────
@@ -339,29 +338,26 @@ public class GroupsFragment extends Fragment implements
 
     @Override
     public void onNodeDeleteConfirmed(final int position) {
-
         final ProvisionedMeshNode node = mNodeAdapter.getItem(position);
-
         boolean success = mViewModel.fullyDeleteNode(node);
-
         if (success) {
             mViewModel.displaySnackBar(
                     requireActivity(),
                     binding.container,
                     getString(R.string.node_deleted),
-                    Snackbar.LENGTH_LONG
-            );
+                    Snackbar.LENGTH_LONG);
         } else {
             Log.e(TAG, "Delete failed");
         }
     }
+
     @Override
     public void onNodeDeleteCancelled(final int position) {
         mNodeAdapter.notifyItemChanged(position);
     }
 
     // ─────────────────────────────────────────────────────────────
-    // Activity result handlers
+    // Provisioning result handler
     // ─────────────────────────────────────────────────────────────
 
     private void handleProvisioningResult(final ActivityResult result) {
@@ -371,31 +367,21 @@ public class GroupsFragment extends Fragment implements
         if (result.getResultCode() == RESULT_OK && data != null) {
             final boolean success = data.getBooleanExtra(Utils.PROVISIONING_COMPLETED, false);
             if (success) {
-
                 ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
-                mViewModel.autoMapNodeToCurrentSvg(node); // 🔥🔥🔥 MOST IMPORTANT
+                mViewModel.autoMapNodeToCurrentSvg(node);
 
-                final Intent intent = new Intent(requireContext(), ScannerActivity.class);
-                intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, false);
-                intent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, true);
-                intent.putExtra(Utils.EXTRA_SILENT_CONNECT, true);
-                intent.addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION);
-                proxyConnector.launch(intent);
+                // ✅ Direct silent connect after provisioning — no ScannerActivity/ReconnectActivity
+                final String mac = data.getStringExtra(Utils.EXTRA_TARGET_PROXY_MAC);
+                if (mac != null) {
+                    Log.d(TAG, "Post-provisioning silent connect → " + mac);
+                    // Small delay to let mesh stack settle after provisioning
+                    new Handler(Looper.getMainLooper()).postDelayed(
+                            () -> startProxyConnectInBackground(mac), 2000);
+                } else {
+                    Log.w(TAG, "handleProvisioningResult: no MAC in result — skipping connect");
+                }
             }
             requireActivity().invalidateOptionsMenu();
-        }
-    }
-
-    private void handleProxyConnectResult(final ActivityResult result) {
-        mAutoConnectInProgress = false;
-
-        // ✅ Progress bar hide karo
-        if (binding != null) {
-            binding.connectingProgressBar.setVisibility(View.GONE);
-        }
-
-        if (result.getResultCode() == RESULT_OK) {
-            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
         }
     }
 

@@ -141,11 +141,11 @@ public class AutoProxyConnectManager {
 
                 // ✅ INSTANT CONNECT: RSSI better than threshold → connect immediately
                 if (rssi > RSSI_INSTANT_CONNECT_THRESHOLD) {
-                    Log.i(TAG, "⚡ Instant connect! " + upperMac + " @ " + rssi + " dBm (threshold: " + RSSI_INSTANT_CONNECT_THRESHOLD + ")");
+                    Log.i(TAG, "⚡ Instant connect! " + upperMac + " @ " + rssi + " dBm");
                     mCallbackFired = true;
-                    mHandler.removeCallbacksAndMessages(null); // cancel fallback timer
-                    stopScan();
+                    mHandler.removeCallbacksAndMessages(null);
                     mHandler.post(() -> callback.onBestProxyFound(upperMac));
+                    mHandler.postDelayed(() -> stopScan(), 2000); // 500ms → 2000ms
                 }
             }
 

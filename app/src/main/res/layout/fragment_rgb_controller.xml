@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="top|center_horizontal"
+    android:background="#1A1A1A"
+    android:paddingTop="40dp"
+    android:paddingStart="24dp"
+    android:paddingEnd="24dp">
+
+    <!-- Color Wheel -->
+    <no.nordicsemi.android.swaromapmesh.ColorWheelView
+        android:id="@+id/colorWheelView"
+        android:layout_width="220dp"
+        android:layout_height="220dp" />
+
+    <!-- Brightness Heading -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="36dp"
+        android:layout_marginBottom="10dp"
+        android:text="Brightness"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium" />
+
+    <!-- Brightness Slider -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="58dp">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/slider_brightness_track" />
+
+        <View
+            android:id="@+id/brightnessFill"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/slider_brightness_fill" />
+
+        <SeekBar
+            android:id="@+id/brightnessSeek"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:max="100"
+            android:progress="60"
+            android:progressDrawable="@android:color/transparent"
+            android:thumb="@android:color/transparent"
+            android:background="@android:color/transparent"
+            android:splitTrack="false"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp" />
+
+        <View
+            android:id="@+id/brightnessThumb"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center_vertical"
+            android:background="@drawable/slider_thumb_inner_yellow"
+            android:elevation="4dp" />
+
+
+    </FrameLayout>
+
+    <!-- Saturation Heading -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="28dp"
+        android:layout_marginBottom="10dp"
+        android:text="Saturation"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:fontFamily="sans-serif-medium" />
+
+    <!-- Saturation Slider -->
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="58dp">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/slider_brightness_track" />
+
+        <View
+            android:id="@+id/saturationFill"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:background="@drawable/slider_saturation_fill" />
+
+        <SeekBar
+            android:id="@+id/saturationSeek"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:max="100"
+            android:progress="100"
+            android:progressDrawable="@android:color/transparent"
+            android:thumb="@android:color/transparent"
+            android:background="@android:color/transparent"
+            android:splitTrack="false"
+            android:paddingStart="0dp"
+            android:paddingEnd="0dp" />
+
+        <View
+            android:id="@+id/saturationThumb"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_gravity="center_vertical"
+            android:background="@drawable/slider_thumb_inner_red"
+            android:elevation="4dp" />
+
+    </FrameLayout>
+
+</LinearLayout>

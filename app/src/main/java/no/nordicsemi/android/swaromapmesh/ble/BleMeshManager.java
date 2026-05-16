@@ -35,17 +35,17 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
     private final static UUID MESH_PROVISIONING_DATA_OUT = UUID.fromString("00002ADC-0000-1000-8000-00805F9B34FB");
 
     /**
-     * Mesh provisioning service UUID
+     * Mesh proxy service UUID
      */
     public final static UUID MESH_PROXY_UUID = UUID.fromString("00001828-0000-1000-8000-00805F9B34FB");
 
     /**
-     * Mesh provisioning data in characteristic UUID
+     * Mesh proxy data in characteristic UUID
      */
     private final static UUID MESH_PROXY_DATA_IN = UUID.fromString("00002ADD-0000-1000-8000-00805F9B34FB");
 
     /**
-     * Mesh provisioning data out characteristic UUID
+     * Mesh proxy data out characteristic UUID
      */
     private final static UUID MESH_PROXY_DATA_OUT = UUID.fromString("00002ADE-0000-1000-8000-00805F9B34FB");
 
@@ -58,10 +58,20 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
     private boolean mIsDeviceReady;
     private boolean mNodeReset;
 
+    // ── Flag: true when connecting as proxy (silent auto-connect mode) ─────
+    private boolean mSilentProxyMode = false;
+
+    /**
+     * Call this before connect() to enable fast auto-connect mode.
+     * Used by connectSilent() in NrfMeshRepository.
+     */
+    public void setSilentProxyMode(boolean enabled) {
+        mSilentProxyMode = enabled;
+    }
+
     /**
      * BluetoothGatt callbacks for connection/disconnection, service discovery, receiving notifications, etc.
      */
-
     private class BleMeshGattCallbacks extends BleManagerGattCallback {
 
         @Override
@@ -99,21 +109,18 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
             final DataReceivedCallback onDataReceived = (device, data) ->
                     mCallbacks.onDataReceived(device, getMaximumPacketSize(), data.getValue());
 
-            // Set the notification callback and enable notification on Data In characteristic.
+            // Set the notification callback and enable notification on Data Out characteristic.
             final BluetoothGattCharacteristic characteristic = isProvisioningComplete ?
                     mMeshProxyDataOutCharacteristic : mMeshProvisioningDataOutCharacteristic;
             setNotificationCallback(characteristic).with(onDataReceived);
             enableNotifications(characteristic).enqueue();
         }
 
-        //TODO Remove this when adding android 12 support
         @Override
         protected void onDeviceDisconnected() {
-            // This is not needed anymore because this issue was fixed in 2.5 ble library
-            // We reset the MTU to 23 upon disconnection
-            // overrideMtu(MTU_SIZE_DEFAULT);
             mIsDeviceReady = false;
             isProvisioningComplete = false;
+            mSilentProxyMode = false; // reset on disconnect
             mMeshProvisioningDataInCharacteristic = null;
             mMeshProvisioningDataOutCharacteristic = null;
             mMeshProxyDataInCharacteristic = null;
@@ -128,9 +135,6 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
 
         @Override
         protected void onServicesInvalidated() {
-            // This is not needed anymore because this issue was fixed in 2.5 ble library
-            // We reset the MTU to 23 upon disconnection
-            // overrideMtu(MTU_SIZE_DEFAULT);
             mIsDeviceReady = false;
             isProvisioningComplete = false;
             mMeshProvisioningDataInCharacteristic = null;
@@ -151,10 +155,21 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
         return new BleMeshGattCallbacks();
     }
 
+    /**
+     * ✅ Auto-connect override.
+     * When in silent proxy mode, return true so Android OS monitors
+     * the device and connects instantly when it starts advertising.
+     * This eliminates the ~10-20 sec scan delay.
+     */
+    @Override
+    protected boolean shouldAutoConnect() {
+        return mSilentProxyMode;
+    }
+
     @Override
     protected boolean shouldClearCacheWhenDisconnected() {
-        // This is to make sure that Android will discover the services as the the mesh node will
-        // change the provisioning service to a proxy service.
+        // Clear cache only when provisioning is not complete or node was reset.
+        // This forces fresh service discovery only when needed.
         final boolean result = !isProvisioningComplete || mNodeReset;
         mNodeReset = false;
         return result;
@@ -169,7 +184,6 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
 
     /**
      * Sends the mesh pdu.
-     * <p>
      * The function will chunk the pdu to fit in to the mtu size supported by the node.
      *
      * @param pdu mesh pdu.

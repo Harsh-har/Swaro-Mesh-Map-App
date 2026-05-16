@@ -1136,7 +1136,23 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
         mHandler.postDelayed(this::sendNextAutoBind, 500);
     }
+    /**
+     * Silent proxy connect — no logger, no queue delay
+     * Use this for background auto-connect only
+     */
+    /**
+     * Silent proxy connect — no logger, faster retry
+     * Use for background auto-connect only
+     */
+    public void connectSilent(@NonNull final ExtendedBluetoothDevice device) {
+        mBleMeshManager.setSilentProxyMode(false); // auto connect mat use karo
+        initIsConnectedLiveData(true);
+        mConnectionState.postValue("Connecting…");
 
+        // ✅ No retry, no delay — direct enqueue
+        mBleMeshManager.connect(device.getDevice())
+                .enqueue();
+    }
     // =========================================================================
     // resolveServerKeyByNodeName
     // =========================================================================
