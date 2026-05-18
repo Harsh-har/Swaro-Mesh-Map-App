@@ -41,15 +41,7 @@
         android:theme="@style/AppTheme"
         android:usesCleartextTraffic="true"
         tools:ignore="GoogleAppIndexingWarning">
-        <activity
-            android:name=".Rgbcontrolleractivity"
-            android:exported="false" />
-        <activity
-            android:name=".RGB.RGBControllerActivity"
-            android:exported="false" />
-        <activity
-            android:name=".RGB.Colorwheelview"
-            android:exported="false" />
+
         <activity
             android:name=".RssiFilterActivity"
             android:exported="false" />
@@ -91,9 +83,7 @@
         <activity
             android:name=".DeviceDetailActivity"
             android:exported="false" />
-        <activity
-            android:name=".DevicesFilterActivity"
-            android:exported="false" />
+
         <activity
             android:name=".swajaui.HomeActivity"
             android:exported="true" />
