@@ -6,7 +6,7 @@ apply plugin: 'org.jetbrains.kotlin.android'
 
 android {
 
-    namespace 'no.nordicsemi.android.swaromapmesh'
+    namespace 'no.nordicsemi.android.swarorgbww'
 
     compileSdk 36
 

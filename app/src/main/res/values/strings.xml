@@ -1,4 +1,18 @@
 <resources>
+    <string name="value_zero">0</string>
+    <string name="error_enter_address">Please enter an address!</string>
+    <string name="error_address_range">Address must be between 1 and 8</string>
+    <string name="error_invalid_address">Invalid address!</string>
+    <string name="error_not_provisioned">Device not provisioned!</string>
+    <string name="error_unicast_not_loaded">Unicast address not loaded yet!</string>
+    <string name="error_no_saved_address">No saved address found!</string>
+    <string name="error_no_app_key">No AppKey found!</string>
+    <string name="error_send_failed">Send failed: %s</string>
+    <string name="address_saved_sending">Address saved: %s → Sending command…</string>
+    <string name="long_cmd_sent">Long command sent → 0x%04X data[2]=%d TID=%d</string>
+    <string name="dialog_address_change_title">Address Change</string>
+    <string name="dialog_address_change_message">Address is already set to %1$s.\nDo you want to change it to %2$s?</string>
+    <string name="dialog_yes_change">Yes, Change</string>
     <!-- Mac Address -->
     <string name="unknown_error">Unknown error</string>
     <string name="title_configuration_complete">Configuration Complete</string>

@@ -28,9 +28,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="24dp">
 
-            <!-- Info card -->
+            <!-- ── Slider Card ─────────────────────────────────────────── -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -43,224 +43,125 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="24dp">
 
+                    <!-- Title -->
                     <com.google.android.material.textview.MaterialTextView
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:text="Device Details"
+                        android:layout_marginBottom="8dp"
+                        android:text="Light Brightness"
                         android:textColor="#ffbb00"
                         android:textSize="13sp"
                         android:textStyle="bold"
                         android:letterSpacing="0.08" />
 
-                    <!-- Device ID row -->
+                    <!-- Value Label -->
+                    <com.google.android.material.textview.MaterialTextView
+                        android:id="@+id/tv_slider_value"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="20dp"
+                        android:text="0"
+                        android:textColor="#FFFFFF"
+                        android:textSize="48sp"
+                        android:textStyle="bold"
+                        android:gravity="center" />
+
+                    <!-- Slider Track + Fill + Thumb -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical">
 
-                        <com.google.android.material.textview.MaterialTextView
+                        <FrameLayout
                             android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Device Name"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
+                            android:layout_height="44dp"
+                            android:layout_weight="1">
 
+                            <!-- Track background -->
+                            <View
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:background="@drawable/slider_brightness_track" />
+
+                            <!-- Fill -->
+                            <View
+                                android:id="@+id/brightness_fill"
+                                android:layout_width="0dp"
+                                android:layout_height="match_parent"
+                                android:background="@drawable/slider_brightness_fill" />
+
+                            <!-- Invisible SeekBar on top -->
+                            <SeekBar
+                                android:id="@+id/brightness_seek"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:max="255"
+                                android:progress="0"
+                                android:progressDrawable="@android:color/transparent"
+                                android:thumb="@android:color/transparent"
+                                android:background="@android:color/transparent"
+                                android:splitTrack="false"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp" />
+
+                            <!-- Custom Thumb -->
+                            <View
+                                android:id="@+id/brightness_thumb"
+                                android:layout_width="40dp"
+                                android:layout_height="40dp"
+                                android:layout_gravity="center_vertical"
+                                android:background="@drawable/slider_thumb_inner_yellow"
+                                android:elevation="4dp" />
+
+                        </FrameLayout>
+
+                        <!-- Value badge on right -->
                         <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_device_id"
-                            android:layout_width="0dp"
+                            android:id="@+id/brightness_label"
+                            android:layout_width="52dp"
                             android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
+                            android:layout_marginStart="14dp"
+                            android:text="0"
+                            android:textColor="#FFFFFF"
+                            android:textSize="13sp"
+                            android:gravity="start"
+                            android:fontFamily="sans-serif-medium" />
+
                     </LinearLayout>
 
-                    <!-- MAC Address row -->
+                    <!-- Min / Max hints -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
+                        android:orientation="horizontal"
+                        android:layout_marginTop="6dp">
 
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="MAC Address"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_mac_address"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- Relation Device row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
+                            android:text="0"
+                            android:textColor="#666"
+                            android:textSize="11sp" />
 
                         <com.google.android.material.textview.MaterialTextView
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="User Device"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
+                            android:text="255"
+                            android:textColor="#666"
+                            android:textSize="11sp"
+                            android:gravity="end" />
 
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_relation_device_id"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- Unicast Address row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Unicast Address"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_unicast_address"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- Element ID row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Element ID"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_element_id"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- Recive ID row  -->
-                    <LinearLayout
-                        android:id="@+id/row_recive_id"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Recive ID"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_recive_id"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- MQTT Topic row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="10dp"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Mqtt Topic"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_mqtttopic"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:textColor="@android:color/white"
-                            android:textSize="14sp" />
-                    </LinearLayout>
-
-                    <!-- Status row -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal">
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Status"
-                            android:textColor="#888"
-                            android:textSize="14sp" />
-
-                        <com.google.android.material.textview.MaterialTextView
-                            android:id="@+id/tv_status"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="2"
-                            android:gravity="end"
-                            android:hint="Provision"
-                            android:textColor="#ffbb00"
-                            android:textSize="14sp" />
                     </LinearLayout>
 
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Operations card -->
-            <!-- Operations card -->
+            <!-- ── Address Card ────────────────────────────────────────── -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -273,26 +174,26 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="16dp"
+                    android:visibility="gone">
 
                     <com.google.android.material.textview.MaterialTextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="12dp"
-                        android:letterSpacing="0.08"
-                        android:text="Operations"
+                        android:text="Address"
                         android:textColor="#ffbb00"
                         android:textSize="13sp"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:letterSpacing="0.08" />
 
-                    <!-- Address Input — FIXED: removed android:background="@color/white" -->
                     <com.google.android.material.textfield.TextInputLayout
                         android:id="@+id/layout_address"
                         style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="12dp"
-                        android:hint="Enter Address"
+                        android:hint="Enter Address (1–8)"
                         app:boxStrokeColor="#ffbb00"
                         app:hintTextColor="#ffbb00">
 
@@ -300,7 +201,8 @@
                             android:id="@+id/et_address"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:hint="Enter Address (1–8)"                            android:textColor="@android:color/white"
+                            android:inputType="number"
+                            android:textColor="@android:color/white"
                             android:textColorHint="#888" />
 
                     </com.google.android.material.textfield.TextInputLayout>
@@ -309,7 +211,6 @@
                         android:id="@+id/btn_save_address"
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
-                        android:layout_marginBottom="10dp"
                         android:text="Save Address"
                         android:textColor="@android:color/white"
                         app:backgroundTint="#333333"
@@ -317,33 +218,39 @@
                         app:strokeColor="#ffbb00"
                         app:strokeWidth="1dp" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_testble"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:layout_marginBottom="10dp"
-                        android:text="Test With BLE"
-                        android:textColor="@android:color/white"
-                        app:backgroundTint="#333333"
-                        app:cornerRadius="8dp"
-                        app:strokeColor="#ffbb00"
-                        app:strokeWidth="1dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/btn_testmqqt"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:layout_marginBottom="10dp"
-                        android:text="Test With MQTT"
-                        android:textColor="@android:color/white"
-                        app:backgroundTint="#333333"
-                        app:cornerRadius="8dp"
-                        app:strokeColor="#ffbb00"
-                        app:strokeWidth="1dp" />
+            <!-- ── Status Card ─────────────────────────────────────────── -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardBackgroundColor="#1e1e1e"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="4dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:visibility="gone">
+
+                    <!-- Hidden stubs for old Activity compatibility -->
+                    <View android:id="@+id/tv_device_id"          android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_status"             android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_element_id"         android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_recive_id"          android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_mac_address"        android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_unicast_address"    android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_mqtttopic"          android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/tv_relation_device_id" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/btn_testble"           android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+                    <View android:id="@+id/btn_testmqqt"          android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
 
                 </LinearLayout>
-
             </com.google.android.material.card.MaterialCardView>
+
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>
 

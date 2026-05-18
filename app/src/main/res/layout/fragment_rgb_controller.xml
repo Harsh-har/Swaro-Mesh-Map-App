@@ -34,7 +34,7 @@
     </LinearLayout>
 
     <!-- Color Wheel -->
-    <no.nordicsemi.android.swaromapmesh.ColorWheelView
+    <no.nordicsemi.android.swarorgbww.ColorWheelView
         android:id="@+id/colorWheelView"
         android:layout_width="220dp"
         android:layout_height="220dp" />

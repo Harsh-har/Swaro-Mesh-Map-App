@@ -19,7 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
--keep class no.nordicsemi.android.swaromapmesh.** { *; }
+-keep class no.nordicsemi.android.swarorgbww.** { *; }
 -keep class org.spongycastle.** { *; }
 -dontwarn org.spongycastle.**
 
