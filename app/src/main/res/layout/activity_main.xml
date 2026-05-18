@@ -83,7 +83,6 @@
         android:layout_height="wrap_content"
         android:background="?colorSurface"
         app:elevation="8dp"
-        android:visibility="gone"
         app:itemIconTint="@color/bottom_nav_color"
         app:itemTextColor="@color/bottom_nav_color"
         app:labelVisibilityMode="labeled"

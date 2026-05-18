@@ -13,7 +13,6 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 
 import dagger.hilt.android.qualifiers.ApplicationContext;
-import no.nordicsemi.android.ble.ConnectionPriorityRequest;
 import no.nordicsemi.android.ble.callback.DataReceivedCallback;
 import no.nordicsemi.android.ble.callback.DataSentCallback;
 
@@ -103,13 +102,8 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
         }
 
         @Override
-            protected void initialize() {
-                // ✅ PEHLE priority set karo — MTU se bhi pehle
-                requestConnectionPriority(
-                        ConnectionPriorityRequest.CONNECTION_PRIORITY_HIGH
-                ).enqueue();
-
-                requestMtu(MTU_SIZE_MAX).enqueue();
+        protected void initialize() {
+            requestMtu(MTU_SIZE_MAX).enqueue();
 
             // This callback will be called each time a notification is received.
             final DataReceivedCallback onDataReceived = (device, data) ->
@@ -169,7 +163,7 @@ public class BleMeshManager extends LoggableBleManager<BleMeshManagerCallbacks> 
      */
     @Override
     protected boolean shouldAutoConnect() {
-        return true; //
+        return mSilentProxyMode;
     }
 
     @Override

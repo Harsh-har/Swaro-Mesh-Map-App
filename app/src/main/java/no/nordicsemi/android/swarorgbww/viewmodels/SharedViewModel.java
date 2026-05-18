@@ -151,11 +151,6 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "✅ syncFromStore: " + keys.size() + " devices → " + keys);
     }
 
-    public void startHardcodedProxyConnect() {
-        Log.i(TAG, "⚡ startHardcodedProxyConnect triggered");
-        mNrfMeshRepository.connectHardcodedProxy();
-    }
-
     // ── Called after mesh network import ──────────────────────────────────
     private void onNetworkImported() {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();

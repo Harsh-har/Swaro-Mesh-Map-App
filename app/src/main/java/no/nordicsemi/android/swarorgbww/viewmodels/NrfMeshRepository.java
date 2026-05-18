@@ -1145,61 +1145,13 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
      * Use for background auto-connect only
      */
     public void connectSilent(@NonNull final ExtendedBluetoothDevice device) {
-        mBleMeshManager.setSilentProxyMode(true); // ← true karo
+        mBleMeshManager.setSilentProxyMode(false); // auto connect mat use karo
         initIsConnectedLiveData(true);
         mConnectionState.postValue("Connecting…");
-        mBleMeshManager.connect(device.getDevice()).enqueue();
-    }
-    private static final String HARDCODED_PROXY_MAC = "E4:E6:E3:E9:29:CA"; // ← apna MAC
-    private static final boolean USE_HARDCODED_PROXY = true;
 
-    public void connectHardcodedProxy() {
-        if (!USE_HARDCODED_PROXY) return;
-        if (Boolean.TRUE.equals(mIsConnectedToProxy.getValue())) {
-            Log.d(TAG, "connectHardcodedProxy: already connected — skip");
-            return;
-        }
-
-        // ✅ ADD: Pehle existing scan rok do
-        if (mIsScanning) {
-            stopScan();
-            Log.d(TAG, "connectHardcodedProxy: stopped existing scan");
-        }
-
-        final String targetMac = HARDCODED_PROXY_MAC.toUpperCase();
-        mIsScanning = true;
-
-        final ScanSettings settings = new ScanSettings.Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
-                .setReportDelay(0).setUseHardwareFilteringIfSupported(false).build();
-
-        final List<ScanFilter> filters = new ArrayList<>();
-        filters.add(new ScanFilter.Builder()
-                .setDeviceAddress(targetMac)
-                .setServiceUuid(new ParcelUuid(MESH_PROXY_UUID)).build());
-
-        final no.nordicsemi.android.support.v18.scanner.ScanCallback[] cbHolder =
-                new no.nordicsemi.android.support.v18.scanner.ScanCallback[1];
-        cbHolder[0] = new no.nordicsemi.android.support.v18.scanner.ScanCallback() {
-            @Override
-            public void onScanResult(int t, @NonNull ScanResult r) {
-                if (!r.getDevice().getAddress().equalsIgnoreCase(targetMac)) return;
-                try { BluetoothLeScannerCompat.getScanner().stopScan(cbHolder[0]); } catch (Exception ignored) {}
-                mIsScanning = false;
-                mHandler.removeCallbacks(mScannerTimeout);
-                mHandler.post(() -> connectSilent(new ExtendedBluetoothDevice(r)));
-            }
-            @Override public void onScanFailed(int e) { mIsScanning = false; }
-        };
-
-        BluetoothLeScannerCompat.getScanner().startScan(filters, settings, cbHolder[0]);
-
-        mHandler.postDelayed(() -> {
-            if (mIsScanning) {
-                try { BluetoothLeScannerCompat.getScanner().stopScan(cbHolder[0]); } catch (Exception ignored) {}
-                mIsScanning = false;
-            }
-        }, 8_000);
+        // ✅ No retry, no delay — direct enqueue
+        mBleMeshManager.connect(device.getDevice())
+                .enqueue();
     }
     // =========================================================================
     // resolveServerKeyByNodeName
