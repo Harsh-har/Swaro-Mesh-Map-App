@@ -82,9 +82,7 @@
         <activity
             android:name=".DeviceDetailActivity"
             android:exported="false" />
-        <activity
-            android:name=".DevicesFilterActivity"
-            android:exported="false" />
+
         <activity
             android:name=".swajaui.HomeActivity"
             android:exported="true" />
@@ -128,9 +126,6 @@
         <activity
             android:name=".swajaui.ImportMap_Activity"
             android:exported="true" />
-        <activity
-            android:name=".swajaui.Site_CredentialsActivity"
-            android:launchMode="singleTop" />
         <activity
             android:name=".ble.ScannerActivity"
             android:launchMode="singleTop" />
