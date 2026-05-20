@@ -33,13 +33,10 @@ import com.caverock.androidsvg.SVG;
 import com.caverock.androidsvg.SVGParseException;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
 import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -79,6 +76,9 @@ public class NetworkFragment extends Fragment {
     private String areaLockedId       = null;
     private String currentFocusAreaId = null;
     private String pendingFocusAreaId = null;
+    // ── Data ──────────────────────────────────────────────────────────────
+    private final Map<String, DeviceInfo> deviceMap     = new LinkedHashMap<>();
+    private String selectedDeviceId;
 
     /** Cached union of all selection_layer bounds (= full floor plan rect). */
     private RectF floorPlanBounds = null;
@@ -95,9 +95,7 @@ public class NetworkFragment extends Fragment {
     private Future<?> pendingRender;
 
     // ── Data ──────────────────────────────────────────────────────────────
-    private final Map<String, DeviceInfo>   deviceMap             = new LinkedHashMap<>();
     private final Map<String, Set<String>>  iconToDeviceRelations = new HashMap<>();
-    private String selectedDeviceId;
 
     // ── Helper classes ────────────────────────────────────────────────────
     private final SvgParsers      svgParser    = new SvgParsers();
@@ -308,12 +306,11 @@ public class NetworkFragment extends Fragment {
                 is2.close();
 
                 if (doc != null) svgParser.parseViewBox(doc);
-                Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
-                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
+                Map<String, DeviceInfo> devices = svgParser.extractDevices(doc);
                 svgParser.parseSelectionLayer(doc);
                 floorPlanBounds = null;
 
-                mainHandler.post(() -> onSvgLoaded(svg, doc, devices, relations));
+                mainHandler.post(() -> onSvgLoaded(svg, doc, devices));
             } catch (SVGParseException e) {
                 Log.e(TAG, "SVG parse error", e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
@@ -323,7 +320,6 @@ public class NetworkFragment extends Fragment {
             }
         });
     }
-
     private void loadSvgFromUri(Uri uri) {
         showLoading(true);
         loadExecutor.execute(() -> {
@@ -346,35 +342,29 @@ public class NetworkFragment extends Fragment {
                 Document doc = svgParser.parseDocument(is2); is2.close();
 
                 if (doc != null) svgParser.parseViewBox(doc);
-                Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
-                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
+                Map<String, DeviceInfo> devices = svgParser.extractDevices(doc);
                 svgParser.parseSelectionLayer(doc);
                 floorPlanBounds = null;
 
-                mainHandler.post(() -> onSvgLoaded(svg, doc, devices, relations));
+                mainHandler.post(() -> onSvgLoaded(svg, doc, devices));
             } catch (Exception e) {
                 Log.e(TAG, "Error loading SVG from URI", e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
             }
         });
     }
-
     private void onSvgLoaded(SVG svg, Document document,
-                             Map<String, DeviceInfo>  devices,
-                             Map<String, Set<String>> relations) {
+                             Map<String, DeviceInfo> devices) {
         currentSvg  = svg;
         svgDocument = document;
         deviceMap.clear();
         deviceMap.putAll(devices);
-        iconToDeviceRelations.clear();
-        iconToDeviceRelations.putAll(relations);
 
         colorManager.init(document, svgParser, deviceMap);
         refreshColors();
         renderSvg(svg, true);
         showLoading(false);
     }
-
     // ══════════════════════════════════════════════════════════════════════
     //  COLOR REFRESH
     // ══════════════════════════════════════════════════════════════════════
@@ -384,7 +374,6 @@ public class NetworkFragment extends Fragment {
                 deviceMap,
                 getProvisionedSet(),
                 selectedDeviceId,
-                iconToDeviceRelations,
                 currentFocusAreaId
         );
     }
@@ -770,8 +759,7 @@ public class NetworkFragment extends Fragment {
         intent.putExtra("EXTRA_SVG_DEVICE_ID",                       deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
-        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+
         intent.putExtra("svg_name",   svgName);
         intent.putExtra("AUTO_RESET", true);
         startActivity(intent);
@@ -871,7 +859,6 @@ public class NetworkFragment extends Fragment {
         if (svgDocument == null) return;
         float[] c = touchToSvgCoords(touchX, touchY);
 
-        // 1. Icon hit check
         String hitIconId = findDeviceAt(c[0], c[1]);
         if (hitIconId != null) {
             if (currentFocusAreaId != null) {
@@ -879,13 +866,6 @@ public class NetworkFragment extends Fragment {
                 if (info == null || !currentFocusAreaId.equals(info.areaId)) return;
             }
             onDeviceTapped(hitIconId);
-            return;
-        }
-
-        // 2. Relation device hit check
-        RelationHitResult hit = findRelationDeviceAt(c[0], c[1]);
-        if (hit != null) {
-            onRelationDeviceTapped(hit.iconId, hit.tappedDeviceId);
             return;
         }
 
@@ -908,8 +888,7 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
-        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+
         intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
         intent.putExtra("svg_name", svgName);
         startActivity(intent);
@@ -991,58 +970,20 @@ public class NetworkFragment extends Fragment {
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String      displayName    = extractPureDeviceName(deviceId);
-        Set<String> relatedDevices = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
-        String      relationDevName = relatedDevices.isEmpty()
-                ? null : relatedDevices.iterator().next();
+        String displayName = extractPureDeviceName(deviceId);
 
         Log.d(TAG, "isProvisioned check: deviceId=" + deviceId
                 + " result=" + isProvisioned(deviceId));
 
-        if (isProvisioned(deviceId)) {
-            if (device != null && device.elementId != null) {
-                try {
-                    int svgId = Integer.parseInt(device.elementId.trim());
-                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
-                } catch (NumberFormatException ignored) {}
-            }
-            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
-                    device != null ? device.elementId : null);
-            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
-                    device != null ? device.receiveId : null);
-            intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
-            intent.putExtra("svg_name", svgName);
-            startActivity(intent);
-            return;
-        }
 
-        if (device != null && device.elementId != null) {
-            try {
-                int svgId = Integer.parseInt(device.elementId.trim());
-                if (svgId >= 0) {
-                    ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
-                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved device=" + deviceId + " svgId=" + svgId);
-                }
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
-            }
-        }
+
 
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
-                device != null ? device.elementId : null);
-        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
-                device != null ? device.receiveId : null);
         startActivity(intent);
     }
-
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
         String name = fullDeviceId;

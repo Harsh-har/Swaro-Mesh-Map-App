@@ -13,6 +13,21 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+/**
+ * Manages all SVG color/visibility changes for the NEW format:
+ *
+ *  Technician_Layer  → icon &lt;g&gt; groups, shown by default
+ *  User_Layer        → physical node elements, hidden by default
+ *
+ * Visibility rules:
+ *   ┌─────────────────────────────────────────────────────────────────┐
+ *   │ State              │ Technician_Layer icon │ User_Layer element │
+ *   ├─────────────────────────────────────────────────────────────────┤
+ *   │ Not provisioned    │ original color        │ hidden             │
+ *   │ Selected (unprov.) │ COLOR_SELECTED (red)  │ hidden             │
+ *   │ Provisioned        │ transparent (hidden)  │ visible (active)   │
+ *   └─────────────────────────────────────────────────────────────────┘
+ */
 public class SvgColorManager {
 
     private static final String TAG = "SvgColorManager";
@@ -22,69 +37,88 @@ public class SvgColorManager {
     public static final String COLOR_DEVICE_ACTIVE = "#ffbb00";
     public static final String COLOR_TRANSPARENT   = "transparent";
 
-    // ── Area dim overlay styles ───────────────────────────────────────────
+    // ── Area overlay styles ───────────────────────────────────────────────
     private static final String STYLE_AREA_DEFAULT =
             "fill:none;stroke:white;stroke-miterlimit:10;stroke-width:3px;";
     private static final String STYLE_AREA_DIM =
-            "fill:#000000;fill-opacity:0.72;stroke:#333333;stroke-width:1px;stroke-miterlimit:10;";
+            "fill:#000000;fill-opacity:0.72;stroke:#333333;"
+                    + "stroke-width:1px;stroke-miterlimit:10;";
     private static final String STYLE_AREA_FOCUSED =
             "fill:none;stroke:none;stroke-miterlimit:10;";
 
-    // ── Dependencies (set once after SVG is loaded) ───────────────────────
+    // ── User_Layer display constants ──────────────────────────────────────
+    /** Style applied to a User_Layer element when it should be VISIBLE */
+    private static final String STYLE_USER_VISIBLE = "";   // remove style → use SVG default
+    /** Style applied to a User_Layer element when it should be HIDDEN */
+    private static final String STYLE_USER_HIDDEN  = "display:none;";
+
+    // ── Dependencies ──────────────────────────────────────────────────────
     private Document   svgDocument;
     private SvgParsers parser;
 
-    // ── Snapshot maps — original styles before modification ───────────────
+    // ── Snapshot maps ─────────────────────────────────────────────────────
     /**
-     * Original fill of each icon's inner <rect>.
-     * Key = identity hash of the rect Element.
-     * Value = original fill string (may come from fill attr OR style attr).
+     * Original fill of the first &lt;rect&gt; inside each Technician_Layer icon.
+     * Key = System.identityHashCode(rectElement)
      */
-    private final Map<Integer, String> originalIconFillMap    = new HashMap<>();
+    private final Map<Integer, String>  originalIconFillMap     = new HashMap<>();
     /**
-     * Whether the original fill was stored inside the style attribute (true)
-     * or as a standalone fill attribute (false).
+     * True  → fill was inside the style attribute
+     * False → fill was a standalone attribute
      */
     private final Map<Integer, Boolean> originalIconFillInStyle = new HashMap<>();
 
-    /** Original fill of elements in the Devices group, keyed by identity hash */
-    private final Map<Integer, String>  devicesOriginalFillMap = new HashMap<>();
-    /** Original style strings of selection_layer rects, keyed by area ID */
-    private final Map<String, String>   originalAreaStyles     = new HashMap<>();
+    /** Original style strings of selection_layer elements, keyed by area id */
+    private final Map<String, String>   originalAreaStyles      = new HashMap<>();
 
-    /** Currently dimmed area (other areas get the dark overlay) */
+    /** Currently focused area id (for dim logic) */
     private String dimmedAreaId = null;
+
+    // ── User_Layer element map ────────────────────────────────────────────
+    /**
+     * technician-icon-id  →  corresponding User_Layer Element.
+     * Populated by init() via SvgParsers.parseUserLayer().
+     */
+    private Map<String, Element> userLayerMap = new HashMap<>();
 
     // ══════════════════════════════════════════════════════════════════════
     //  INITIALISATION
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Call this every time a new SVG document is loaded.
-     * Snapshots original colors so they can be restored later.
+     * Call every time a new SVG is loaded.
+     *
+     * 1. Snapshot original Technician_Layer icon colors.
+     * 2. Parse User_Layer element map.
+     * 3. Hide ALL User_Layer elements (default hidden state).
      */
-    public void init(Document document, SvgParsers svgParser,
+    public void init(Document document,
+                     SvgParsers svgParser,
                      Map<String, DeviceInfo> deviceMap) {
         this.svgDocument = document;
         this.parser      = svgParser;
+
         originalIconFillMap.clear();
         originalIconFillInStyle.clear();
-        devicesOriginalFillMap.clear();
         originalAreaStyles.clear();
         dimmedAreaId = null;
 
+        // 1. Snapshot Technician_Layer icon fills
         for (DeviceInfo info : deviceMap.values())
             snapshotIconRectFill(info.element);
 
-        snapshotDevicesGroupFills(document);
+        // 2. Parse User_Layer
+        userLayerMap = svgParser.parseUserLayer(document);
+
+        // 3. Hide all User_Layer elements at startup
+        hideAllUserLayerElements();
+
+        Log.d(TAG, "init: " + deviceMap.size() + " tech icons, "
+                + userLayerMap.size() + " user-layer elements");
     }
 
     // ── Snapshot helpers ──────────────────────────────────────────────────
 
-    /**
-     * ✅ FIX: Snapshot the fill of the first <rect> child inside an icon group.
-     * Checks BOTH fill attribute AND style attribute (fill:#xxx inside style="...").
-     */
     private void snapshotIconRectFill(Element iconGroup) {
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
@@ -94,23 +128,22 @@ public class SvgColorManager {
             if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
 
             int key = System.identityHashCode(childEl);
+            if (originalIconFillMap.containsKey(key)) return;   // already snapshotted
 
-            // ✅ ALREADY SNAPSHOTTED? Skip
-            if (originalIconFillMap.containsKey(key)) return;
-
+            // Try standalone fill attribute first
             String fillAttr = childEl.getAttribute("fill");
             if (fillAttr != null && !fillAttr.isEmpty()) {
                 originalIconFillMap.put(key, fillAttr);
                 originalIconFillInStyle.put(key, false);
-                // ✅ Store backup
                 childEl.setAttribute("data-original-fill", fillAttr);
                 return;
             }
 
+            // Try fill inside style attribute
             String styleAttr = childEl.getAttribute("style");
             if (styleAttr != null && styleAttr.contains("fill")) {
                 String fillFromStyle = extractFillFromStyle(styleAttr);
-                if (!fillFromStyle.equals(COLOR_TRANSPARENT)) {
+                if (!COLOR_TRANSPARENT.equals(fillFromStyle)) {
                     originalIconFillMap.put(key, fillFromStyle);
                     originalIconFillInStyle.put(key, true);
                     childEl.setAttribute("data-original-fill", fillFromStyle);
@@ -118,31 +151,11 @@ public class SvgColorManager {
                 }
             }
 
+            // Fallback
             originalIconFillMap.put(key, COLOR_TRANSPARENT);
             originalIconFillInStyle.put(key, false);
             childEl.setAttribute("data-original-fill", COLOR_TRANSPARENT);
             return;
-        }
-    }
-    private void snapshotDevicesGroupFills(Document document) {
-        if (document == null) return;
-        Element dg = parser.findElementById(document.getDocumentElement(), "Devices");
-        if (dg == null) return;
-        snapshotFillsRecursive(dg);
-    }
-
-    private void snapshotFillsRecursive(Element el) {
-        String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty())
-            devicesOriginalFillMap.put(System.identityHashCode(el), fill);
-        String style = el.getAttribute("style");
-        if (style != null && style.contains("fill"))
-            devicesOriginalFillMap.put(System.identityHashCode(el),
-                    extractFillFromStyle(style));
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) snapshotFillsRecursive((Element) child);
         }
     }
 
@@ -156,56 +169,15 @@ public class SvgColorManager {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  ICON COLOR API
+    //  TECHNICIAN_LAYER  — icon color API
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * ✅ FIX: Sets the fill of the first <rect> inside an icon group element.
-     * Handles BOTH fill attribute AND fill inside style attribute.
-     *
-     * e.g. <rect fill="#ff0"/> → sets fill attribute directly
-     *      <rect style="fill:#ffae42; stroke:#000;"/> → updates fill inside style
+     * Set the fill of the first &lt;rect&gt; inside a Technician_Layer icon group.
+     * Handles both standalone fill attribute and fill-inside-style.
      */
     public void applyColorToIconGroup(Element iconGroup, String color) {
-        NodeList children = iconGroup.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (!(child instanceof Element)) continue;
-            Element childEl = (Element) child;
-            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
-
-            int     key        = System.identityHashCode(childEl);
-            Boolean inStyle    = originalIconFillInStyle.get(key);
-            boolean useStyle   = Boolean.TRUE.equals(inStyle);
-
-            if (useStyle) {
-                // ── Update fill inside style attribute ────────────────────
-                String style = childEl.getAttribute("style");
-                if (style != null && style.contains("fill:")) {
-                    // Replace existing fill:xxx inside style
-                    String newStyle = style.replaceAll(
-                            "fill\\s*:\\s*[^;]+", "fill:" + color);
-                    childEl.setAttribute("style", newStyle);
-                } else {
-                    // style exists but no fill yet — append it
-                    String newStyle = (style != null && !style.isEmpty())
-                            ? style + ";fill:" + color
-                            : "fill:" + color;
-                    childEl.setAttribute("style", newStyle);
-                }
-            } else {
-                // ── Set fill attribute directly ───────────────────────────
-                childEl.setAttribute("fill", color);
-            }
-            return;
-        }
-    }
-
-    /**
-     * ✅ FIX: Restores the fill of an icon group's <rect> to its snapshotted value.
-     * Handles BOTH fill attribute AND fill inside style attribute.
-     */
-    public void restoreIconGroupColor(Element iconGroup) {
+        if (iconGroup == null) return;
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
@@ -214,24 +186,50 @@ public class SvgColorManager {
             if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
 
             int     key      = System.identityHashCode(childEl);
-            String  origFill = originalIconFillMap.get(key);
-            Boolean inStyle  = originalIconFillInStyle.get(key);
+            boolean useStyle = Boolean.TRUE.equals(originalIconFillInStyle.get(key));
 
-            if (origFill == null) return; // nothing snapshotted
-
-            if (Boolean.TRUE.equals(inStyle)) {
-                // ── Restore fill inside style attribute ───────────────────
+            if (useStyle) {
                 String style = childEl.getAttribute("style");
                 if (style != null && style.contains("fill:")) {
-                    String restored = style.replaceAll(
-                            "fill\\s*:\\s*[^;]+", "fill:" + origFill);
-                    childEl.setAttribute("style", restored);
+                    childEl.setAttribute("style",
+                            style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + color));
                 } else {
-                    // Fallback: set fill attr directly
+                    String newStyle = (style != null && !style.isEmpty())
+                            ? style + ";fill:" + color : "fill:" + color;
+                    childEl.setAttribute("style", newStyle);
+                }
+            } else {
+                childEl.setAttribute("fill", color);
+            }
+            return;   // only process first rect
+        }
+    }
+
+    /**
+     * Restore the first &lt;rect&gt; of an icon group to its original fill.
+     */
+    public void restoreIconGroupColor(Element iconGroup) {
+        if (iconGroup == null) return;
+        NodeList children = iconGroup.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (!(child instanceof Element)) continue;
+            Element childEl = (Element) child;
+            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
+
+            int    key      = System.identityHashCode(childEl);
+            String origFill = originalIconFillMap.get(key);
+            if (origFill == null) return;
+
+            if (Boolean.TRUE.equals(originalIconFillInStyle.get(key))) {
+                String style = childEl.getAttribute("style");
+                if (style != null && style.contains("fill:")) {
+                    childEl.setAttribute("style",
+                            style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + origFill));
+                } else {
                     childEl.setAttribute("fill", origFill);
                 }
             } else {
-                // ── Restore fill attribute directly ───────────────────────
                 childEl.setAttribute("fill", origFill);
             }
             return;
@@ -239,39 +237,59 @@ public class SvgColorManager {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  DEVICE GROUP (physical Devices layer)
+    //  USER_LAYER  — show / hide individual elements
     // ══════════════════════════════════════════════════════════════════════
 
-    public void showOnlyPhysicalDevices(Set<String> activeDeviceIds) {
-        if (svgDocument == null) return;
-        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
-        if (dg == null) return;
-        applyColorToAllElements(dg, COLOR_TRANSPARENT);
-        for (String deviceId : activeDeviceIds) {
-            Element deviceEl = parser.findElementById(dg, deviceId);
-            if (deviceEl != null) applyColorToAllElements(deviceEl, COLOR_DEVICE_ACTIVE);
+    /**
+     * Hide ALL User_Layer elements (called on init and on full reset).
+     */
+    public void hideAllUserLayerElements() {
+        for (Element el : userLayerMap.values())
+            setUserLayerElementVisible(el, false);
+        Log.d(TAG, "hideAllUserLayerElements: " + userLayerMap.size() + " hidden");
+    }
+
+    /**
+     * Show the User_Layer element that corresponds to the given
+     * technician icon id.
+     */
+    public void showUserLayerElement(String techIconId) {
+        Element el = userLayerMap.get(techIconId);
+        if (el != null) {
+            setUserLayerElementVisible(el, true);
+        } else {
+            Log.w(TAG, "showUserLayerElement: no user-layer element for " + techIconId);
         }
     }
 
-    /** Hides all elements in the Devices layer. */
-    public void hideAllPhysicalDevices() {
-        if (svgDocument == null) return;
-        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
-        if (dg != null) applyColorToAllElements(dg, COLOR_TRANSPARENT);
+    /**
+     * Hide the User_Layer element that corresponds to the given
+     * technician icon id.
+     */
+    public void hideUserLayerElement(String techIconId) {
+        Element el = userLayerMap.get(techIconId);
+        if (el != null) setUserLayerElementVisible(el, false);
     }
 
-    public void applyColorToAllElements(Element el, String color) {
-        String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty()) el.setAttribute("fill", color);
-        String style = el.getAttribute("style");
-        if (style != null && !style.isEmpty() && style.contains("fill"))
-            el.setAttribute("style",
-                    style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + color));
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element)
-                applyColorToAllElements((Element) child, color);
+    private void setUserLayerElementVisible(Element el, boolean visible) {
+        if (el == null) return;
+        if (visible) {
+            // Remove display:none — restore original visibility
+            String style = el.getAttribute("style");
+            if (style != null && style.contains("display:none")) {
+                String cleaned = style.replace("display:none;", "")
+                        .replace("display:none", "").trim();
+                if (cleaned.isEmpty()) el.removeAttribute("style");
+                else el.setAttribute("style", cleaned);
+            }
+        } else {
+            // Apply display:none
+            String style = el.getAttribute("style");
+            if (style == null || !style.contains("display:none")) {
+                String newStyle = (style != null && !style.isEmpty())
+                        ? "display:none;" + style : "display:none;";
+                el.setAttribute("style", newStyle);
+            }
         }
     }
 
@@ -279,99 +297,97 @@ public class SvgColorManager {
     //  FULL COLOR REFRESH
     // ══════════════════════════════════════════════════════════════════════
 
+    /**
+     * Refresh all icon colors and User_Layer visibility based on current state.
+     *
+     * Rules:
+     *  - Provisioned icon     → tech icon transparent, user-layer element visible
+     *  - Selected (unprovis.) → tech icon red, user-layer element hidden
+     *  - Normal (unprovis.)   → tech icon original color, user-layer element hidden
+     *  - Area filter active   → icons outside the focused area transparent
+     */
     public void refreshAllColors(Map<String, DeviceInfo> deviceMap,
-                                 Set<String> provisionedIds,
-                                 String selectedDeviceId,
-                                 Map<String, Set<String>> iconToDeviceRelations,
-                                 String areaFilterId) {
+                                 Set<String>             provisionedIds,
+                                 String                  selectedDeviceId,
+                                 String                  areaFilterId) {
         if (deviceMap.isEmpty()) return;
-        Set<String> devicesToShow = new HashSet<>();
+
+        // Start by hiding all user-layer elements
+        hideAllUserLayerElements();
 
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
 
-            // Area filter: hide icons outside the focused area
-            if (areaFilterId != null && !areaFilterId.equals(info.areaId)) {
+            // Area filter — hide icons outside focused area
+            if (areaFilterId != null
+                    && !areaFilterId.equals(info.areaId)) {
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
                 continue;
             }
 
-            // ✅ normalize id before lookup — case mismatch fix
             boolean provisioned = provisionedIds != null
                     && provisionedIds.contains(id.trim().toLowerCase());
 
             if (provisioned) {
+                // Hide the tech icon, show the user-layer counterpart
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
-                Set<String> related = iconToDeviceRelations.get(id);
-                if (related != null) devicesToShow.addAll(related);
+                showUserLayerElement(id);
+
             } else if (id.equals(selectedDeviceId)) {
+                // Highlight the tech icon
                 applyColorToIconGroup(info.element, COLOR_SELECTED);
+
             } else {
+                // Restore tech icon to its original color
                 restoreIconGroupColor(info.element);
             }
         }
-
-        if (devicesToShow.isEmpty()) hideAllPhysicalDevices();
-        else showOnlyPhysicalDevices(devicesToShow);
     }
+
     // ══════════════════════════════════════════════════════════════════════
     //  AREA DIM LOGIC
     // ══════════════════════════════════════════════════════════════════════
 
-    public void dimOtherAreas(String focusedAreaId,
-                              Map<String, Element> selectionLayerElements,
-                              Map<String, RectF>   selectionLayerBounds,
-                              RectF                focusedAreaBounds)  {
+    public void dimOtherAreas(String              focusedAreaId,
+                              Map<String,Element> selectionLayerElements,
+                              Map<String,RectF>   selectionLayerBounds,
+                              RectF               focusedAreaBounds) {
         if (focusedAreaId == null) {
             restoreAllAreas(selectionLayerElements, selectionLayerBounds);
             return;
         }
 
-        // ✅ FIX: If no selection_layer exists, skip overlay dim entirely
-        // but still dim furniture for the focused area
-        boolean hasSelectionLayer = !selectionLayerElements.isEmpty();
-
-        // ✅ Always clear stale state first
         restoreFurnitureVisibility();
         setWallsOpacity(false);
         restoreAllDoors();
-
         dimmedAreaId = focusedAreaId;
 
+        boolean hasSelectionLayer = !selectionLayerElements.isEmpty();
         if (hasSelectionLayer) {
             for (Map.Entry<String, Element> entry : selectionLayerElements.entrySet()) {
                 String  areaId = entry.getKey();
                 Element areaEl = entry.getValue();
-
                 if (!originalAreaStyles.containsKey(areaId)) {
                     String orig = areaEl.getAttribute("style");
                     originalAreaStyles.put(areaId,
-                            (orig == null || orig.isEmpty()) ? STYLE_AREA_DEFAULT : orig);
+                            (orig==null||orig.isEmpty())
+                                    ? STYLE_AREA_DEFAULT : orig);
                 }
-
-                if (areaId.equals(focusedAreaId))
-                    areaEl.setAttribute("style", STYLE_AREA_FOCUSED);
-                else
-                    areaEl.setAttribute("style", STYLE_AREA_DIM);
+                areaEl.setAttribute("style",
+                        areaId.equals(focusedAreaId)
+                                ? STYLE_AREA_FOCUSED : STYLE_AREA_DIM);
             }
             setWallsOpacity(true);
         }
 
         dimFurnitureOutsideArea(focusedAreaId, focusedAreaBounds);
         RectF areaBounds = selectionLayerBounds.get(focusedAreaId);
-        if (areaBounds != null) {
-            highlightDoorsInArea(focusedAreaId, areaBounds);
-        }
-        // ✅ No warning log spam when bounds simply don't exist
+        if (areaBounds != null) highlightDoorsInArea(focusedAreaId, areaBounds);
     }
 
-    /**
-     * Restores all areas, furniture, walls, and doors to their original state.
-     */
-    public void restoreAllAreas(Map<String, Element> selectionLayerElements,
-                                Map<String, RectF>   selectionLayerBounds) {
-        // Restore selection_layer overlay styles
+    public void restoreAllAreas(Map<String,Element> selectionLayerElements,
+                                Map<String,RectF>   selectionLayerBounds) {
         for (Map.Entry<String, Element> entry : selectionLayerElements.entrySet()) {
             String  areaId = entry.getKey();
             Element areaEl = entry.getValue();
@@ -380,7 +396,6 @@ public class SvgColorManager {
         }
         originalAreaStyles.clear();
         dimmedAreaId = null;
-
         restoreFurnitureVisibility();
         setWallsOpacity(false);
         restoreAllDoors();
@@ -390,119 +405,92 @@ public class SvgColorManager {
 
     private void dimFurnitureOutsideArea(String focusedAreaId, RectF focusBounds) {
         if (svgDocument == null || focusedAreaId == null) return;
-        Element furnitureGroup =
-                parser.findElementById(svgDocument.getDocumentElement(), "Furniture");
+
+        // In new SVG format, Furniture is nested inside the room group.
+        // Search for it globally.
+        Element furnitureGroup = findFurnitureGroup();
         if (furnitureGroup == null) {
             Log.w(TAG, "dimFurnitureOutsideArea: Furniture group not found");
             return;
         }
 
-        Log.d(TAG, "dimFurnitureOutsideArea: focusedAreaId=" + focusedAreaId
-                + " focusBounds=" + focusBounds);
-
         restoreFurnitureVisibility();
 
-        if (focusBounds == null && parser.selectionLayerBounds != null) {
+        if (focusBounds == null && parser.selectionLayerBounds != null)
             focusBounds = parser.selectionLayerBounds.get(focusedAreaId);
-        }
 
         if (focusBounds == null) {
-            Log.w(TAG, "dimFurnitureOutsideArea: no bounds available, skipping dim");
+            Log.w(TAG, "dimFurnitureOutsideArea: no bounds for " + focusedAreaId);
             return;
         }
 
         if (!furnitureGroup.hasAttribute("data-orig-group-style")) {
             String gs = furnitureGroup.getAttribute("style");
             furnitureGroup.setAttribute("data-orig-group-style",
-                    (gs != null && !gs.isEmpty()) ? gs : "__visible__");
+                    (gs!=null&&!gs.isEmpty()) ? gs : "__visible__");
         }
         furnitureGroup.removeAttribute("style");
 
         NodeList children = furnitureGroup.getChildNodes();
-        int matched = 0, dimmed = 0;
+        int matched=0, dimmed=0;
 
-        for (int i = 0; i < children.getLength(); i++) {
+        for (int i=0; i<children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
             Element el = (Element) child;
-
-            // ✅ KEY FIX: Only process named <g> sub-groups, skip bare <path>/<line> etc.
-            String tag = el.getTagName().toLowerCase().replace("svg:", "");
-            if (!"g".equals(tag)) continue;
-
+            if (!"g".equals(el.getTagName().toLowerCase().replace("svg:","")))
+                continue;
             String id = el.getAttribute("id");
-            if (id == null || id.isEmpty()) continue;
+            if (id==null||id.isEmpty()) continue;
 
             if (!el.hasAttribute("data-orig-display")) {
                 String orig = el.getAttribute("style");
                 el.setAttribute("data-orig-display",
-                        (orig != null && !orig.isEmpty()) ? orig : "__visible__");
+                        (orig!=null&&!orig.isEmpty()) ? orig : "__visible__");
             }
 
-            boolean belongsToFocus = false;
+            boolean belongs = parser.isFuzzyMatch(
+                    parser.normalize(id), parser.normalize(focusedAreaId));
 
-            // Strategy 1: ID fuzzy match
-            belongsToFocus = parser.isFuzzyMatch(parser.normalize(id),
-                    parser.normalize(focusedAreaId));
-
-            // Strategy 2: Spatial containment
-// Strategy 2: Spatial containment using passed bounds
-            if (!belongsToFocus) {
+            if (!belongs) {
                 RectF elBounds = parser.computeBounds(el);
-                if (elBounds != null && !elBounds.isEmpty()) {
-                    Log.d(TAG, "  checking id=" + id + " bounds=" + elBounds);
-
-                    // Center point check
-                    if (focusBounds.contains(elBounds.centerX(), elBounds.centerY())) {
-                        belongsToFocus = true;
-                        Log.d(TAG, "  [CENTER MATCH] " + id);
+                if (elBounds!=null && !elBounds.isEmpty()) {
+                    if (focusBounds.contains(elBounds.centerX(),elBounds.centerY())) {
+                        belongs = true;
                     }
-
-                    // ✅ FIX: Any corner of focusBounds inside elBounds (reverse containment)
-                    if (!belongsToFocus) {
-                        if (elBounds.contains(focusBounds.centerX(), focusBounds.centerY())) {
-                            belongsToFocus = true;
-                            Log.d(TAG, "  [REVERSE CENTER MATCH] " + id);
-                        }
+                    if (!belongs && elBounds.contains(
+                            focusBounds.centerX(), focusBounds.centerY())) {
+                        belongs = true;
                     }
-
-                    // ✅ FIX: Lower overlap threshold to 5%
-                    if (!belongsToFocus) {
-                        RectF intersection = new RectF(elBounds);
-                        if (intersection.intersect(focusBounds)) {
-                            float overlap   = intersection.width() * intersection.height();
-                            float elArea    = elBounds.width() * elBounds.height();
-                            float focusArea = focusBounds.width() * focusBounds.height();
-                            // ✅ Check against BOTH element area AND focus area
-                            float overlapRatioEl    = elArea    > 0 ? (overlap / elArea)    : 0;
-                            float overlapRatioFocus = focusArea > 0 ? (overlap / focusArea) : 0;
-                            if (overlapRatioEl > 0.05f || overlapRatioFocus > 0.3f) {
-                                belongsToFocus = true;
-                                Log.d(TAG, "  [OVERLAP MATCH] " + id
-                                        + " overlapEl%=" + (overlapRatioEl * 100)
-                                        + " overlapFocus%=" + (overlapRatioFocus * 100));
-                            }
+                    if (!belongs) {
+                        RectF inter = new RectF(elBounds);
+                        if (inter.intersect(focusBounds)) {
+                            float overlap   = inter.width()*inter.height();
+                            float elArea    = elBounds.width()*elBounds.height();
+                            float focusArea = focusBounds.width()*focusBounds.height();
+                            float ratioEl   = elArea>0?(overlap/elArea):0;
+                            float ratioFocus= focusArea>0?(overlap/focusArea):0;
+                            if (ratioEl>0.05f || ratioFocus>0.3f) belongs=true;
                         }
                     }
                 }
             }
-            if (belongsToFocus) {
+
+            if (belongs) {
                 matched++;
                 String saved = el.getAttribute("data-orig-display");
                 if ("__visible__".equals(saved)) el.removeAttribute("style");
                 else el.setAttribute("style", saved);
             } else {
                 dimmed++;
-                el.setAttribute("style", "opacity:0.15;");
+                el.setAttribute("style","opacity:0.15;");
             }
         }
-
-        Log.d(TAG, "dimFurnitureOutsideArea done: matched=" + matched + " dimmed=" + dimmed);
+        Log.d(TAG,"dimFurniture: matched="+matched+" dimmed="+dimmed);
     }
+
     private void restoreFurnitureVisibility() {
-        if (svgDocument == null) return;
-        Element furnitureGroup =
-                parser.findElementById(svgDocument.getDocumentElement(), "Furniture");
+        Element furnitureGroup = findFurnitureGroup();
         if (furnitureGroup == null) return;
 
         if (furnitureGroup.hasAttribute("data-orig-group-style")) {
@@ -513,15 +501,12 @@ public class SvgColorManager {
         }
 
         NodeList children = furnitureGroup.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
+        for (int i=0; i<children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
             Element el = (Element) child;
-
-            // ✅ Only named <g> sub-groups
-            String tag = el.getTagName().toLowerCase().replace("svg:", "");
-            if (!"g".equals(tag)) continue;
-
+            if (!"g".equals(el.getTagName().toLowerCase().replace("svg:","")))
+                continue;
             if (el.hasAttribute("data-orig-display")) {
                 String saved = el.getAttribute("data-orig-display");
                 if ("__visible__".equals(saved)) el.removeAttribute("style");
@@ -530,20 +515,33 @@ public class SvgColorManager {
             }
         }
     }
+
+    /**
+     * Find the Furniture group. In the new SVG it may be a direct child of
+     * a room group (e.g. &lt;g id="Furniture"&gt; inside Master_Bedroom_MBDR)
+     * or at the top level. Search recursively.
+     */
+    private Element findFurnitureGroup() {
+        if (svgDocument == null) return null;
+        return parser.findElementById(
+                svgDocument.getDocumentElement(), "Furniture");
+    }
+
     // ── Walls ─────────────────────────────────────────────────────────────
 
     private void setWallsOpacity(boolean dim) {
         if (svgDocument == null) return;
-        Element walls = parser.findElementById(svgDocument.getDocumentElement(), "Walls");
+        Element walls = parser.findElementById(
+                svgDocument.getDocumentElement(), "Walls");
         if (walls == null) return;
 
         if (dim) {
             if (!walls.hasAttribute("data-orig-walls")) {
                 String s = walls.getAttribute("style");
                 walls.setAttribute("data-orig-walls",
-                        (s != null && !s.isEmpty()) ? s : "__visible__");
+                        (s!=null&&!s.isEmpty()) ? s : "__visible__");
             }
-            walls.setAttribute("style", "opacity:0.25;");
+            walls.setAttribute("style","opacity:0.25;");
         } else {
             if (walls.hasAttribute("data-orig-walls")) {
                 String saved = walls.getAttribute("data-orig-walls");
@@ -554,21 +552,15 @@ public class SvgColorManager {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  DOOR HIGHLIGHTING
-    // ══════════════════════════════════════════════════════════════════════
+    // ── Doors ─────────────────────────────────────────────────────────────
 
     public void highlightDoorsInArea(String areaId, RectF areaBounds) {
-        if (svgDocument == null || areaId == null) return;
+        if (svgDocument==null||areaId==null) return;
         restoreAllDoors();
-        if (areaBounds == null) {
-            Log.w(TAG, "highlightDoorsInArea: no bounds for area " + areaId);
-            return;
-        }
+        if (areaBounds==null) return;
 
-        Element furnitureGroup =
-                parser.findElementById(svgDocument.getDocumentElement(), "Furniture");
-        if (furnitureGroup == null) return;
+        Element furnitureGroup = findFurnitureGroup();
+        if (furnitureGroup==null) return;
 
         List<Element> doorElements = collectAllDoorElements(furnitureGroup);
         String normAreaId = parser.normalize(areaId);
@@ -577,65 +569,54 @@ public class SvgColorManager {
             if (!doorEl.hasAttribute("data-orig-door-style")) {
                 String orig = doorEl.getAttribute("style");
                 doorEl.setAttribute("data-orig-door-style",
-                        (orig != null && !orig.isEmpty()) ? orig : "");
+                        (orig!=null&&!orig.isEmpty()) ? orig : "");
             }
-
-            if (isDoorBelongingToArea(doorEl, normAreaId, areaBounds)) {
+            if (isDoorBelongingToArea(doorEl, normAreaId, areaBounds))
                 applyDoorHighlight(doorEl);
-                Log.d(TAG, "Highlighted door: " + doorEl.getAttribute("id")
-                        + " for area: " + areaId);
-            } else {
+            else
                 restoreDoorStyle(doorEl);
-            }
         }
     }
 
     public void restoreAllDoors() {
-        if (svgDocument == null) return;
-        Element furnitureGroup =
-                parser.findElementById(svgDocument.getDocumentElement(), "Furniture");
-        if (furnitureGroup == null) return;
+        if (svgDocument==null) return;
+        Element furnitureGroup = findFurnitureGroup();
+        if (furnitureGroup==null) return;
 
         NodeList children = furnitureGroup.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
+        for (int i=0; i<children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
             Element el = (Element) child;
-            String  id = el.getAttribute("id");
-            if (id != null && id.toLowerCase().contains("door")
-                    && el.hasAttribute("data-orig-door-style")) {
+            String id = el.getAttribute("id");
+            if (id!=null && id.toLowerCase().contains("door")
+                    && el.hasAttribute("data-orig-door-style"))
                 restoreDoorStyle(el);
-            }
         }
     }
 
     private void applyDoorHighlight(Element doorEl) {
         String tag = parser.normalizeTag(doorEl.getTagName());
-        if ("polyline".equals(tag) || "path".equals(tag) || "line".equals(tag)) {
-            doorEl.setAttribute("style",
-                    "stroke:#ff0000;stroke-width:2.5px;fill:none;");
-        } else {
-            doorEl.setAttribute("style",
-                    "fill:#ff0000;stroke:#cc0000;stroke-width:1px;");
-        }
+        if ("polyline".equals(tag)||"path".equals(tag)||"line".equals(tag))
+            doorEl.setAttribute("style","stroke:#ff0000;stroke-width:2.5px;fill:none;");
+        else
+            doorEl.setAttribute("style","fill:#ff0000;stroke:#cc0000;stroke-width:1px;");
     }
 
     private void restoreDoorStyle(Element doorEl) {
         if (!doorEl.hasAttribute("data-orig-door-style")) return;
         String saved = doorEl.getAttribute("data-orig-door-style");
-        if (saved != null && !saved.isEmpty()) doorEl.setAttribute("style", saved);
+        if (saved!=null&&!saved.isEmpty()) doorEl.setAttribute("style",saved);
         else doorEl.removeAttribute("style");
         doorEl.removeAttribute("data-orig-door-style");
     }
 
-    // ── Door helpers ──────────────────────────────────────────────────────
-
     private List<Element> collectAllDoorElements(Element parent) {
         List<Element> doors = new ArrayList<>();
         String id = parent.getAttribute("id");
-        if (id != null && id.toLowerCase().contains("door")) doors.add(parent);
+        if (id!=null&&id.toLowerCase().contains("door")) doors.add(parent);
         NodeList children = parent.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
+        for (int i=0; i<children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element)
                 doors.addAll(collectAllDoorElements((Element) child));
@@ -643,101 +624,66 @@ public class SvgColorManager {
         return doors;
     }
 
-    private boolean isDoorBelongingToArea(Element doorEl, String normAreaId,
-                                          RectF areaBounds) {
-        // Strategy 1: explicit data-area attribute
+    private boolean isDoorBelongingToArea(Element doorEl,
+                                          String  normAreaId,
+                                          RectF   areaBounds) {
         String dataArea = doorEl.getAttribute("data-area");
-        if (dataArea != null && !dataArea.isEmpty()
-                && parser.normalize(dataArea).equals(normAreaId))
-            return true;
+        if (dataArea!=null&&!dataArea.isEmpty()
+                && parser.normalize(dataArea).equals(normAreaId)) return true;
 
-        // Strategy 2: parent chain matching
         Node parent = doorEl.getParentNode();
         while (parent instanceof Element) {
-            String parentId = ((Element) parent).getAttribute("id");
-            if (parentId != null && !parentId.isEmpty()
-                    && parser.isFuzzyMatch(parser.normalize(parentId), normAreaId))
+            String parentId = ((Element)parent).getAttribute("id");
+            if (parentId!=null&&!parentId.isEmpty()
+                    && parser.isFuzzyMatch(parser.normalize(parentId),normAreaId))
                 return true;
             parent = parent.getParentNode();
         }
 
-        // Strategy 3: door's own ID
         String doorId = doorEl.getAttribute("id");
-        if (doorId != null && parser.isFuzzyMatch(parser.normalize(doorId), normAreaId))
+        if (doorId!=null && parser.isFuzzyMatch(parser.normalize(doorId),normAreaId))
             return true;
 
-        // Strategy 4: spatial containment
-        if (areaBounds != null) {
+        if (areaBounds!=null) {
             RectF doorBounds = parser.computeBounds(doorEl);
-            if (doorBounds != null && !doorBounds.isEmpty()) {
-                if (areaBounds.contains(doorBounds.centerX(), doorBounds.centerY()))
+            if (doorBounds!=null&&!doorBounds.isEmpty()) {
+                if (areaBounds.contains(doorBounds.centerX(),doorBounds.centerY()))
                     return true;
-                RectF intersection = new RectF(doorBounds);
-                if (intersection.intersect(areaBounds)) {
-                    float overlap  = intersection.width() * intersection.height();
-                    float doorArea = doorBounds.width() * doorBounds.height();
-                    if (doorArea > 0 && (overlap / doorArea) > 0.3f) return true;
+                RectF inter = new RectF(doorBounds);
+                if (inter.intersect(areaBounds)) {
+                    float overlap  = inter.width()*inter.height();
+                    float doorArea = doorBounds.width()*doorBounds.height();
+                    if (doorArea>0&&(overlap/doorArea)>0.3f) return true;
                 }
             }
         }
         return false;
     }
-    public void clearDeviceSnapshot(Element iconGroup) {
-        NodeList children = iconGroup.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (!(child instanceof Element)) continue;
-            Element childEl = (Element) child;
-            if (!"rect".equals(parser.normalizeTag(childEl.getTagName()))) continue;
 
-            int key = System.identityHashCode(childEl);
-            originalIconFillMap.remove(key);
-            originalIconFillInStyle.remove(key);
+    // ══════════════════════════════════════════════════════════════════════
+    //  SNAPSHOT RESET HELPERS
+    // ══════════════════════════════════════════════════════════════════════
 
-            // Re-snapshot the ORIGINAL from SVG source (not current modified state)
-            reSnapshotIconRectFill(childEl);
-            return;
-        }
-    }
-
-    private void reSnapshotIconRectFill(Element rectEl) {
-        int key = System.identityHashCode(rectEl);
-
-        // Read from data-original-fill if we stored it earlier
-        String original = rectEl.getAttribute("data-original-fill");
-        if (original != null && !original.isEmpty()) {
-            originalIconFillMap.put(key, original);
-            originalIconFillInStyle.put(key, false);
-            return;
-        }
-
-        // Fallback: re-parse from attribute
-        String fill = rectEl.getAttribute("fill");
-        if (fill != null && !fill.isEmpty()) {
-            originalIconFillMap.put(key, fill);
-            originalIconFillInStyle.put(key, false);
-        }
-    }
+    /**
+     * Re-snapshot all device icons from the data-original-fill attribute.
+     * Call this on resume to handle any state drift.
+     */
     public void forceResnapshotAllDevices(Map<String, DeviceInfo> deviceMap) {
         for (DeviceInfo info : deviceMap.values()) {
-            // Clear existing snapshots for this device
             NodeList children = info.element.getChildNodes();
-            for (int i = 0; i < children.getLength(); i++) {
+            for (int i=0; i<children.getLength(); i++) {
                 Node child = children.item(i);
                 if (!(child instanceof Element)) continue;
                 Element childEl = (Element) child;
-                if ("rect".equals(parser.normalizeTag(childEl.getTagName()))) {
-                    int key = System.identityHashCode(childEl);
+                if (!"rect".equals(parser.normalizeTag(childEl.getTagName())))
+                    continue;
 
-                    // Restore from data-original-fill attribute
-                    String original = childEl.getAttribute("data-original-fill");
-                    if (original != null && !original.isEmpty()) {
-                        originalIconFillMap.put(key, original);
-                        originalIconFillInStyle.put(key, false);
-
-                        // Also restore the actual fill
-                        childEl.setAttribute("fill", original);
-                    }
+                int key = System.identityHashCode(childEl);
+                String original = childEl.getAttribute("data-original-fill");
+                if (original!=null&&!original.isEmpty()) {
+                    originalIconFillMap.put(key, original);
+                    originalIconFillInStyle.put(key, false);
+                    childEl.setAttribute("fill", original);
                 }
             }
         }
@@ -748,4 +694,7 @@ public class SvgColorManager {
     // ══════════════════════════════════════════════════════════════════════
 
     public String getDimmedAreaId() { return dimmedAreaId; }
+
+    /** Returns the User_Layer element map (techIconId → Element). */
+    public Map<String, Element> getUserLayerMap() { return userLayerMap; }
 }

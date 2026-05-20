@@ -25,6 +25,7 @@ import com.google.android.material.navigation.NavigationBarView;
 import java.util.ArrayList;
 
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMainBinding;
 import no.nordicsemi.android.swaromapmesh.swajaui.SvgParserList;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
