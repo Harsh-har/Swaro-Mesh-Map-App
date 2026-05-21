@@ -45,7 +45,7 @@ public class HomeActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
-        // ✅ Step 1: Permissions pehle maango
+        // ✅ Step 1: Permissions
         checkAndRequestPermissions();
 
         // ✅ Step 2: Bluetooth on karne ko kaho agar band hai

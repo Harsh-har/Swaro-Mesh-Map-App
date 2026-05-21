@@ -129,41 +129,44 @@ public class SvgParsers {
 
         try {
             Element svgRoot = document.getDocumentElement();
-            NodeList topLevel = svgRoot.getChildNodes();
-
-            for (int i = 0; i < topLevel.getLength(); i++) {
-                Node node = topLevel.item(i);
-                if (!(node instanceof Element)) continue;
-                Element el  = (Element) node;
-                if (!"g".equals(normalizeTag(el.getTagName()))) continue;
-
-                String roomGroupId = el.getAttribute("id");
-                if (roomGroupId == null || roomGroupId.isEmpty()) continue;
-
-                // Extract room code = last segment after the last underscore
-                String roomCode = extractRoomCode(roomGroupId);
-                if (roomCode == null) continue;
-
-                // Find Technician_Layer inside this room group
-                Element techLayer = findDirectChildById(el, "Technician_Layer");
-                if (techLayer == null) continue;
-
-                // Collect icon groups
-                int before = devices.size();
-                List<String> iconIds = new ArrayList<>();
-                collectTechnicianIcons(techLayer, roomCode, roomGroupId,
-                        devices, iconIds);
-
-                areaMap.put(roomGroupId, iconIds);
-                Log.d(TAG, "Room '" + roomGroupId + "' (code=" + roomCode
-                        + ") → " + (devices.size() - before) + " icons");
-            }
+            // ← Walk recursively, not just top-level
+            collectRoomGroups(svgRoot, devices);
         } catch (Exception e) {
             Log.e(TAG, "extractDevices error", e);
         }
         return devices;
     }
 
+    private void collectRoomGroups(Element parent,
+                                   Map<String, DeviceInfo> devices) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (!(node instanceof Element)) continue;
+            Element el = (Element) node;
+            if (!"g".equals(normalizeTag(el.getTagName()))) continue;
+
+            String roomGroupId = el.getAttribute("id");
+            if (roomGroupId == null || roomGroupId.isEmpty()) continue;
+
+            String roomCode = extractRoomCode(roomGroupId);
+            Element techLayer = findDirectChildById(el, "Technician_Layer");
+
+            if (roomCode != null && techLayer != null) {
+                // This is a room group — collect its icons
+                int before = devices.size();
+                List<String> iconIds = new ArrayList<>();
+                collectTechnicianIcons(techLayer, roomCode, roomGroupId,
+                        devices, iconIds);
+                areaMap.put(roomGroupId, iconIds);
+                Log.d(TAG, "Room '" + roomGroupId + "' (code=" + roomCode
+                        + ") → " + (devices.size() - before) + " icons");
+            } else {
+                // Not a room group — descend into it (handles wrappers like <g id="Other">)
+                collectRoomGroups(el, devices);
+            }
+        }
+    }
     /**
      * Walk direct-child &lt;g&gt; elements inside Technician_Layer.
      * Each child whose id matches ROOMCODE_DEVCODE_INSTANCE[_SUBTYPE]
@@ -290,26 +293,30 @@ public class SvgParsers {
     public Map<String, Element> parseUserLayer(Document document) {
         Map<String, Element> result = new LinkedHashMap<>();
         if (document == null) return result;
-
-        Element svgRoot = document.getDocumentElement();
-        NodeList topLevel = svgRoot.getChildNodes();
-
-        for (int i = 0; i < topLevel.getLength(); i++) {
-            Node node = topLevel.item(i);
-            if (!(node instanceof Element)) continue;
-            Element roomEl = (Element) node;
-            if (!"g".equals(normalizeTag(roomEl.getTagName()))) continue;
-
-            Element userLayer = findDirectChildById(roomEl, "User_Layer");
-            if (userLayer == null) continue;
-
-            collectUserLayerElements(userLayer, result);
-        }
-
-        Log.d(TAG, "parseUserLayer: found " + result.size() + " user-layer elements");
+        collectUserLayerRecursive(
+                document.getDocumentElement(), result);
+        Log.d(TAG, "parseUserLayer: found " + result.size()
+                + " user-layer elements");
         return result;
     }
 
+    private void collectUserLayerRecursive(Element parent,
+                                           Map<String, Element> result) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (!(node instanceof Element)) continue;
+            Element el = (Element) node;
+            if (!"g".equals(normalizeTag(el.getTagName()))) continue;
+
+            String id = el.getAttribute("id");
+            if ("User_Layer".equals(id)) {
+                collectUserLayerElements(el, result);
+            } else {
+                collectUserLayerRecursive(el, result);
+            }
+        }
+    }
     /**
      * Walk direct children of User_Layer and map each to its
      * technician icon id by stripping the "-2" suffix from the element id.

@@ -8,7 +8,7 @@ import org.w3c.dom.Element;
  * the Technician_Layer of the SVG.
  *
  * ID format:  <ROOM_CODE>_<DEVICE_CODE>_<INSTANCE>[_<SUBTYPE>]
- * Example:    MBDR_CLE02_1
+ *  * Example:    MBDR_CLE02_1
  *             MBDR_PSS04_7
  *             MBDR_IR01_1_AC
  *
@@ -17,6 +17,7 @@ import org.w3c.dom.Element;
  * instance   → 1   (also = number of User_Layer nodes linked to this icon)
  * subType    → ""  (or "AC" for MBDR_IR01_1_AC)
  */
+
 public class DeviceInfo {
 
     // ── Core identity ─────────────────────────────────────────────────────
