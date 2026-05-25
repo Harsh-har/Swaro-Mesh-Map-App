@@ -1089,33 +1089,45 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         // ── Persist server info ───────────────────────────────────────────────
         if (isServerNode && storeKey != null && !storeKey.isEmpty()) {
             if (serverElementAddress != -1) {
-                final int existing = ClientServerElementStore.getServerUnicastAddress(storeKey);
-                if (existing == -1) {
+                int existingUnicast = ClientServerElementStore.getServerUnicastAddress(storeKey);
+
+                if (existingUnicast == -1) {
+                    // Brand new device — full save
                     ClientServerElementStore.saveCompleteServerInfo(
                             storeKey, node.getUnicastAddress(), 0, serverElementAddress);
-                    Log.d(TAG_BIND, "✅ Server saved: key='" + storeKey + "'");
-                } else {
+                    Log.d(TAG_BIND, "✅ Server NEW save: key='" + storeKey + "'");
+                } else if (existingUnicast != node.getUnicastAddress()) {
+                    // Re-provisioned device — only update unicast + primary addr
+                    // Keep svg_element_id, receive_id, area_id intact
                     ClientServerElementStore.saveServerUnicastAddress(
                             storeKey, node.getUnicastAddress());
                     ClientServerElementStore.saveServerPrimaryElementAddress(
                             storeKey, serverElementAddress);
-                    Log.d(TAG_BIND, "✅ Server updated: key='" + storeKey + "'");
+                    Log.d(TAG_BIND, "✅ Server RE-PROVISION unicast update: key='" + storeKey
+                            + "' old=0x" + String.format("%04X", existingUnicast)
+                            + " new=0x" + String.format("%04X", node.getUnicastAddress()));
+                } else {
+                    // Same unicast — just refresh primary addr
+                    ClientServerElementStore.saveServerPrimaryElementAddress(
+                            storeKey, serverElementAddress);
+                    Log.d(TAG_BIND, "✅ Server SAME unicast: key='" + storeKey + "'");
                 }
+
+                // Always: mark provisioned + update MAC
+                ClientServerElementStore.markProvisioned(storeKey);
+
                 if (storeKey.contains(":")) {
-                    final String area = storeKey.split(":")[0].trim();
+                    String area = storeKey.split(":")[0].trim();
                     ClientServerElementStore.saveServerAreaId(storeKey, area);
-                    Log.d(TAG_BIND, "✅ Server area saved: key='" + storeKey
-                            + "' area='" + area + "'");
                 }
             } else {
                 Log.e(TAG_BIND, "❌ serverElementAddress not found — save skipped");
             }
-            final String mac = node.getMacAddress();
+            String mac = node.getMacAddress();
             if (mac != null && !mac.isEmpty()) {
                 ClientServerElementStore.saveServerMacAddress(storeKey, mac);
             }
         }
-
         // ── Persist client unicast ────────────────────────────────────────────
         if (isClientNode && rawName != null && !rawName.isEmpty()) {
             final int existingClientUnicast =
@@ -1214,6 +1226,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private OnAutoSetupCompleteListener mAutoSetupCompleteListener;
 
     public void setAutoSetupCompleteListener(@Nullable OnAutoSetupCompleteListener listener) {
+
         mAutoSetupCompleteListener = listener;
     }
     // =========================================================================
@@ -1335,7 +1348,24 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         Log.d(TAG_BIND, "╚══════ Total client elements: " + addressMap.size() + " ══════");
 
         if (!addressMap.isEmpty()) {
-            ClientServerElementStore.saveAll(clientKey, addressMap);
+            ClientServerElementStore.saveAllClientElementAddresses(clientKey, addressMap);
+
+            // ── Always update unicast for client node (handles re-provision) ──
+            int existingClientUnicast =
+                    ClientServerElementStore.getServerUnicastAddress(clientKey);
+            if (existingClientUnicast != node.getUnicastAddress()) {
+                ClientServerElementStore.saveServerUnicastAddress(
+                        clientKey, node.getUnicastAddress());
+                Log.d(TAG_BIND, existingClientUnicast == -1
+                        ? "✅ CLIENT unicast saved: key='" + clientKey + "'"
+                        : "✅ CLIENT unicast UPDATED: key='" + clientKey
+                        + "' old=0x" + String.format("%04X", existingClientUnicast)
+                        + " new=0x" + String.format("%04X", node.getUnicastAddress()));
+            }
+
+            // Always mark provisioned
+            ClientServerElementStore.markProvisioned(clientKey);
+
             Log.d(TAG_BIND, "✅ CLIENT addresses saved under key='" + clientKey + "'");
         } else {
             Log.w(TAG_BIND, "⚠️ No OnOff-Client elements found for node: "

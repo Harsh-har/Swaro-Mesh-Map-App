@@ -1,5 +1,4 @@
 package no.nordicsemi.android.swaromapmesh.viewmodels;
-
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
@@ -56,13 +55,13 @@ public class SharedViewModel extends BaseViewModel
 
     // ── Publication retry constants ────────────────────────────────────────
     private static final int  PUB_MAX_RETRIES = 3;
-    private static final long PUB_TIMEOUT_MS  = 8_000L; // 8 seconds per attempt
+    private static final long PUB_TIMEOUT_MS  = 8_000L;
 
     private final SharedPreferences prefs;
     private final Context mContext;
 
     // ── Repositories ───────────────────────────────────────────────────────
-    private final ScannerRepository      mScannerRepository;
+    private final ScannerRepository       mScannerRepository;
     private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 
     // ── LiveData ───────────────────────────────────────────────────────────
@@ -84,7 +83,7 @@ public class SharedViewModel extends BaseViewModel
     private final Map<String, String> nodeToSvgMap = new HashMap<>();
 
     // ── Publication retry tracking ─────────────────────────────────────────
-    // Key = "elemAddr_publishAddr"  e.g. "3_5"
+    // Key = "elemAddr_publishAddr"
     private final Map<String, PublicationAttempt> mPendingPublications = new HashMap<>();
 
     // ── Last provisioned node ──────────────────────────────────────────────
@@ -110,7 +109,6 @@ public class SharedViewModel extends BaseViewModel
 
         prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
 
-        // ── Restore simple prefs ───────────────────────────────────────────
         proxyEnabled.setValue(prefs.getBoolean(KEY_PROXY_ENABLED, true));
         selectedDevice.setValue(prefs.getString(KEY_SELECTED_DEVICE, DEFAULT_SELECTED_DEVICE));
         signalThreshold.setValue(prefs.getInt(KEY_SIGNAL_THRESHOLD, DevicesAdapter.SIGNAL_DEFAULT));
@@ -118,19 +116,10 @@ public class SharedViewModel extends BaseViewModel
         final String savedSvgUri = prefs.getString(KEY_SVG_URI, null);
         if (savedSvgUri != null) svgUri.setValue(Uri.parse(savedSvgUri));
 
-        // ── Load provisioned set from Store ────────────────────────────────
         syncFromStore();
-
-        // ── On node list change → re-sync ─────────────────────────────────
         getNodes().observeForever(nodes -> syncFromStore());
-
-        // ── After network import → re-sync ────────────────────────────────
         mNrfMeshRepository.setOnNetworkImportedCallback(this::onNetworkImported);
-
-        // ── Auto-setup complete → publication ─────────────────────────────
         mNrfMeshRepository.setAutoSetupCompleteListener(this::onAutoSetupComplete);
-
-        // ── Observe publication status for retry logic ─────────────────────
         observePublicationStatus();
     }
 
@@ -141,7 +130,6 @@ public class SharedViewModel extends BaseViewModel
             mNrfMeshRepository.disconnect();
         }
         mScannerRepository.unregisterBroadcastReceivers();
-        // Cancel all pending publication timeouts
         cancelAllPublicationTimeouts();
     }
 
@@ -151,7 +139,10 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "✅ syncFromStore: " + keys.size() + " devices → " + keys);
     }
 
-    // ── Called after mesh network import ──────────────────────────────────
+    // =========================================================================
+    // Network import
+    // =========================================================================
+
     private void onNetworkImported() {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes == null || nodes.isEmpty()) {
@@ -159,34 +150,113 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        // ── UUID → SVG map rebuild ─────────────────────────────────────────
         for (ProvisionedMeshNode node : nodes) {
             String svgId = prefs.getString("node_svg_" + node.getUuid(), null);
-            if (svgId == null) {
-                // Fallback: try to find by unicast address in store
-                svgId = ClientServerElementStore
-                        .getKeyByUnicastAddress(node.getUnicastAddress());
-                if (svgId != null) {
-                    // Re-persist the mapping so next time it's found directly
-                    prefs.edit()
-                            .putString("node_svg_" + node.getUuid(), svgId)
-                            .apply();
-                }
-            }
-            if (svgId != null) {
-                nodeToSvgMap.put(node.getUuid(), svgId);
+            // existing uuid→svg mapping code
+        }
+        buildClientDataFromImportedNodes(nodes);
+
+        MeshNetwork network = getNetworkLiveData().getMeshNetwork();
+        if (network != null) {
+            String[] svgControlNodes = {
+                    "Control Node Guest Room",
+                    "Control Node Master Bedroom",
+                    "Control Node Living Room",
+                    "Control Node Kitchen Area",
+                    "Control Node Entrance 1",
+                    "Control Node Stairs Gallery Area",
+                    "Control Node Garden"
+            };
+            for (String nodeName : svgControlNodes) {
+                ControlNodeRepository.loadAndSave(network, nodeName);
             }
         }
 
-        // ── Sync provisioned set from store (already restored by deserializer) ─
         syncFromStore();
-
-        new Handler(Looper.getMainLooper())
-                .postDelayed(this::forceSvgRefresh, 1000);
-
-        Log.d(TAG, "✅ onNetworkImported: rebuilt "
-                + nodeToSvgMap.size() + " UUID mappings");
+        new Handler(Looper.getMainLooper()).postDelayed(this::forceSvgRefresh, 1000);
     }
+
+    private void buildClientDataFromImportedNodes(@NonNull List<ProvisionedMeshNode> nodes) {
+
+        SharedPreferences.Editor editor =
+                mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit();
+
+        Set<String> existingProvisioned =
+                new HashSet<>(ClientServerElementStore.getProvisionedKeys());
+
+        for (ProvisionedMeshNode node : nodes) {
+            String nodeName    = node.getNodeName();
+            int    unicastAddr = node.getUnicastAddress();
+
+            if (nodeName == null || nodeName.isEmpty()) continue;
+
+            String normalizedKey = ClientServerElementStore.normalize(nodeName);
+
+            boolean isClient = false;
+            boolean isServer = false;
+
+            for (Element element : node.getElements().values()) {
+                for (no.nordicsemi.android.swaromapmesh.transport.MeshModel model
+                        : element.getMeshModels().values()) {
+                    if (model.getModelId() == 0x1001) isClient = true;
+                    if (model.getModelId() == 0x1000) isServer = true;
+                }
+            }
+
+            Log.d(TAG, "buildClientDataFromImportedNodes: node=" + nodeName
+                    + " normalized=" + normalizedKey
+                    + " isClient=" + isClient + " isServer=" + isServer
+                    + " unicast=0x" + String.format("%04X", unicastAddr));
+
+            if (isServer && !isClient) {
+                if (ClientServerElementStore.getServerUnicastAddress(normalizedKey) == -1) {
+                    editor.putInt("server_unicast_" + normalizedKey, unicastAddr);
+                    editor.putInt("server_primary_addr_" + normalizedKey, unicastAddr);
+                    existingProvisioned.add(normalizedKey);
+
+                    for (Element element : node.getElements().values()) {
+                        for (no.nordicsemi.android.swaromapmesh.transport.MeshModel model
+                                : element.getMeshModels().values()) {
+                            if (model.getModelId() == 0x1000
+                                    && model.getPublicationSettings() != null) {
+                                int pubAddr = model.getPublicationSettings().getPublishAddress();
+                                editor.putString("imported_pub_addr_" + normalizedKey,
+                                        String.format("%04X", pubAddr));
+                            }
+                        }
+                    }
+                    Log.d(TAG, "  ✅ Server saved: key=" + normalizedKey
+                            + " unicast=0x" + String.format("%04X", unicastAddr));
+                }
+            }
+
+            if (isClient) {
+                List<Element> sortedElements = new ArrayList<>(node.getElements().values());
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    sortedElements.sort((a, b) ->
+                            Integer.compare(a.getElementAddress(), b.getElementAddress()));
+                }
+                for (int i = 0; i < sortedElements.size(); i++) {
+                    Element el = sortedElements.get(i);
+                    int elemAddr = el.getElementAddress();
+                    editor.putInt("element_addr_" + normalizedKey + "_" + i, elemAddr);
+                    editor.putInt("element_addr_" + normalizedKey + "_" + (i + 1), elemAddr);
+                    Log.d(TAG, "  Client element[" + i + "/" + (i + 1) + "]=0x"
+                            + String.format("%04X", elemAddr));
+                }
+                editor.putInt("server_unicast_" + normalizedKey, unicastAddr);
+                existingProvisioned.add(normalizedKey);
+                Log.d(TAG, "  ✅ Client saved: key=" + normalizedKey
+                        + " elements=" + sortedElements.size());
+            }
+        }
+
+        editor.putStringSet("provisioned_devices", existingProvisioned);
+        editor.apply();
+        Log.d(TAG, "✅ buildClientDataFromImportedNodes complete: "
+                + nodes.size() + " nodes processed");
+    }
+
     // =========================================================================
     // AUTO PUBLICATION SETUP
     // =========================================================================
@@ -195,8 +265,7 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "🔔 onAutoSetupComplete: node=0x"
                 + String.format("%04X", node.getUnicastAddress())
                 + " name=" + node.getNodeName());
-        new Handler(Looper.getMainLooper())
-                .postDelayed(() -> triggerPublicationSetup(node), 500);
+        new Handler(Looper.getMainLooper()).postDelayed(() -> triggerPublicationSetup(node), 500);
     }
 
     private void triggerPublicationSetup(@NonNull ProvisionedMeshNode completedNode) {
@@ -220,32 +289,26 @@ public class SharedViewModel extends BaseViewModel
 
         for (String serverKey : provisionedKeys) {
 
-            // ── 1. Server unicast address ──────────────────────────────────
             int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
             if (serverAddr == -1) continue;
             if (!isNodeInNetwork(serverAddr)) {
                 Log.d(TAG, "  Server 0x" + String.format("%04X", serverAddr) + " not in network — skip");
                 continue;
             }
-
-            // ── 2. Verify server node (must have OnOff Server model) ───────
             if (!isServerNode(serverAddr)) {
                 Log.w(TAG, "  0x" + String.format("%04X", serverAddr) + " has no OnOff Server model — skip");
                 continue;
             }
 
-            // ── 3. Area prefix ─────────────────────────────────────────────
             String areaPrefix = serverKey.contains(":")
                     ? serverKey.split(":")[0].trim().toLowerCase() : "";
 
-            // ── 4. elementId ───────────────────────────────────────────────
             int svgElementId = ClientServerElementStore.getServerSvgElementId(serverKey);
             if (svgElementId == -1) {
                 Log.w(TAG, "  svgElementId=-1 for key=" + serverKey + " — skip");
                 continue;
             }
 
-            // ── 5. Client name via elementId ───────────────────────────────
             String clientNamePart = findClientNameByElementId(areaPrefix, svgElementId);
             if (clientNamePart == null) {
                 Log.d(TAG, "  No client found with elementId=" + svgElementId
@@ -253,7 +316,6 @@ public class SharedViewModel extends BaseViewModel
                 continue;
             }
 
-            // ── 6. C→S address ─────────────────────────────────────────────
             int cToSAddr = ClientServerElementStore.getClientAddress(clientNamePart, svgElementId);
             if (cToSAddr == -1) {
                 Log.d(TAG, "  C→S addr not found: clientName=" + clientNamePart);
@@ -264,7 +326,6 @@ public class SharedViewModel extends BaseViewModel
                 continue;
             }
 
-            // ── 7. S→C address via receiveId ──────────────────────────────
             String receiveIdStr = ClientServerElementStore.getReceiveId(serverKey);
             int sToCAddr = -1;
             if (receiveIdStr != null && !receiveIdStr.trim().isEmpty()) {
@@ -277,20 +338,26 @@ public class SharedViewModel extends BaseViewModel
                     Log.w(TAG, "  Invalid receiveId=" + receiveIdStr);
                 }
             }
-            if (sToCAddr != -1 && !isNodeInNetwork(sToCAddr)) {
-                Log.d(TAG, "  S→C 0x" + String.format("%04X", sToCAddr) + " not in network — clearing");
-                sToCAddr = -1;
+            if (sToCAddr == -1) {
+                String importedPubAddrHex = meshPrefs.getString("imported_pub_addr_" + serverKey, null);
+                if (importedPubAddrHex != null) {
+                    try {
+                        int importedAddr = Integer.parseInt(importedPubAddrHex, 16);
+                        if (isNodeInNetwork(importedAddr)) {
+                            sToCAddr = importedAddr;
+                            Log.d(TAG, "  S→C fallback via imported_pub_addr=0x"
+                                    + String.format("%04X", sToCAddr));
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
             }
 
-            // ── 8. Already done? ───────────────────────────────────────────
             if (AutoPublicationHelper.isPublicationSetupComplete(meshPrefs, cToSAddr, serverAddr)) {
-                Log.d(TAG, "  Already complete: 0x"
-                        + String.format("%04X", cToSAddr)
+                Log.d(TAG, "  Already complete: 0x" + String.format("%04X", cToSAddr)
                         + " ↔ 0x" + String.format("%04X", serverAddr));
                 continue;
             }
 
-            // ── 9. In-flight guard ─────────────────────────────────────────
             String pairKey = cToSAddr + "_" + serverAddr;
             if (meshPrefs.getBoolean("pub_inflight_" + pairKey, false)) {
                 Log.d(TAG, "  Already in-flight: " + pairKey + " — skip");
@@ -298,7 +365,6 @@ public class SharedViewModel extends BaseViewModel
             }
             meshPrefs.edit().putBoolean("pub_inflight_" + pairKey, true).apply();
 
-            // ── 10. Log & schedule ─────────────────────────────────────────
             Log.d(TAG, "  Scheduling pair: " + serverKey);
             Log.d(TAG, "     C→S: 0x" + String.format("%04X", cToSAddr)
                     + " → Server 0x" + String.format("%04X", serverAddr));
@@ -308,11 +374,11 @@ public class SharedViewModel extends BaseViewModel
             else
                 Log.d(TAG, "     S→C: skipped (no receiveId or addr not found)");
 
-            final int fCToSAddr   = cToSAddr;
-            final int fSToCAddr   = sToCAddr;
-            final int fServerAddr = serverAddr;
-            final int fAppKey     = appKeyIndex;
-            final String fPairKey = pairKey;
+            final int    fCToSAddr   = cToSAddr;
+            final int    fSToCAddr   = sToCAddr;
+            final int    fServerAddr = serverAddr;
+            final int    fAppKey     = appKeyIndex;
+            final String fPairKey    = pairKey;
 
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 setupPublicationPairDirectional(fCToSAddr, fSToCAddr, fServerAddr, fAppKey);
@@ -331,47 +397,127 @@ public class SharedViewModel extends BaseViewModel
             Log.d(TAG, "triggerPublicationSetup: nothing to schedule");
     }
 
+    // =========================================================================
+    // updatePublication — called from TestProvisionActivity to manually
+    // reassign the publish address for a single client element.
+    // =========================================================================
+
+    /**
+     * Manually re-configure the publication address for a single client element.
+     *
+     * Clears ALL stale pending entries and inflight flags for the given element
+     * address before scheduling a fresh attempt, so stale timeouts cannot fire
+     * and undo the new address.
+     *
+     * @param node              ProvisionedMeshNode that owns the source element
+     * @param elementAddress    Element address being re-configured (clientUnicast)
+     * @param modelId           Model on that element — 0x1001 (OnOff Client)
+     * @param newPublishAddress New destination unicast or group address
+     * @param appKeyIndex       AppKey index
+     */
+    public void updatePublication(
+            @NonNull ProvisionedMeshNode node,
+            int elementAddress,
+            int modelId,
+            int newPublishAddress,
+            int appKeyIndex) {
+
+        Log.d(TAG, "updatePublication:"
+                + " elem=0x" + String.format("%04X", elementAddress)
+                + " newPub=0x" + String.format("%04X", newPublishAddress)
+                + " model=0x" + String.format("%04X", modelId));
+
+        // ── Remove ALL stale pending entries for this element address ──────
+        List<String> keysToRemove = new ArrayList<>();
+        for (Map.Entry<String, PublicationAttempt> entry : mPendingPublications.entrySet()) {
+            if (entry.getValue().elementAddress == elementAddress) {
+                if (entry.getValue().timeoutRunnable != null) {
+                    new Handler(Looper.getMainLooper())
+                            .removeCallbacks(entry.getValue().timeoutRunnable);
+                }
+                keysToRemove.add(entry.getKey());
+            }
+        }
+        for (String k : keysToRemove) {
+            mPendingPublications.remove(k);
+            Log.d(TAG, "updatePublication: cleared stale pending key=" + k);
+        }
+
+        // ── Clear any inflight pref flag for this element ──────────────────
+        SharedPreferences meshPrefs =
+                mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        SharedPreferences.Editor editor = meshPrefs.edit();
+        for (Map.Entry<String, ?> e : meshPrefs.getAll().entrySet()) {
+            String k = e.getKey();
+            if (k.startsWith("pub_inflight_" + elementAddress + "_")) {
+                editor.remove(k);
+                Log.d(TAG, "updatePublication: removed inflight flag " + k);
+            }
+        }
+        editor.apply();
+
+        // ── Schedule fresh attempt ─────────────────────────────────────────
+        schedulePublicationWithRetry(
+                node,
+                elementAddress,
+                modelId,
+                newPublishAddress,
+                appKeyIndex,
+                "Manual");
+    }
+
+    // =========================================================================
+    // Private helpers
+    // =========================================================================
+
     @Nullable
     private String findClientNameByElementId(String areaPrefix, int svgElementId) {
         SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
         if (storePrefs == null) return null;
 
-        String targetSuffix   = "_" + svgElementId;
         String normalizedArea = areaPrefix.toLowerCase().trim();
         Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
+        int[] indicesToTry = {svgElementId, svgElementId + 1, svgElementId - 1};
 
-        for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
-            String k = e.getKey();
-            if (!k.startsWith("element_addr_")) continue;
-            if (!k.endsWith(targetSuffix)) continue;
+        for (int idx : indicesToTry) {
+            if (idx < 0) continue;
+            String targetSuffix = "_" + idx;
 
-            String rest = k.substring("element_addr_".length());
-            int lastUnderscore = rest.lastIndexOf("_");
-            if (lastUnderscore == -1) continue;
-            String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+            for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
+                String k = e.getKey();
+                if (!k.startsWith("element_addr_")) continue;
+                if (!k.endsWith(targetSuffix)) continue;
 
-            if (!normalizedArea.isEmpty()) {
-                boolean areaMatch = false;
-                for (String provKey : provisioned) {
-                    String provArea = provKey.contains(":")
-                            ? provKey.split(":")[0].trim().toLowerCase() : "";
-                    String provName = provKey.contains(":")
-                            ? provKey.split(":")[1].trim().toLowerCase()
-                            : provKey.toLowerCase();
-                    if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
-                        areaMatch = true;
-                        break;
+                String rest = k.substring("element_addr_".length());
+                int lastUnderscore = rest.lastIndexOf("_");
+                if (lastUnderscore == -1) continue;
+                String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+
+                if (!normalizedArea.isEmpty()) {
+                    boolean areaMatch = false;
+                    for (String provKey : provisioned) {
+                        String provArea = provKey.contains(":")
+                                ? provKey.split(":")[0].trim().toLowerCase() : "";
+                        String provName = provKey.contains(":")
+                                ? provKey.split(":")[1].trim().toLowerCase()
+                                : provKey.toLowerCase();
+                        if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
+                            areaMatch = true;
+                            break;
+                        }
                     }
+                    if (!areaMatch && provisioned.contains(storedName)) areaMatch = true;
+                    if (!areaMatch) continue;
                 }
-                if (!areaMatch) continue;
-            }
 
-            Log.d(TAG, "findClientNameByElementId: area=" + areaPrefix
-                    + " elementId=" + svgElementId + " → " + storedName);
-            return storedName;
+                Log.d(TAG, "findClientNameByElementId: area=" + areaPrefix
+                        + " elementId=" + svgElementId + " (tried idx=" + idx + ") → " + storedName);
+                return storedName;
+            }
         }
-        Log.w(TAG, "findClientNameByElementId: not found area=" + areaPrefix
-                + " elementId=" + svgElementId);
+
+        Log.w(TAG, "findClientNameByElementId: not found area="
+                + areaPrefix + " elementId=" + svgElementId);
         return null;
     }
 
@@ -402,7 +548,6 @@ public class SharedViewModel extends BaseViewModel
         for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
             String k = e.getKey();
             if (!k.startsWith("element_addr_")) continue;
-
             String rest = k.substring("element_addr_".length());
             int lastUnderscore = rest.lastIndexOf("_");
             if (lastUnderscore == -1) continue;
@@ -414,7 +559,6 @@ public class SharedViewModel extends BaseViewModel
                 String provName = provKey.contains(":")
                         ? provKey.split(":")[1].trim().toLowerCase()
                         : provKey.toLowerCase();
-
                 if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
                     Log.d(TAG, "findClientNameForArea: area=" + areaPrefix
                             + " → clientName=" + storedName);
@@ -429,7 +573,6 @@ public class SharedViewModel extends BaseViewModel
 
     // =========================================================================
     // setupPublicationPairDirectional
-    // Uses schedulePublicationWithRetry() instead of direct AutoPublicationHelper calls
     // =========================================================================
 
     private void setupPublicationPairDirectional(
@@ -460,39 +603,26 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        int cToSElemIdx  = AutoPublicationHelper.getElementIndex(clientNode, cToSAddr);
-        int serverElemIdx = AutoPublicationHelper.getElementIndex(serverNode, serverAddr);
-
-        if (cToSElemIdx == -1 || serverElemIdx == -1) {
-            Log.e(TAG, "  Element index not found");
-            return;
-        }
-
-        // ── C→S: client element → server  (with retry) ────────────────────
         schedulePublicationWithRetry(
-                clientNode,
-                cToSAddr,
-                GENERIC_ONOFF_CLIENT,
-                serverAddr,
-                appKeyIndex,
-                "C→S");
+                clientNode, cToSAddr, GENERIC_ONOFF_CLIENT,
+                serverAddr, appKeyIndex, "C→S");
 
-        // ── S→C: server → client element  (with retry, 1.5s delay) ───────
         final ProvisionedMeshNode fServerNode  = serverNode;
         final int                 fAppKeyIndex = appKeyIndex;
         final int                 fSToCAddr    = sToCAddr;
         final int                 fServerAddr  = serverAddr;
 
+       //(correct — only skip if sToCAddr is truly invalid/not in network)
         if (fSToCAddr != -1 && isNodeInNetwork(fSToCAddr)) {
             new Handler(Looper.getMainLooper()).postDelayed(() ->
                             schedulePublicationWithRetry(
-                                    fServerNode,
-                                    fServerAddr,
-                                    GENERIC_ONOFF_SERVER,
-                                    fSToCAddr,
-                                    fAppKeyIndex,
-                                    "S→C"),
+                                    fServerNode, fServerAddr, GENERIC_ONOFF_SERVER,
+                                    fSToCAddr, fAppKeyIndex, "S→C"),
                     1500);
+        } else {
+            Log.d(TAG, "  S→C skipped:"
+                    + " sToCAddr=0x" + String.format("%04X", fSToCAddr)
+                    + (fSToCAddr == -1 ? " (not found)" : " (not in network)"));
         }
     }
 
@@ -501,10 +631,7 @@ public class SharedViewModel extends BaseViewModel
                 + " ↔ 0x" + String.format("%04X", serverAddr));
 
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
-        if (nodes == null) {
-            Log.e(TAG, "setupPublicationPair: node list null");
-            return;
-        }
+        if (nodes == null) { Log.e(TAG, "setupPublicationPair: node list null"); return; }
 
         ProvisionedMeshNode clientNode = null;
         ProvisionedMeshNode serverNode = null;
@@ -532,14 +659,12 @@ public class SharedViewModel extends BaseViewModel
 
         if (clientElemIndex == -1 || serverElemIndex == -1) {
             Log.e(TAG, "setupPublicationPair: element index not found"
-                    + " clientIdx=" + clientElemIndex
-                    + " serverIdx=" + serverElemIndex);
+                    + " clientIdx=" + clientElemIndex + " serverIdx=" + serverElemIndex);
             return;
         }
 
         AutoPublicationHelper.setupBidirectionalPublication(
-                this, clientNode, serverNode,
-                clientElemIndex, serverElemIndex, appKeyIndex);
+                this, clientNode, serverNode, clientElemIndex, serverElemIndex, appKeyIndex);
     }
 
     private boolean isNodeInNetwork(int unicastAddr) {
@@ -558,33 +683,20 @@ public class SharedViewModel extends BaseViewModel
     // PUBLICATION RETRY LOGIC
     // =========================================================================
 
-    /**
-     * Observes CONFIG_MODEL_PUBLICATION_STATUS messages from the mesh network.
-     * On success → clears the pending attempt.
-     * On fail    → triggers retry logic.
-     */
     private void observePublicationStatus() {
         getMeshMessageLiveData().observeForever(meshMessage -> {
             if (meshMessage == null) return;
-
-            // CONFIG_MODEL_PUBLICATION_STATUS opcode = 0x8019
             if (!(meshMessage instanceof ConfigModelPublicationStatus)) return;
 
             ConfigModelPublicationStatus status = (ConfigModelPublicationStatus) meshMessage;
-
             int publishAddr = status.getPublishAddress();
             int elementAddr = status.getElementAddress();
             String key      = elementAddr + "_" + publishAddr;
 
             PublicationAttempt attempt = mPendingPublications.get(key);
-            if (attempt == null) {
-                // Not one of our tracked attempts — ignore
-                return;
-            }
+            if (attempt == null) return;
 
-            boolean success = status.isSuccessful(); // status code 0x00 = success
-
-            if (success) {
+            if (status.isSuccessful()) {
                 Log.d(TAG, "✅ Publication STATUS SUCCESS [" + attempt.label
                         + "] key=" + key + " attempt=" + attempt.attemptCount);
                 onPublicationSuccess(key, attempt);
@@ -597,16 +709,14 @@ public class SharedViewModel extends BaseViewModel
     }
 
     /**
-     * Sends the publication message and starts an 8-second timeout.
-     * If no CONFIG_MODEL_PUBLICATION_STATUS arrives within the timeout,
-     * treats it as a failure and triggers retry.
+     * Schedules one publication attempt and arms an 8-second timeout.
      *
-     * @param node           The ProvisionedMeshNode that owns the source element
-     * @param elementAddress Source element address (the one being configured to publish)
-     * @param modelId        Model ID on that element (OnOff Client or Server)
-     * @param publishAddress Destination address to publish to
-     * @param appKeyIndex    AppKey index to use
-     * @param label          Human-readable label — "C→S" or "S→C" — for logs/toast
+     * Parameter order matches AutoPublicationHelper.setupPublication:
+     *   setupPublication(viewModel, node, elementAddress, modelId, publishAddress, appKeyIndex, label)
+     *
+     * NOTE: The call below passes (modelId, publishAddress) — verify this matches
+     * your AutoPublicationHelper.setupPublication signature. If the method signature
+     * is (publishAddress, modelId) instead, swap the two arguments in the call below.
      */
     private void schedulePublicationWithRetry(
             @NonNull ProvisionedMeshNode node,
@@ -618,7 +728,6 @@ public class SharedViewModel extends BaseViewModel
 
         String key = elementAddress + "_" + publishAddress;
 
-        // Reuse existing attempt object on retry path; create new on first call
         PublicationAttempt attempt = mPendingPublications.get(key);
         if (attempt == null) {
             attempt = new PublicationAttempt(node, elementAddress, publishAddress,
@@ -635,85 +744,68 @@ public class SharedViewModel extends BaseViewModel
                 + " elem=0x" + String.format("%04X", elementAddress)
                 + " → publish=0x" + String.format("%04X", publishAddress));
 
-        // Show retry toast (not on first attempt)
         if (currentAttempt > 1) {
             new Handler(Looper.getMainLooper()).post(() ->
-                    Toast.makeText(
-                            mContext,
-                            "🔄 Retrying publication [" + label + "]  attempt "
-                                    + currentAttempt + " / " + PUB_MAX_RETRIES,
+                    Toast.makeText(mContext,
+                            "🔄 Retrying publication [" + label + "] attempt "
+                                    + currentAttempt + "/" + PUB_MAX_RETRIES,
                             Toast.LENGTH_SHORT).show());
         }
 
-        // ── Send the actual publication PDU ────────────────────────────────
+        // ── Send PDU ───────────────────────────────────────────────────────
+        // IMPORTANT: argument order here is (modelId, publishAddress).
+        // AutoPublicationHelper.setupPublication(viewModel, node, elementAddress,
+        //     modelId, publishAddress, appKeyIndex, label)
+        // If your AutoPublicationHelper has them as (publishAddress, modelId) swap the two.
         AutoPublicationHelper.setupPublication(
                 this, node, elementAddress,
                 modelId, publishAddress,
                 appKeyIndex, label);
 
-        // ── Cancel any existing timeout for this key ───────────────────────
+        // ── Arm timeout ────────────────────────────────────────────────────
         if (fAttempt.timeoutRunnable != null) {
             new Handler(Looper.getMainLooper()).removeCallbacks(fAttempt.timeoutRunnable);
         }
 
-        // ── Schedule timeout ───────────────────────────────────────────────
         fAttempt.timeoutRunnable = () -> {
-            // Guard: if a newer attempt already started, or attempt was resolved, skip
             PublicationAttempt current = mPendingPublications.get(key);
             if (current == null) return;
             if (current.attemptCount != currentAttempt) return;
-
-            Log.w(TAG, "⏱️ Publication TIMEOUT [" + label + "]"
-                    + " attempt=" + currentAttempt
+            Log.w(TAG, "⏱️ Publication TIMEOUT [" + label + "] attempt=" + currentAttempt
                     + " elem=0x" + String.format("%04X", elementAddress));
             onPublicationFailed(key, current, "Timeout (no STATUS received)");
         };
 
-        new Handler(Looper.getMainLooper())
-                .postDelayed(fAttempt.timeoutRunnable, PUB_TIMEOUT_MS);
+        new Handler(Looper.getMainLooper()).postDelayed(fAttempt.timeoutRunnable, PUB_TIMEOUT_MS);
     }
 
-    /**
-     * Called when CONFIG_MODEL_PUBLICATION_STATUS arrives with success (0x00).
-     */
-    private void onPublicationSuccess(@NonNull String key,
-                                      @NonNull PublicationAttempt attempt) {
-        // Cancel the timeout — no longer needed
+    private void onPublicationSuccess(@NonNull String key, @NonNull PublicationAttempt attempt) {
         if (attempt.timeoutRunnable != null) {
             new Handler(Looper.getMainLooper()).removeCallbacks(attempt.timeoutRunnable);
             attempt.timeoutRunnable = null;
         }
-
         mPendingPublications.remove(key);
-
         Log.d(TAG, "✅ Publication fully confirmed [" + attempt.label + "] key=" + key
                 + " after " + attempt.attemptCount + " attempt(s)");
-
-        // Clean up inflight pref flag if it was set
-        SharedPreferences meshPrefs =
-                mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        meshPrefs.edit().remove("pub_inflight_" + key).apply();
+        mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().remove("pub_inflight_" + key).apply();
     }
 
     /**
-     * Called when publication fails (timeout or bad status code).
-     * Retries up to PUB_MAX_RETRIES times with progressive delay, then shows final error toast.
+     * On failure: retries up to PUB_MAX_RETRIES with progressive delay.
+     * Retry passes args in the CORRECT order matching schedulePublicationWithRetry:
+     *   (node, elementAddress, modelId, publishAddress, appKeyIndex, label)
      */
     private void onPublicationFailed(@NonNull String key,
                                      @NonNull PublicationAttempt attempt,
                                      @NonNull String reason) {
-        // Cancel current timeout
         if (attempt.timeoutRunnable != null) {
             new Handler(Looper.getMainLooper()).removeCallbacks(attempt.timeoutRunnable);
             attempt.timeoutRunnable = null;
         }
 
         if (attempt.attemptCount < PUB_MAX_RETRIES) {
-            // ── Schedule retry with progressive delay ──────────────────────
-            // Attempt 1 failed → retry after 2s
-            // Attempt 2 failed → retry after 4s
             long retryDelay = 2_000L * attempt.attemptCount;
-
             Log.d(TAG, "↩️ Will retry publication [" + attempt.label + "] in "
                     + retryDelay + "ms  reason=" + reason);
 
@@ -722,44 +814,33 @@ public class SharedViewModel extends BaseViewModel
                             schedulePublicationWithRetry(
                                     fAttempt.node,
                                     fAttempt.elementAddress,
-                                    fAttempt.publishAddress,
-                                    fAttempt.modelId,
+                                    fAttempt.modelId,        // ← 3rd: modelId
+                                    fAttempt.publishAddress, // ← 4th: publishAddress
                                     fAttempt.appKeyIndex,
                                     fAttempt.label),
                     retryDelay);
-
         } else {
-            // ── All retries exhausted ──────────────────────────────────────
             mPendingPublications.remove(key);
-
             Log.e(TAG, "❌ Publication PERMANENTLY FAILED [" + attempt.label
                     + "] after " + attempt.attemptCount + " attempts. reason=" + reason
                     + " elem=0x" + String.format("%04X", attempt.elementAddress)
                     + " → publish=0x" + String.format("%04X", attempt.publishAddress));
 
             new Handler(Looper.getMainLooper()).post(() ->
-                    Toast.makeText(
-                            mContext,
+                    Toast.makeText(mContext,
                             "❌ Publication setup failed [" + attempt.label + "] after "
                                     + PUB_MAX_RETRIES + " attempts.\nPlease check device connection.",
                             Toast.LENGTH_LONG).show());
 
-            // Cleanup inflight flag
-            SharedPreferences meshPrefs =
-                    mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-            meshPrefs.edit().remove("pub_inflight_" + key).apply();
+            mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().remove("pub_inflight_" + key).apply();
         }
     }
 
-    /**
-     * Cancels all pending publication timeouts (called from onCleared).
-     */
     private void cancelAllPublicationTimeouts() {
         Handler h = new Handler(Looper.getMainLooper());
         for (PublicationAttempt attempt : mPendingPublications.values()) {
-            if (attempt.timeoutRunnable != null) {
-                h.removeCallbacks(attempt.timeoutRunnable);
-            }
+            if (attempt.timeoutRunnable != null) h.removeCallbacks(attempt.timeoutRunnable);
         }
         mPendingPublications.clear();
         Log.d(TAG, "🧹 cancelAllPublicationTimeouts: cleared all pending publications");
@@ -769,9 +850,7 @@ public class SharedViewModel extends BaseViewModel
     // PROVISIONED DEVICE IDs
     // =========================================================================
 
-    public LiveData<Set<String>> getProvisionedDeviceIds() {
-        return provisionedDeviceIds;
-    }
+    public LiveData<Set<String>> getProvisionedDeviceIds() { return provisionedDeviceIds; }
 
     public boolean isDeviceProvisioned(String svgDeviceId) {
         return ClientServerElementStore.isProvisioned(svgDeviceId);
@@ -801,10 +880,7 @@ public class SharedViewModel extends BaseViewModel
     public void removeNodeFromNetwork(ProvisionedMeshNode node) {
         if (node == null) return;
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
-        if (nodes != null) {
-            nodes.remove(node);
-            Log.d(TAG, "🔥 Node removed: " + node.getNodeName());
-        }
+        if (nodes != null) { nodes.remove(node); Log.d(TAG, "🔥 Node removed: " + node.getNodeName()); }
     }
 
     public boolean fullyDeleteNode(@NonNull ProvisionedMeshNode adapterNode) {
@@ -812,19 +888,12 @@ public class SharedViewModel extends BaseViewModel
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
         if (nodes != null) {
             for (ProvisionedMeshNode n : nodes) {
-                if (n.getUuid().equals(adapterNode.getUuid())) {
-                    realNode = n;
-                    break;
-                }
+                if (n.getUuid().equals(adapterNode.getUuid())) { realNode = n; break; }
             }
         }
-        if (realNode == null) {
-            Log.e(TAG, "❌ fullyDeleteNode: node not found in network");
-            return false;
-        }
+        if (realNode == null) { Log.e(TAG, "❌ fullyDeleteNode: node not found in network"); return false; }
 
         String svgId = getSvgIdFromNode(realNode);
-
         if (svgId == null) {
             svgId = ClientServerElementStore.getKeyByUnicastAddress(realNode.getUnicastAddress());
             Log.d(TAG, "fullyDeleteNode: svgId via unicast fallback = " + svgId);
@@ -835,10 +904,7 @@ public class SharedViewModel extends BaseViewModel
                 + " svgId=" + svgId);
 
         boolean deleted = getNetworkLiveData().getMeshNetwork().deleteNode(realNode);
-        if (!deleted) {
-            Log.e(TAG, "❌ fullyDeleteNode: mesh delete failed");
-            return false;
-        }
+        if (!deleted) { Log.e(TAG, "❌ fullyDeleteNode: mesh delete failed"); return false; }
 
         if (svgId != null) {
             ClientServerElementStore.clearDevice(svgId);
@@ -858,7 +924,6 @@ public class SharedViewModel extends BaseViewModel
 
         nodeToSvgMap.remove(realNode.getUuid());
         prefs.edit().remove("node_svg_" + realNode.getUuid()).apply();
-
         forceSvgRefresh();
         Log.d(TAG, "✅ fullyDeleteNode complete: " + realNode.getNodeName());
         return true;
@@ -872,8 +937,7 @@ public class SharedViewModel extends BaseViewModel
                                     @NonNull String svgDeviceId) {
         List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            sorted.sort((a, b) ->
-                    Integer.compare(a.getElementAddress(), b.getElementAddress()));
+            sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
         }
         Map<Integer, Integer> elementAddresses = new HashMap<>();
         for (int i = 0; i < sorted.size() && i < 40; i++) {
@@ -918,10 +982,7 @@ public class SharedViewModel extends BaseViewModel
     public void autoMapNodeToCurrentSvg(ProvisionedMeshNode node) {
         if (node == null) return;
         String svgId = getSelectedSvgDeviceId();
-        if (svgId == null) {
-            Log.w(TAG, "autoMapNodeToCurrentSvg: svgId is null");
-            return;
-        }
+        if (svgId == null) { Log.w(TAG, "autoMapNodeToCurrentSvg: svgId is null"); return; }
         mapNodeToSvg(node.getUuid(), svgId);
     }
 
@@ -967,13 +1028,8 @@ public class SharedViewModel extends BaseViewModel
     // LAST PROVISIONED NODE
     // =========================================================================
 
-    public void setLastProvisionedNode(ProvisionedMeshNode node) {
-        this.lastProvisionedNode = node;
-    }
-
-    public ProvisionedMeshNode getLastProvisionedNode() {
-        return lastProvisionedNode;
-    }
+    public void setLastProvisionedNode(ProvisionedMeshNode node) { this.lastProvisionedNode = node; }
+    public ProvisionedMeshNode getLastProvisionedNode()          { return lastProvisionedNode; }
 
     // =========================================================================
     // SVG URI
@@ -998,10 +1054,7 @@ public class SharedViewModel extends BaseViewModel
     // =========================================================================
 
     public LiveData<Boolean> getProxyEnabled() { return proxyEnabled; }
-    public boolean isProxyEnabled() {
-        Boolean v = proxyEnabled.getValue();
-        return v != null && v;
-    }
+    public boolean isProxyEnabled() { Boolean v = proxyEnabled.getValue(); return v != null && v; }
 
     public void setProxyEnabled(boolean enabled) {
         proxyEnabled.setValue(enabled);
@@ -1041,9 +1094,7 @@ public class SharedViewModel extends BaseViewModel
         prefs.edit().putString(KEY_SELECTED_DEVICE, device).apply();
     }
 
-    public void clearSelectedDevice() {
-        setSelectedDevice(DEFAULT_SELECTED_DEVICE);
-    }
+    public void clearSelectedDevice() { setSelectedDevice(DEFAULT_SELECTED_DEVICE); }
 
     // =========================================================================
     // SIGNAL THRESHOLD
@@ -1063,9 +1114,7 @@ public class SharedViewModel extends BaseViewModel
         prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, sanitized).apply();
     }
 
-    public void clearSignalThreshold() {
-        setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
-    }
+    public void clearSignalThreshold() { setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT); }
 
     // =========================================================================
     // AUTO APP KEY
@@ -1079,9 +1128,7 @@ public class SharedViewModel extends BaseViewModel
             List<ApplicationKey> appKeys = network.getAppKeys();
             if (appKeys == null || appKeys.isEmpty()) return null;
             return appKeys.get(0);
-        } catch (Exception e) {
-            return null;
-        }
+        } catch (Exception e) { return null; }
     }
 
     public boolean isDefaultAppKeyBound(@NonNull final ProvisionedMeshNode node) {
@@ -1105,9 +1152,7 @@ public class SharedViewModel extends BaseViewModel
     // FILTERED DEVICES
     // =========================================================================
 
-    public LiveData<List<ExtendedBluetoothDevice>> getFilteredDevices() {
-        return filteredDevices;
-    }
+    public LiveData<List<ExtendedBluetoothDevice>> getFilteredDevices() { return filteredDevices; }
 
     public List<ExtendedBluetoothDevice> getFilteredDevicesValue() {
         List<ExtendedBluetoothDevice> v = filteredDevices.getValue();
@@ -1118,9 +1163,7 @@ public class SharedViewModel extends BaseViewModel
         filteredDevices.setValue(devices != null ? devices : new ArrayList<>());
     }
 
-    public void clearFilteredDevices() {
-        filteredDevices.setValue(new ArrayList<>());
-    }
+    public void clearFilteredDevices() { filteredDevices.setValue(new ArrayList<>()); }
 
     // =========================================================================
     // ALL UNPROVISIONED DEVICES
@@ -1148,9 +1191,7 @@ public class SharedViewModel extends BaseViewModel
         }
     }
 
-    public void clearAllUnprovisionedDevices() {
-        allUnprovisionedDevices.setValue(new ArrayList<>());
-    }
+    public void clearAllUnprovisionedDevices() { allUnprovisionedDevices.setValue(new ArrayList<>()); }
 
     // =========================================================================
     // FILTER UTILITY
@@ -1192,15 +1233,13 @@ public class SharedViewModel extends BaseViewModel
             boolean deviceOk = !hasDeviceFilter
                     || (device.getName() != null
                     && device.getName().toLowerCase().contains(lowerFilter));
-            boolean signalOk = !hasSignalFilter
-                    || matchesSignalThreshold(device, threshold);
+            boolean signalOk = !hasSignalFilter || matchesSignalThreshold(device, threshold);
             if (deviceOk && signalOk) filtered.add(device);
         }
         return filtered;
     }
 
-    private boolean matchesSignalThreshold(@NonNull ExtendedBluetoothDevice device,
-                                           int threshold) {
+    private boolean matchesSignalThreshold(@NonNull ExtendedBluetoothDevice device, int threshold) {
         int rssiPercent = (int) (100.0f * (127.0f + device.getRssi()) / (127.0f + 20.0f));
         return rssiPercent >= threshold;
     }
@@ -1233,9 +1272,7 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "setSelectedSvgDeviceId: " + svgDeviceId);
     }
 
-    public void clearSelectedSvgDeviceId() {
-        mSelectedSvgDeviceId.setValue(null);
-    }
+    public void clearSelectedSvgDeviceId() { mSelectedSvgDeviceId.setValue(null); }
 
     // =========================================================================
     // SERVER SVG DEVICE ID
@@ -1254,9 +1291,7 @@ public class SharedViewModel extends BaseViewModel
     @Nullable
     public String getServerSvgDeviceId() { return mServerSvgDeviceId.getValue(); }
 
-    public void clearServerSvgDeviceId() {
-        mServerSvgDeviceId.setValue(null);
-    }
+    public void clearServerSvgDeviceId() { mServerSvgDeviceId.setValue(null); }
 
     // =========================================================================
     // UTILITY — Node finders
@@ -1272,22 +1307,15 @@ public class SharedViewModel extends BaseViewModel
             for (ProvisionedMeshNode node : network.getNodes()) {
                 String nodeName = node.getNodeName();
                 if (nodeName == null) continue;
-                if (ClientServerElementStore.normalize(nodeName).equals(targetKey)) {
-                    return node;
-                }
+                if (ClientServerElementStore.normalize(nodeName).equals(targetKey)) return node;
             }
-        } catch (Exception e) {
-            Log.e(TAG, "findNodeBySvgDeviceId error", e);
-        }
+        } catch (Exception e) { Log.e(TAG, "findNodeBySvgDeviceId error", e); }
         return null;
     }
 
     public boolean selectNodeBySvgDeviceId(@Nullable String svgDeviceId) {
         ProvisionedMeshNode node = findNodeBySvgDeviceId(svgDeviceId);
-        if (node != null) {
-            setSelectedMeshNode(node);
-            return true;
-        }
+        if (node != null) { setSelectedMeshNode(node); return true; }
         return false;
     }
 
@@ -1297,9 +1325,7 @@ public class SharedViewModel extends BaseViewModel
             if (network == null) return 0;
             List<ProvisionedMeshNode> nodes = network.getNodes();
             return nodes != null ? nodes.size() : 0;
-        } catch (Exception e) {
-            return 0;
-        }
+        } catch (Exception e) { return 0; }
     }
 
     @Nullable
@@ -1320,16 +1346,15 @@ public class SharedViewModel extends BaseViewModel
 
     // =========================================================================
     // Inner class — PublicationAttempt
-    // Tracks retry state for a single publication pair
     // =========================================================================
 
     private static class PublicationAttempt {
         final ProvisionedMeshNode node;
-        final int                 elementAddress; // source element being configured
-        final int                 publishAddress; // destination to publish to
+        final int                 elementAddress;
+        final int                 publishAddress;
         final int                 modelId;
         final int                 appKeyIndex;
-        final String              label;          // "C→S" or "S→C"
+        final String              label;
         int                       attemptCount = 0;
         Runnable                  timeoutRunnable;
 
@@ -1346,7 +1371,7 @@ public class SharedViewModel extends BaseViewModel
     }
 
     // =========================================================================
-    // Inner class — PublishConfig (kept for compatibility)
+    // Inner class — PublishConfig (compatibility)
     // =========================================================================
 
     public static class PublishConfig {
