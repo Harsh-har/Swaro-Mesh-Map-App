@@ -231,23 +231,31 @@ public class SharedViewModel extends BaseViewModel
             }
 
             if (isClient) {
+                // ── FIX: Elements strictly 0-based, index 0 to 39 only ──────
                 List<Element> sortedElements = new ArrayList<>(node.getElements().values());
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                     sortedElements.sort((a, b) ->
                             Integer.compare(a.getElementAddress(), b.getElementAddress()));
                 }
-                for (int i = 0; i < sortedElements.size(); i++) {
-                    Element el = sortedElements.get(i);
-                    int elemAddr = el.getElementAddress();
+
+                // Cap at 40 elements (index 0..39)
+                int elementCount = Math.min(sortedElements.size(), 40);
+
+                for (int i = 0; i < elementCount; i++) {
+                    Element el       = sortedElements.get(i);
+                    int     elemAddr = el.getElementAddress();
+
+                    // ✅ FIXED: Only save index i (0-based). No i+1 duplicate.
                     editor.putInt("element_addr_" + normalizedKey + "_" + i, elemAddr);
-                    editor.putInt("element_addr_" + normalizedKey + "_" + (i + 1), elemAddr);
-                    Log.d(TAG, "  Client element[" + i + "/" + (i + 1) + "]=0x"
+
+                    Log.d(TAG, "  Client element[" + i + "]=0x"
                             + String.format("%04X", elemAddr));
                 }
+
                 editor.putInt("server_unicast_" + normalizedKey, unicastAddr);
                 existingProvisioned.add(normalizedKey);
                 Log.d(TAG, "  ✅ Client saved: key=" + normalizedKey
-                        + " elements=" + sortedElements.size());
+                        + " elements=" + elementCount);
             }
         }
 
@@ -477,43 +485,40 @@ public class SharedViewModel extends BaseViewModel
 
         String normalizedArea = areaPrefix.toLowerCase().trim();
         Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
-        int[] indicesToTry = {svgElementId, svgElementId + 1, svgElementId - 1};
 
-        for (int idx : indicesToTry) {
-            if (idx < 0) continue;
-            String targetSuffix = "_" + idx;
+        // ✅ FIXED: Only try exact index — 0-based, no ±1 fuzzy matching
+        String targetSuffix = "_" + svgElementId;
 
-            for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
-                String k = e.getKey();
-                if (!k.startsWith("element_addr_")) continue;
-                if (!k.endsWith(targetSuffix)) continue;
+        for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
+            String k = e.getKey();
+            if (!k.startsWith("element_addr_")) continue;
+            if (!k.endsWith(targetSuffix)) continue;
 
-                String rest = k.substring("element_addr_".length());
-                int lastUnderscore = rest.lastIndexOf("_");
-                if (lastUnderscore == -1) continue;
-                String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+            String rest = k.substring("element_addr_".length());
+            int lastUnderscore = rest.lastIndexOf("_");
+            if (lastUnderscore == -1) continue;
+            String storedName = rest.substring(0, lastUnderscore).toLowerCase();
 
-                if (!normalizedArea.isEmpty()) {
-                    boolean areaMatch = false;
-                    for (String provKey : provisioned) {
-                        String provArea = provKey.contains(":")
-                                ? provKey.split(":")[0].trim().toLowerCase() : "";
-                        String provName = provKey.contains(":")
-                                ? provKey.split(":")[1].trim().toLowerCase()
-                                : provKey.toLowerCase();
-                        if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
-                            areaMatch = true;
-                            break;
-                        }
+            if (!normalizedArea.isEmpty()) {
+                boolean areaMatch = false;
+                for (String provKey : provisioned) {
+                    String provArea = provKey.contains(":")
+                            ? provKey.split(":")[0].trim().toLowerCase() : "";
+                    String provName = provKey.contains(":")
+                            ? provKey.split(":")[1].trim().toLowerCase()
+                            : provKey.toLowerCase();
+                    if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
+                        areaMatch = true;
+                        break;
                     }
-                    if (!areaMatch && provisioned.contains(storedName)) areaMatch = true;
-                    if (!areaMatch) continue;
                 }
-
-                Log.d(TAG, "findClientNameByElementId: area=" + areaPrefix
-                        + " elementId=" + svgElementId + " (tried idx=" + idx + ") → " + storedName);
-                return storedName;
+                if (!areaMatch && provisioned.contains(storedName)) areaMatch = true;
+                if (!areaMatch) continue;
             }
+
+            Log.d(TAG, "findClientNameByElementId: area=" + areaPrefix
+                    + " elementId=" + svgElementId + " → " + storedName);
+            return storedName;
         }
 
         Log.w(TAG, "findClientNameByElementId: not found area="
@@ -612,7 +617,6 @@ public class SharedViewModel extends BaseViewModel
         final int                 fSToCAddr    = sToCAddr;
         final int                 fServerAddr  = serverAddr;
 
-       //(correct — only skip if sToCAddr is truly invalid/not in network)
         if (fSToCAddr != -1 && isNodeInNetwork(fSToCAddr)) {
             new Handler(Looper.getMainLooper()).postDelayed(() ->
                             schedulePublicationWithRetry(
@@ -708,16 +712,6 @@ public class SharedViewModel extends BaseViewModel
         });
     }
 
-    /**
-     * Schedules one publication attempt and arms an 8-second timeout.
-     *
-     * Parameter order matches AutoPublicationHelper.setupPublication:
-     *   setupPublication(viewModel, node, elementAddress, modelId, publishAddress, appKeyIndex, label)
-     *
-     * NOTE: The call below passes (modelId, publishAddress) — verify this matches
-     * your AutoPublicationHelper.setupPublication signature. If the method signature
-     * is (publishAddress, modelId) instead, swap the two arguments in the call below.
-     */
     private void schedulePublicationWithRetry(
             @NonNull ProvisionedMeshNode node,
             int elementAddress,
@@ -752,17 +746,11 @@ public class SharedViewModel extends BaseViewModel
                             Toast.LENGTH_SHORT).show());
         }
 
-        // ── Send PDU ───────────────────────────────────────────────────────
-        // IMPORTANT: argument order here is (modelId, publishAddress).
-        // AutoPublicationHelper.setupPublication(viewModel, node, elementAddress,
-        //     modelId, publishAddress, appKeyIndex, label)
-        // If your AutoPublicationHelper has them as (publishAddress, modelId) swap the two.
         AutoPublicationHelper.setupPublication(
                 this, node, elementAddress,
                 modelId, publishAddress,
                 appKeyIndex, label);
 
-        // ── Arm timeout ────────────────────────────────────────────────────
         if (fAttempt.timeoutRunnable != null) {
             new Handler(Looper.getMainLooper()).removeCallbacks(fAttempt.timeoutRunnable);
         }
@@ -791,11 +779,6 @@ public class SharedViewModel extends BaseViewModel
                 .edit().remove("pub_inflight_" + key).apply();
     }
 
-    /**
-     * On failure: retries up to PUB_MAX_RETRIES with progressive delay.
-     * Retry passes args in the CORRECT order matching schedulePublicationWithRetry:
-     *   (node, elementAddress, modelId, publishAddress, appKeyIndex, label)
-     */
     private void onPublicationFailed(@NonNull String key,
                                      @NonNull PublicationAttempt attempt,
                                      @NonNull String reason) {
@@ -814,8 +797,8 @@ public class SharedViewModel extends BaseViewModel
                             schedulePublicationWithRetry(
                                     fAttempt.node,
                                     fAttempt.elementAddress,
-                                    fAttempt.modelId,        // ← 3rd: modelId
-                                    fAttempt.publishAddress, // ← 4th: publishAddress
+                                    fAttempt.modelId,
+                                    fAttempt.publishAddress,
                                     fAttempt.appKeyIndex,
                                     fAttempt.label),
                     retryDelay);
@@ -939,8 +922,10 @@ public class SharedViewModel extends BaseViewModel
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
         }
+        // ✅ FIXED: 0-based index, cap at 40
         Map<Integer, Integer> elementAddresses = new HashMap<>();
-        for (int i = 0; i < sorted.size() && i < 40; i++) {
+        int count = Math.min(sorted.size(), 40);
+        for (int i = 0; i < count; i++) {
             elementAddresses.put(i, sorted.get(i).getElementAddress());
         }
         ClientServerElementStore.saveAllClientElementAddresses(svgDeviceId, elementAddresses);

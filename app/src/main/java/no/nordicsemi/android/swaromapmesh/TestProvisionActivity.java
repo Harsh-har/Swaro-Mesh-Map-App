@@ -321,7 +321,7 @@ public class TestProvisionActivity extends AppCompatActivity {
     private void showClientElements(List<ProvisionedMeshNode> nodes) {
         if (deviceId == null || llClientElements == null) return;
 
-        // Find control node
+        // ── Find control node ─────────────────────────────────────────────
         ProvisionedMeshNode controlNode = null;
         String lowerDeviceId = deviceId.trim().toLowerCase();
         for (ProvisionedMeshNode n : nodes) {
@@ -346,12 +346,12 @@ public class TestProvisionActivity extends AppCompatActivity {
         // Store reference for the edit dialog
         mControlNode = controlNode;
 
-        // Update unicast display for client node too
+        // Update unicast display for client node
         mUnicastAddress = controlNode.getUnicastAddress();
         if (tvUnicastAddress != null)
             tvUnicastAddress.setText(String.format("0x%04X", mUnicastAddress));
 
-        // Build unicast → node name map from live network
+        // ── Build unicast → node name map from live network ───────────────
         Map<Integer, String> uniToName = new HashMap<>();
         for (ProvisionedMeshNode n : nodes) {
             if (n.getNodeName() != null)
@@ -360,26 +360,26 @@ public class TestProvisionActivity extends AppCompatActivity {
                 uniToName.put(el.getElementAddress(), n.getNodeName());
         }
 
-        // Sort elements by address
+        // ── Sort elements by address (ascending) ──────────────────────────
         List<Element> sorted = new ArrayList<>(controlNode.getElements().values());
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N)
             sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
 
         llClientElements.removeAllViews();
 
-        int base     = controlNode.getUnicastAddress();
-        int rowCount = 0;
+        // ✅ FIX: use a separate 0-based display counter instead of
+        //         (elemAddr - base), so the list always starts at 0
+        //         regardless of which elements have AppKey bound.
+        int displayIndex = 0;  // ← this is what shows in the UI: 0, 1, 2 … 39
 
         for (Element el : sorted) {
             MeshModel model = el.getMeshModels().get(0x1001);
             if (model == null) continue;
 
-            // Skip unbound elements (not configured)
-            if (model.getBoundAppKeyIndexes() == null
-                    || model.getBoundAppKeyIndexes().isEmpty()) continue;
+            // ✅ FIX: AppKey bound check HATA DIYA — isse koi element skip
+            //         nahi hoga aur index 0..39 continuous rahega.
 
-            int elemAddr  = el.getElementAddress();
-            int elemIndex = elemAddr - base;
+            int elemAddr = el.getElementAddress();
 
             int    pubAddr    = 0;
             String pubHex     = "—";
@@ -400,19 +400,23 @@ public class TestProvisionActivity extends AppCompatActivity {
                 }
             }
 
-            // Pass elemAddr and current pubAddr to the row so the edit dialog can use them
             llClientElements.addView(buildRow(
-                    elemIndex,
+                    displayIndex,        // ✅ 0-based display index (0 … 39)
                     String.format("0x%04X", elemAddr),
                     pubHex,
                     serverName,
                     elemAddr,
                     pubAddr,
                     uniToName));
-            rowCount++;
+
+            Log.d(TAG, "showClientElements: idx=" + displayIndex
+                    + " elemAddr=0x" + String.format("%04X", elemAddr)
+                    + " pub=" + pubHex + " server=" + serverName);
+
+            displayIndex++;   // increment only for bound elements
         }
 
-        if (rowCount == 0) {
+        if (displayIndex == 0) {
             MaterialTextView tv = new MaterialTextView(this);
             tv.setText("No mapped elements found");
             tv.setTextColor(0xFF888888);
@@ -422,11 +426,11 @@ public class TestProvisionActivity extends AppCompatActivity {
             llClientElements.addView(tv);
         }
 
-        Log.d(TAG, "showClientElements: " + rowCount + " rows for " + deviceId);
+        Log.d(TAG, "showClientElements: " + displayIndex + " rows for " + deviceId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // buildRow  — now accepts elemAddr + currentPubAddr for the edit action
+    // buildRow
     // ─────────────────────────────────────────────────────────────────────────
 
     private View buildRow(int index,
@@ -449,14 +453,11 @@ public class TestProvisionActivity extends AppCompatActivity {
 
         // ── "Publishes To" cell — tappable ────────────────────────────────
         MaterialTextView tvPub =
-                make(pubAddr, 0xFF4FC3F7, 12f, dp(90));   // light-blue = tappable hint
+                make(pubAddr, 0xFF4FC3F7, 12f, dp(90));
         tvPub.setClickable(true);
         tvPub.setFocusable(true);
-
-        // Underline to signal it is editable
         tvPub.setPaintFlags(tvPub.getPaintFlags()
                 | android.graphics.Paint.UNDERLINE_TEXT_FLAG);
-
         tvPub.setOnClickListener(v ->
                 showEditPublishDialog(elemAddrInt, currentPubAddrInt, tvPub, uniToName));
 
@@ -475,15 +476,6 @@ public class TestProvisionActivity extends AppCompatActivity {
     // Edit Publish Address Dialog
     // ─────────────────────────────────────────────────────────────────────────
 
-    /**
-     * Shows a dialog that lets the user type a new hex publish address for
-     * the given element.  On confirm, calls SharedViewModel.updatePublication().
-     *
-     * @param elemAddrInt       Source element address (integer)
-     * @param currentPubAddr    Current publish address (integer), used as hint
-     * @param tvPub             The "Publishes To" TextView in the row — updated on success
-     * @param uniToName         Network unicast→name map for resolving the new address label
-     */
     private void showEditPublishDialog(int elemAddrInt,
                                        int currentPubAddr,
                                        MaterialTextView tvPub,
@@ -493,7 +485,6 @@ public class TestProvisionActivity extends AppCompatActivity {
             return;
         }
 
-        // ── Build dialog layout ───────────────────────────────────────────
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.VERTICAL);
         int pad = dp(20);
@@ -511,14 +502,12 @@ public class TestProvisionActivity extends AppCompatActivity {
                 | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
         etHex.setFilters(new InputFilter[]{ new InputFilter.LengthFilter(4) });
 
-        // Pre-fill with current address (without "0x" prefix)
         if (currentPubAddr > 0)
             etHex.setText(String.format("%04X", currentPubAddr));
 
         til.addView(etHex);
         container.addView(til);
 
-        // Hint line below the input
         MaterialTextView tvHint = new MaterialTextView(this);
         tvHint.setText("Unicast: 0001–7FFF   |   Group: C000–FEFF");
         tvHint.setTextColor(0xFF888888);
@@ -526,7 +515,6 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvHint.setPadding(0, dp(4), 0, 0);
         container.addView(tvHint);
 
-        // ── Build & show dialog ───────────────────────────────────────────
         new AlertDialog.Builder(this)
                 .setTitle(String.format("Edit Publish — Element 0x%04X", elemAddrInt))
                 .setView(container)
@@ -546,7 +534,6 @@ public class TestProvisionActivity extends AppCompatActivity {
                         return;
                     }
 
-                    // ── Validate range ────────────────────────────────────
                     boolean isUnicast = newAddr >= 0x0001 && newAddr <= 0x7FFF;
                     boolean isGroup   = newAddr >= 0xC000 && newAddr <= 0xFEFF;
                     if (!isUnicast && !isGroup) {
@@ -558,7 +545,6 @@ public class TestProvisionActivity extends AppCompatActivity {
                         return;
                     }
 
-                    // ── Guard: need AppKey ────────────────────────────────
                     ApplicationKey appKey = getFirstAppKey();
                     if (appKey == null) {
                         Toast.makeText(this, "No AppKey found in network", Toast.LENGTH_SHORT).show();
@@ -570,7 +556,6 @@ public class TestProvisionActivity extends AppCompatActivity {
                             + " oldPub=0x" + String.format("%04X", currentPubAddr)
                             + " newPub=0x" + String.format("%04X", newAddr));
 
-                    // ── Call ViewModel ────────────────────────────────────
                     mViewModel.updatePublication(
                             mControlNode,
                             elemAddrInt,
@@ -582,17 +567,16 @@ public class TestProvisionActivity extends AppCompatActivity {
                             "Publication update sent → 0x" + String.format("%04X", newAddr),
                             Toast.LENGTH_SHORT).show();
 
-                    // ── Optimistically update the row label ───────────────
+                    // Optimistically update the row label
                     String newHex = "0x" + String.format("%04X", newAddr);
                     tvPub.setText(newHex);
-
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
     // =========================================================================
-    // Private row / text helpers  (unchanged)
+    // Private row / text helpers
     // =========================================================================
 
     private MaterialTextView make(String text, int color, float sizeSp, int minWidthPx) {
