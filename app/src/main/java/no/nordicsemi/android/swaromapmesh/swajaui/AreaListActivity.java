@@ -229,7 +229,12 @@ public class AreaListActivity extends AppCompatActivity {
 
     private String formatName(String id) {
         if (id == null) return "";
-        return id.replace("_", " ").replace("-", " ");
+
+        // Remove known room-code suffixes like _MBDR, _GBDR, _PBDR, _LVR, _KTN, etc.
+        String cleaned = id.replaceAll("_[A-Z0-9]{2,6}$", "");
+
+        // Replace remaining underscores/hyphens with spaces
+        return cleaned.replace("_", " ").replace("-", " ").trim();
     }
 
     private void showEmpty() {

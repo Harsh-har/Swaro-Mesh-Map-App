@@ -1,7 +1,5 @@
 package no.nordicsemi.android.swaromapmesh;
 
-import static no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager.COLOR_TRANSPARENT;
-
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
@@ -26,31 +24,25 @@ import android.view.animation.DecelerateInterpolator;
 import android.widget.ImageView;
 import android.widget.OverScroller;
 import android.widget.Toast;
-
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
-
 import com.caverock.androidsvg.SVG;
-import com.caverock.androidsvg.SVGParseException;
-
 import org.w3c.dom.Document;
-
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentNetworkBinding;
 import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
@@ -74,11 +66,9 @@ public class NetworkFragment extends Fragment {
     private static final float TAP_MOVE_SLOP      = 10f;
     private static final long  TAP_MAX_DURATION   = 250L;
 
-    // ── Area / zoom lock ───────────────────────────────────────────────────
-    private float  areaLockedMinZoom  = -1f;
-    private String areaLockedId       = null;
-    private String currentFocusAreaId = null;
-    private String pendingFocusAreaId = null;
+    // ── Area focus state ───────────────────────────────────────────────────
+    private String focusedAreaId = null;
+    private String pendingAreaId = null;
 
     // ── Device state ───────────────────────────────────────────────────────
     private final Map<String, DeviceInfo> deviceMap = new LinkedHashMap<>();
@@ -148,12 +138,6 @@ public class NetworkFragment extends Fragment {
         super.onResume();
         if (svgDocument == null || deviceMap.isEmpty() || mAutoSetupInProgress) return;
         selectedDeviceId = null;
-        colorManager.forceResnapshotAllDevices(deviceMap);
-        if (currentFocusAreaId != null) {
-            colorManager.applyAreaFocus(currentFocusAreaId, deviceMap);
-        } else {
-            refreshColors();
-        }
         reRenderSvg();
     }
 
@@ -198,7 +182,6 @@ public class NetworkFragment extends Fragment {
                 }
                 if (wasInProgress && svgDocument != null && !deviceMap.isEmpty()) {
                     selectedDeviceId = null;
-                    applyCurrentColorMode();
                     reRenderSvg();
                 }
             }
@@ -206,20 +189,12 @@ public class NetworkFragment extends Fragment {
 
         mViewModel.getFocusAreaId().observe(getViewLifecycleOwner(), areaId -> {
             if (areaId == null || areaId.isEmpty()) return;
-            pendingFocusAreaId = areaId;
+            pendingAreaId = areaId;
             mViewModel.setFocusAreaId(null);
             if (svgDocument != null && !svgParser.areaMap.isEmpty()) {
-                zoomToArea(areaId);
-                pendingFocusAreaId = null;
+                focusOnArea(areaId);
+                pendingAreaId = null;
             }
-        });
-
-        mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), ids -> {
-            if (binding == null || svgDocument == null
-                    || deviceMap.isEmpty() || mAutoSetupInProgress) return;
-            selectedDeviceId = null;
-            applyCurrentColorMode();
-            reRenderSvg();
         });
     }
 
@@ -228,19 +203,8 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
 
     public boolean handleBackPress() {
-        if (areaLockedId != null) {
-            exitAreaZoom();
-            return true;
-        }
-        if (currentFocusAreaId != null) {
-            currentFocusAreaId = null;
-            areaLockedId       = null;
-            areaLockedMinZoom  = -1f;
-            colorManager.restoreAllFurniture();
-            colorManager.restoreAllSelectionLayers();
-            refreshColors();
-            reRenderSvg();
-            binding.svgView.post(() -> fitFloorPlanToView(true));
+        if (focusedAreaId != null) {
+            exitAreaFocus();
             return true;
         }
         if (selectedDeviceId != null) {
@@ -250,110 +214,182 @@ public class NetworkFragment extends Fragment {
         return false;
     }
 
-    public boolean isAreaZoomed() { return areaLockedId != null; }
+    public boolean isAreaFocused() { return focusedAreaId != null; }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  COLOR MODE
+    //  AREA FOCUS LOGIC
     // ══════════════════════════════════════════════════════════════════════
 
-    private void applyCurrentColorMode() {
-        if (currentFocusAreaId != null) {
-            colorManager.applyAreaFocus(currentFocusAreaId, deviceMap);
-        } else {
-            refreshColors();
-        }
-    }
-
-    private void refreshColors() {
-        colorManager.refreshAllColors(
-                deviceMap,
-                getProvisionedSet(),
-                selectedDeviceId,
-                null);
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  AREA ZOOM
-    // ══════════════════════════════════════════════════════════════════════
-
-    private void zoomToArea(String areaId) {
-        RectF areaBounds = resolveAreaBounds(areaId);
+    private void focusOnArea(String areaId) {
+        Log.d(TAG, "focusOnArea: requested ID = '" + areaId + "'");
+        RectF areaBounds = getBoundsForArea(areaId);
         if (areaBounds == null) {
-            Log.w(TAG, "zoomToArea: no bounds for " + areaId);
+            Log.w(TAG, "focusOnArea: no bounds for " + areaId);
             return;
         }
 
-        Log.d(TAG, "zoomToArea '" + areaId + "' → " + areaBounds);
-
-        // Only re-apply colors if area actually changed
-        if (!areaId.equals(currentFocusAreaId)) {
-            currentFocusAreaId = areaId;
-            colorManager.applyAreaFocus(areaId, deviceMap);
-            reRenderSvg();
-        }
+        Log.d(TAG, "focusOnArea '" + areaId + "' → " + areaBounds);
+        focusedAreaId = areaId;
+        colorManager.applyAreaFocus(areaId);
 
         final RectF finalBounds = new RectF(areaBounds);
-        mainHandler.postDelayed(() -> {
-            if (binding == null) return;
-            Runnable doZoom = () -> {
-                float vW = binding.svgView.getWidth();
-                float vH = binding.svgView.getHeight();
-                if (vW <= 0 || vH <= 0) {
-                    mainHandler.postDelayed(() -> zoomToArea(areaId), 150);
-                    return;
-                }
-                float padding     = 28f;
-                RectF padded      = new RectF(finalBounds);
-                padded.inset(-padding, -padding);
-                float scaleX      = vW / padded.width();
-                float scaleY      = vH / padded.height();
-                float targetScale = Math.min(MAX_ZOOM,
-                        Math.max(minZoom, Math.min(scaleX, scaleY)));
-                areaLockedId      = areaId;
-                areaLockedMinZoom = targetScale;
-                float cx     = padded.centerX() - svgParser.vbX;
-                float cy     = padded.centerY() - svgParser.vbY;
-                float transX = vW / 2f - cx * targetScale;
-                float transY = vH / 2f - cy * targetScale;
-                animateToMatrix(targetScale, transX, transY);
-            };
-            if (binding.svgView.getDrawable() != null) {
-                binding.svgView.post(doZoom);
-            } else {
-                mainHandler.postDelayed(() -> binding.svgView.post(doZoom), 200);
+
+        reRenderSvgThenZoom(finalBounds);
+    }
+
+    private void reRenderSvgThenZoom(RectF zoomBounds) {
+        if (svgDocument == null) return;
+        if (pendingRender != null && !pendingRender.isDone())
+            pendingRender.cancel(true);
+
+        pendingRender = renderExecutor.submit(() -> {
+            try {
+                String svgStr = documentToString(svgDocument);
+                if (svgStr.isEmpty()) return;
+                SVG svg = SVG.getFromString(svgStr);
+                int rW = Math.max(1, (int) svgParser.vbW);
+                int rH = Math.max(1, (int) svgParser.vbH);
+                Picture picture = svg.renderToPicture(rW, rH);
+                PictureDrawable drawable = new PictureDrawable(picture);
+
+                mainHandler.post(() -> {
+                    if (binding == null) return;
+                    binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+                    binding.svgView.setImageDrawable(drawable);
+                    binding.svgView.setVisibility(View.VISIBLE);
+                    binding.svgPlaceholder.setVisibility(View.GONE);
+                    if (!mAutoSetupInProgress)
+                        binding.progressBar.setVisibility(View.GONE);
+                    binding.svgView.invalidate();
+
+                    binding.svgView.post(() -> zoomToAreaBounds(zoomBounds));
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "reRenderSvgThenZoom error", e);
             }
-        }, 300);
+        });
     }
+    private RectF getBoundsForArea(String areaId) {
+        if (areaId == null) return null;
 
-    private RectF resolveAreaBounds(String areaId) {
+        // ── MANUAL FALLBACK MAPPING (corrected to match office.svg) ──────────
+        Map<String, String> fallbackMapping = new LinkedHashMap<>();
+        fallbackMapping.put("Master_Bedroom_MBDR", "Bedroom_1");
+        fallbackMapping.put("Guest_Bedroom_GBDR", "Bedroom_2");
+        fallbackMapping.put("Parents_Bedroom_PBDR", "Bedroom_3");
+        fallbackMapping.put("Kids_Room_KDR", "Bedroom_4");
+        fallbackMapping.put("Drawing_Room_DR", "Drawing_Room");
+        fallbackMapping.put("Kitchen_KTC", "Kitchen");
+        fallbackMapping.put("Common_Area_CMA", "Common_Area");
+        fallbackMapping.put("Outdoor_OTD", "Outdoor");
+        fallbackMapping.put("Side_Lobby_SLO", "Side_Lobby");
+
+        // First try direct lookup in selectionLayerBounds (should work after remap)
         RectF bounds = svgParser.selectionLayerBounds.get(areaId);
-        if (bounds != null) return bounds;
-
-        // Fall back to union of device bounds in this area
-        java.util.List<String> iconIds = svgParser.areaMap.get(areaId);
-        if (iconIds == null || iconIds.isEmpty()) return null;
-        RectF union = null;
-        for (String iconId : iconIds) {
-            DeviceInfo info = deviceMap.get(iconId);
-            if (info == null || info.bounds == null) continue;
-            if (union == null) union = new RectF(info.bounds);
-            else union.union(info.bounds);
+        if (bounds != null) {
+            Log.d(TAG, "getBoundsForArea: direct match '" + areaId + "'");
+            return bounds;
         }
-        return union;
-    }
 
-    private void exitAreaZoom() {
-        areaLockedId       = null;
-        areaLockedMinZoom  = -1f;
-        currentFocusAreaId = null;
-        colorManager.restoreAllFurniture();
-        colorManager.restoreAllSelectionLayers();
-        refreshColors();
+        // Try fallback mapping
+        String mappedKey = fallbackMapping.get(areaId);
+        if (mappedKey != null) {
+            bounds = svgParser.selectionLayerBounds.get(mappedKey);
+            if (bounds != null) {
+                Log.d(TAG, "getBoundsForArea: fallback mapping '" + areaId + "' → '" + mappedKey + "'");
+                return bounds;
+            }
+        }
+
+        // Try fuzzy match
+        String normalizedArea = areaId.replaceAll("_[A-Z]{2,4}$", "").toLowerCase();
+        for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+            String key = entry.getKey();
+            String normalizedKey = key.toLowerCase();
+            if (normalizedArea.equals(normalizedKey) ||
+                    normalizedArea.contains(normalizedKey) ||
+                    normalizedKey.contains(normalizedArea)) {
+                Log.d(TAG, "getBoundsForArea: fuzzy match '" + areaId + "' → '" + key + "'");
+                return entry.getValue();
+            }
+        }
+
+        // Try by device bounds union as last resort
+        List<String> iconIds = svgParser.areaMap.get(areaId);
+        if (iconIds != null && !iconIds.isEmpty()) {
+            RectF union = null;
+            for (String iconId : iconIds) {
+                DeviceInfo info = deviceMap.get(iconId);
+                if (info != null && info.bounds != null) {
+                    if (union == null) union = new RectF(info.bounds);
+                    else union.union(info.bounds);
+                }
+            }
+            if (union != null) {
+                Log.d(TAG, "getBoundsForArea: device union for '" + areaId + "'");
+                return union;
+            }
+        }
+
+        Log.w(TAG, "getBoundsForArea: NO BOUNDS for '" + areaId + "'");
+        return null;
+    }
+    private void exitAreaFocus() {
+        focusedAreaId = null;
+        colorManager.applyAreaFocus(null); // Restore all groups
         reRenderSvg();
         binding.svgView.post(() -> fitFloorPlanToView(true));
     }
 
-    // ══════════════════════════════════════════════════════════════════════
+    private void zoomToAreaBounds(RectF bounds) {
+        if (binding == null || bounds == null) return;
+        cancelAnimators();
+
+        float vW = binding.svgView.getWidth();
+        float vH = binding.svgView.getHeight();
+        if (vW <= 0 || vH <= 0) return;
+
+        float padding = 40f;
+        RectF padded = new RectF(bounds);
+        padded.inset(-padding, -padding);
+
+        float scaleX = vW / padded.width();
+        float scaleY = vH / padded.height();
+        float targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, Math.min(scaleX, scaleY)));
+
+        float cx = bounds.centerX();
+        float cy = bounds.centerY();
+
+        float targetTX = (vW / 2f) - (cx - svgParser.vbX) * targetScale;
+        float targetTY = (vH / 2f) - (cy - svgParser.vbY) * targetScale;
+
+        Log.d(TAG, "zoomToAreaBounds: scale=" + targetScale + " TX=" + targetTX + " TY=" + targetTY);
+
+        // ✅ NoClamp version
+        animateToMatrixNoClamp(targetScale, targetTX, targetTY);
+    }    // ══════════════════════════════════════════════════════════════════════
+
+    private void animateToMatrixNoClamp(float targetScale, float targetTX, float targetTY) {
+        matrix.getValues(matrixValues);
+        float startScale = matrixValues[Matrix.MSCALE_X];
+        float startTX    = matrixValues[Matrix.MTRANS_X];
+        float startTY    = matrixValues[Matrix.MTRANS_Y];
+
+        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
+        animator.setDuration(ANIMATION_DURATION);
+        animator.setInterpolator(new DecelerateInterpolator(2f));
+        animator.addUpdateListener(anim -> {
+            if (binding == null) return;
+            float t = (float) anim.getAnimatedValue();
+            matrixValues[Matrix.MSCALE_X] = startScale + (targetScale - startScale) * t;
+            matrixValues[Matrix.MSCALE_Y] = startScale + (targetScale - startScale) * t;
+            matrixValues[Matrix.MTRANS_X] = startTX    + (targetTX    - startTX)    * t;
+            matrixValues[Matrix.MTRANS_Y] = startTY    + (targetTY    - startTY)    * t;
+            matrix.setValues(matrixValues);
+            binding.svgView.setImageMatrix(matrix);
+        });
+        animator.start();
+    }
     //  SVG LOADING
     // ══════════════════════════════════════════════════════════════════════
 
@@ -373,7 +409,18 @@ public class NetworkFragment extends Fragment {
                 svgParser.parseViewBox(doc);
                 Map<String, DeviceInfo> devices = svgParser.extractDevices(doc);
                 svgParser.parseSelectionLayer(doc);
+                svgParser.remapSelectionBoundsToAreaIds();
                 floorPlanBounds = null;
+
+                // Debug: print all available bounds
+                Log.d(TAG, "=== Available selection bounds ===");
+                for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+                    Log.d(TAG, "  Key: '" + entry.getKey() + "' -> " + entry.getValue());
+                }
+                Log.d(TAG, "=== Available areas ===");
+                for (String key : svgParser.areaMap.keySet()) {
+                    Log.d(TAG, "  Area: '" + key + "'");
+                }
 
                 mainHandler.post(() -> onSvgLoaded(doc, devices));
 
@@ -384,29 +431,26 @@ public class NetworkFragment extends Fragment {
         });
     }
 
-    private void onSvgLoaded(Document document,
-                             Map<String, DeviceInfo> devices) {
+    private void onSvgLoaded(Document document, Map<String, DeviceInfo> devices) {
         svgDocument = document;
         deviceMap.clear();
         deviceMap.putAll(devices);
 
         colorManager.init(document, svgParser, deviceMap);
 
-        // Do NOT auto-focus first area here.
-        // If a pending focus arrived before load finished, use it.
-        // Otherwise just hide everything and wait.
-        if (pendingFocusAreaId != null) {
-            final String focusId = pendingFocusAreaId;
-            pendingFocusAreaId = null;
-            currentFocusAreaId = focusId;
-            colorManager.applyAreaFocus(focusId, deviceMap);
-            reRenderSvg();
-            mainHandler.postDelayed(() -> zoomToArea(focusId), 400);
+        // Show all Technician_Layer icons
+        for (DeviceInfo info : deviceMap.values()) {
+            colorManager.restoreIconGroupColor(info.element);
+        }
+
+        // If there's a pending area to focus, do it
+        if (pendingAreaId != null) {
+            final String focusId = pendingAreaId;
+            pendingAreaId = null;
+            focusOnArea(focusId);
         } else {
-            // No area requested yet — hide all, show full map
-            colorManager.hideAllUserLayerElements();
-            colorManager.hideAllSelectionLayers();
-            reRenderSvg();
+            // Just fit the whole floor plan
+            fitFloorPlanToView(false);
         }
 
         showLoading(false);
@@ -508,6 +552,10 @@ public class NetworkFragment extends Fragment {
 
                 mainHandler.post(() -> {
                     if (binding == null) return;
+                    
+                    // Store current matrix to prevent reset during drawable update
+                    Matrix currentMatrix = new Matrix(binding.svgView.getImageMatrix());
+                    
                     binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
                     binding.svgView.setImageDrawable(drawable);
                     binding.svgView.setVisibility(View.VISIBLE);
@@ -609,8 +657,8 @@ public class NetworkFragment extends Fragment {
                     @Override
                     public boolean onDoubleTap(MotionEvent e) {
                         hasMoved = true;
-                        if (areaLockedId != null) {
-                            exitAreaZoom();
+                        if (focusedAreaId != null) {
+                            exitAreaFocus();
                         } else {
                             float target = getScale() > minZoom + 0.5f
                                     ? minZoom : DOUBLE_TAP_ZOOM;
@@ -732,17 +780,43 @@ public class NetworkFragment extends Fragment {
     private void handleSvgTap(float touchX, float touchY) {
         if (svgDocument == null) return;
         float[] c         = touchToSvgCoords(touchX, touchY);
-        String  hitIconId = findDeviceAt(c[0], c[1]);
+        float   svgX      = c[0];
+        float   svgY      = c[1];
+
+        String hitIconId = findDeviceAt(svgX, svgY);
 
         if (hitIconId != null) {
-            if (currentFocusAreaId != null) {
-                DeviceInfo info = deviceMap.get(hitIconId);
-                if (info == null || !currentFocusAreaId.equals(info.areaId)) return;
-            }
             onDeviceTapped(hitIconId);
             return;
         }
-        deselectCurrentDevice();
+
+        String hitAreaId = findAreaAt(svgX, svgY);
+
+        if (hitAreaId != null) {
+            if (hitAreaId.equals(focusedAreaId)) {
+                exitAreaFocus();
+            } else {
+                focusOnArea(hitAreaId);
+            }
+            return;
+        }
+
+        if (selectedDeviceId != null) {
+            deselectCurrentDevice();
+        } else if (focusedAreaId != null) {
+            exitAreaFocus();
+        }
+    }
+
+    private String findAreaAt(float svgX, float svgY) {
+        for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+            RectF bounds = entry.getValue();
+            if (bounds != null && bounds.contains(svgX, svgY)) {
+                Log.d(TAG, "findAreaAt: hit " + entry.getKey());
+                return entry.getKey();
+            }
+        }
+        return null;
     }
 
     private void handleSvgLongPress(float touchX, float touchY) {
@@ -818,7 +892,7 @@ public class NetworkFragment extends Fragment {
             colorManager.applyColorToIconGroup(
                     device.element,
                     isProvisioned(deviceId)
-                            ? COLOR_TRANSPARENT
+                            ? SvgColorManager.COLOR_TRANSPARENT
                             : SvgColorManager.COLOR_SELECTED);
         }
         reRenderSvg();
@@ -888,9 +962,7 @@ public class NetworkFragment extends Fragment {
     private void clampMatrix() {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
-        float effectiveMin = areaLockedMinZoom > 0 ? areaLockedMinZoom : minZoom;
-        float scale = Math.max(effectiveMin,
-                Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
+        float scale = Math.max(minZoom, Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
         matrixValues[Matrix.MSCALE_X] = scale;
         matrixValues[Matrix.MSCALE_Y] = scale;
         matrix.setValues(matrixValues);
@@ -908,10 +980,8 @@ public class NetworkFragment extends Fragment {
         matrix.getValues(matrixValues);
         float vW = binding.svgView.getWidth();
         float vH = binding.svgView.getHeight();
+        RectF boundary = getFloorPlanBounds();
 
-        RectF boundary = areaLockedId != null
-                ? svgParser.selectionLayerBounds.get(areaLockedId)
-                : getFloorPlanBounds();
 
         float minTX, maxTX, minTY, maxTY;
 
@@ -941,10 +1011,8 @@ public class NetworkFragment extends Fragment {
             maxTY = dH < vH ? (vH - dH) / 2f : 0f;
         }
 
-        matrixValues[Matrix.MTRANS_X] = Math.max(minTX,
-                Math.min(maxTX, matrixValues[Matrix.MTRANS_X]));
-        matrixValues[Matrix.MTRANS_Y] = Math.max(minTY,
-                Math.min(maxTY, matrixValues[Matrix.MTRANS_Y]));
+        matrixValues[Matrix.MTRANS_X] = Math.max(minTX, Math.min(maxTX, matrixValues[Matrix.MTRANS_X]));
+        matrixValues[Matrix.MTRANS_Y] = Math.max(minTY, Math.min(maxTY, matrixValues[Matrix.MTRANS_Y]));
         matrix.setValues(matrixValues);
     }
 

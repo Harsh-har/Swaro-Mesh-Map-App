@@ -84,6 +84,7 @@ public final class MeshNetwork extends BaseMeshNetwork {
      */
     public String getSvgUri() {
         return svgUri;
+
     }
 
     /**

@@ -6,9 +6,7 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -118,32 +116,60 @@ public class SvgColorManager {
     // ══════════════════════════════════════════════════════════════════════
 
     /**
-     * Called on initial load and on every area selection.
-     *
-     * What it does:
-     *  1. Hides ALL User_Layer elements
-     *  2. Hides ALL Selection / Selection-N layers
-     *  3. Shows only the Furniture group belonging to focusedRoomGroupId
-     *  4. Shows Technician_Layer icons for focusedRoomGroupId (original color)
-     *  5. Hides Technician_Layer icons for all other rooms (transparent)
+     * Toggles visibility of all map elements based on focus.
+     * If focusedRoomGroupId is null, everything is shown (Background, Walls, etc).
+     * If not null, only that room group is shown, everything else is hidden.
      */
-    public void applyAreaFocus(String focusedRoomGroupId,
-                               Map<String, DeviceInfo> deviceMap) {
-        hideAllUserLayerElements();
-        hideAllSelectionLayers();
-        applyFurnitureVisibility(focusedRoomGroupId);
+    public void applyAreaFocus(String focusedRoomGroupId) {
+        if (svgDocument == null) return;
+        Element root = svgDocument.getDocumentElement();
 
-        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-            String     id   = entry.getKey();
-            DeviceInfo info = entry.getValue();
-            if (focusedRoomGroupId.equals(info.areaId)) {
-                restoreIconGroupColor(info.element);
+        boolean resetMode = (focusedRoomGroupId == null);
+        String target = resetMode ? null : focusedRoomGroupId.trim().toLowerCase();
+
+        // Iterate through EVERY direct child of the SVG root
+        NodeList children = root.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (!(node instanceof Element)) continue;
+            Element el = (Element) node;
+            
+            String id = el.getAttribute("id");
+            if (id == null) id = "";
+            String normalizedId = id.trim().toLowerCase();
+
+            if (resetMode) {
+                // Show everything
+                setElementVisible(el, true);
             } else {
-                applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
+                // Determine if this element should be shown
+                boolean isTarget = normalizedId.equals(target) 
+                        || (normalizedId.contains(target) && !target.isEmpty())
+                        || (target != null && target.contains(normalizedId) && !normalizedId.isEmpty());
+
+                // If it's a known structural group (Background, Walls, Other) and not the target, hide it
+                if (id.equals("Background") || id.equals("Walls") || id.equals("Other")) {
+                    setElementVisible(el, isTarget);
+                } else if (!id.isEmpty()) {
+                    // It's a room or something else with an ID
+                    setElementVisible(el, isTarget);
+                } else {
+                    // It's an anonymous element (path, rect, etc) at the top level
+                    // Hide it to keep the focus clean
+                    setElementVisible(el, false);
+                }
             }
         }
 
-        Log.d(TAG, "applyAreaFocus: " + focusedRoomGroupId);
+        // 3. Selection Layer handling
+        if (resetMode) {
+            restoreAllSelectionLayers();
+        } else {
+            // Hide selection layers inside the focused room too so they don't dim the room
+            hideAllSelectionLayers();
+        }
+
+        Log.d(TAG, "applyAreaFocus: focusedRoomGroupId=" + (resetMode ? "RESET" : focusedRoomGroupId));
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -152,14 +178,12 @@ public class SvgColorManager {
 
     public void hideAllSelectionLayers() {
         if (svgDocument == null) return;
-        toggleSelectionLayersRecursive(
-                svgDocument.getDocumentElement(), false);
+        toggleSelectionLayersRecursive(svgDocument.getDocumentElement(), false);
     }
 
     public void restoreAllSelectionLayers() {
         if (svgDocument == null) return;
-        toggleSelectionLayersRecursive(
-                svgDocument.getDocumentElement(), true);
+        toggleSelectionLayersRecursive(svgDocument.getDocumentElement(), true);
     }
 
     private void toggleSelectionLayersRecursive(Element parent, boolean visible) {
@@ -171,77 +195,13 @@ public class SvgColorManager {
             String id = el.getAttribute("id");
             if (id != null) {
                 String lower = id.toLowerCase();
-                if (lower.equals("selection")
-                        || lower.startsWith("selection-")
-                        || lower.equals("selection_layer")) {
+                // Match common selection layer IDs
+                if (lower.equals("selection") || lower.startsWith("selection-") || lower.equals("selection_layer")) {
                     setElementVisible(el, visible);
-                    continue;
+                    continue; // No need to go deeper into a selection group usually
                 }
             }
             toggleSelectionLayersRecursive(el, visible);
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  FURNITURE  — show / hide per room, full restore
-    // ══════════════════════════════════════════════════════════════════════
-
-    private void applyFurnitureVisibility(String focusedRoomGroupId) {
-        if (svgDocument == null) return;
-        applyFurnitureVisibilityRecursive(
-                svgDocument.getDocumentElement(), focusedRoomGroupId);
-    }
-
-    private void applyFurnitureVisibilityRecursive(Element parent,
-                                                   String focusedRoomGroupId) {
-        NodeList children = parent.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (!(child instanceof Element)) continue;
-            Element el = (Element) child;
-            String id = el.getAttribute("id");
-            if (id == null || id.isEmpty()) {
-                applyFurnitureVisibilityRecursive(el, focusedRoomGroupId);
-                continue;
-            }
-            if (id.equals("Furniture") || id.startsWith("Furniture-")) {
-                Node parentNode = el.getParentNode();
-                String parentId = (parentNode instanceof Element)
-                        ? ((Element) parentNode).getAttribute("id") : "";
-                boolean belongs = focusedRoomGroupId.equals(parentId);
-                setElementVisible(el, belongs);
-            } else {
-                applyFurnitureVisibilityRecursive(el, focusedRoomGroupId);
-            }
-        }
-    }
-
-    public void restoreAllFurniture() {
-        if (svgDocument == null) return;
-        List<Element> groups = findAllFurnitureGroups();
-        for (Element g : groups) setElementVisible(g, true);
-    }
-
-    private List<Element> findAllFurnitureGroups() {
-        List<Element> result = new ArrayList<>();
-        if (svgDocument == null) return result;
-        collectFurnitureGroups(svgDocument.getDocumentElement(), result);
-        return result;
-    }
-
-    private void collectFurnitureGroups(Element parent, List<Element> result) {
-        NodeList children = parent.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (!(child instanceof Element)) continue;
-            Element el = (Element) child;
-            String id = el.getAttribute("id");
-            if (id != null
-                    && (id.equals("Furniture") || id.startsWith("Furniture-"))) {
-                result.add(el);
-            } else {
-                collectFurnitureGroups(el, result);
-            }
         }
     }
 
@@ -320,8 +280,6 @@ public class SvgColorManager {
         Element el = userLayerMap.get(techIconId);
         if (el != null) {
             setUserLayerElementVisible(el, true);
-        } else {
-            Log.w(TAG, "showUserLayerElement: no user-layer element for " + techIconId);
         }
     }
 
@@ -335,7 +293,7 @@ public class SvgColorManager {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  FULL COLOR REFRESH  — provisioned-aware, non-focus mode
+    //  FULL COLOR REFRESH
     // ══════════════════════════════════════════════════════════════════════
 
     public void refreshAllColors(Map<String, DeviceInfo> deviceMap,
@@ -349,13 +307,14 @@ public class SvgColorManager {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
 
+            // If an area filter is active, we don't necessarily hide the icon group here 
+            // (visibility is handled by applyAreaFocus), but we skip processing if not matching.
             if (areaFilterId != null && !areaFilterId.equals(info.areaId)) {
-                applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
                 continue;
             }
 
             boolean provisioned = provisionedIds != null
-                    && provisionedIds.contains(id.trim().toLowerCase());
+                    && provisionedIds.contains(id.trim());
 
             if (provisioned) {
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
@@ -369,83 +328,13 @@ public class SvgColorManager {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  AREA DIM LOGIC  — legacy, kept for exitAreaZoom path
-    // ══════════════════════════════════════════════════════════════════════
-
-    public void dimOtherAreas(String              focusedAreaId,
-                              Map<String,Element> selectionLayerElements,
-                              Map<String,RectF>   selectionLayerBounds,
-                              RectF               focusedAreaBounds) {
-        if (focusedAreaId == null) {
-            restoreAllAreas(selectionLayerElements, selectionLayerBounds);
-            return;
-        }
-
-        dimmedAreaId = focusedAreaId;
-
-        boolean hasSelectionLayer = !selectionLayerElements.isEmpty();
-        if (hasSelectionLayer) {
-            for (Map.Entry<String, Element> entry : selectionLayerElements.entrySet()) {
-                String  areaId = entry.getKey();
-                Element areaEl = entry.getValue();
-                if (!originalAreaStyles.containsKey(areaId)) {
-                    String orig = areaEl.getAttribute("style");
-                    originalAreaStyles.put(areaId,
-                            (orig == null || orig.isEmpty())
-                                    ? STYLE_AREA_DEFAULT : orig);
-                }
-                areaEl.setAttribute("style",
-                        areaId.equals(focusedAreaId)
-                                ? STYLE_AREA_FOCUSED : STYLE_AREA_DIM);
-            }
-        }
-    }
-
-    public void restoreAllAreas(Map<String,Element> selectionLayerElements,
-                                Map<String,RectF>   selectionLayerBounds) {
-        for (Map.Entry<String, Element> entry : selectionLayerElements.entrySet()) {
-            String  areaId = entry.getKey();
-            Element areaEl = entry.getValue();
-            String  orig   = originalAreaStyles.get(areaId);
-            areaEl.setAttribute("style",
-                    orig != null ? orig : STYLE_AREA_DEFAULT);
-        }
-        originalAreaStyles.clear();
-        dimmedAreaId = null;
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  SNAPSHOT RESET
-    // ══════════════════════════════════════════════════════════════════════
-
-    public void forceResnapshotAllDevices(Map<String, DeviceInfo> deviceMap) {
-        for (DeviceInfo info : deviceMap.values()) {
-            NodeList children = info.element.getChildNodes();
-            for (int i = 0; i < children.getLength(); i++) {
-                Node child = children.item(i);
-                if (!(child instanceof Element)) continue;
-                Element childEl = (Element) child;
-                if (!"rect".equals(parser.normalizeTag(childEl.getTagName())))
-                    continue;
-
-                int key = System.identityHashCode(childEl);
-                String original = childEl.getAttribute("data-original-fill");
-                if (original != null && !original.isEmpty()) {
-                    originalIconFillMap.put(key, original);
-                    originalIconFillInStyle.put(key, false);
-                    childEl.setAttribute("fill", original);
-                }
-            }
-        }
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
     //  GENERIC ELEMENT VISIBILITY
     // ══════════════════════════════════════════════════════════════════════
 
     private void setElementVisible(Element el, boolean visible) {
         if (el == null) return;
         if (visible) {
+            el.removeAttribute("display");
             String style = el.getAttribute("style");
             if (style != null && style.contains("display:none")) {
                 String cleaned = style.replace("display:none;", "")
@@ -454,6 +343,7 @@ public class SvgColorManager {
                 else el.setAttribute("style", cleaned);
             }
         } else {
+            el.setAttribute("display", "none");
             String style = el.getAttribute("style");
             if (style == null || !style.contains("display:none")) {
                 String newStyle = (style != null && !style.isEmpty())
@@ -464,10 +354,11 @@ public class SvgColorManager {
     }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  GETTERS
+    //  LEGACY COMPAT (To keep code compilable)
     // ══════════════════════════════════════════════════════════════════════
 
-    public String getDimmedAreaId() { return dimmedAreaId; }
-
-    public Map<String, Element> getUserLayerMap() { return userLayerMap; }
+    public void dimOtherAreas(String id, Map m1, Map m2, RectF r) {}
+    public void restoreAllAreas(Map m1, Map m2) {}
+    public void restoreAllFurniture() {}
+    public void forceResnapshotAllDevices(Map m) {}
 }
