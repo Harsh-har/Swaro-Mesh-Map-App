@@ -731,8 +731,8 @@
       </g>
       <g id="smt:Relay Node2">
         <metadata>
-          <elementId>18</elementId>
-          <reciveId>18</reciveId>
+          <elementId>7</elementId>
+          <reciveId>7</reciveId>
         </metadata>
         <rect x="417.84" y="429.19" width="6.68" height="6.68" rx=".89" ry=".89" fill="#ff0" stroke="#000" stroke-width=".11"/>
         <path d="M419.68,434.41h3.75" fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round" stroke-width=".11"/>

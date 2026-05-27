@@ -7,14 +7,14 @@ import java.util.List;
  * Represents a single Control Node's complete data —
  * parsed dynamically from the provisioned mesh network.
  *
- * You only hardcode the SVG group id (e.g. "Control Node Guest Room").
+ * You only hardcode the SVG group id.
  * This class is populated automatically by ControlNodeRepository
  * by matching that name against the live provisioned node list.
  */
 public class ControlNodeInfo {
 
     // ── Identity ───────────────────────────────────────────────────────────
-    public final String nodeName;       // e.g. "Control Node Guest Room"
+    public final String nodeName;
     public final String uuid;
     public final int    unicastAddress; // base address of the control node
 

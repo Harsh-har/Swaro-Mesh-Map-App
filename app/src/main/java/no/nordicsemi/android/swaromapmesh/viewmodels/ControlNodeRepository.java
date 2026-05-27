@@ -10,31 +10,7 @@ import no.nordicsemi.android.swaromapmesh.transport.Element;
 import no.nordicsemi.android.swaromapmesh.transport.MeshModel;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 
-/**
- * ControlNodeRepository
- *
- * ─── HOW IT WORKS ────────────────────────────────────────────────────────
- *
- * 1. In your SVG you hardcode the group id with the Control Node name:
- *
- *       <g id="Control Node Guest Room">   ← only this is hardcoded
- *
- * 2. At runtime, call:
- *
- *       ControlNodeInfo info = ControlNodeRepository.load(network, "Control Node Guest Room");
- *
- * 3. The repository:
- *      a) Finds the matching ProvisionedMeshNode by name (fuzzy match)
- *      b) Iterates all its elements
- *      c) For each element that has an OnOff Client (0x1001) with a publish address,
- *         looks up the server node name from the network
- *      d) Returns a ControlNodeInfo with all mapped ControlElement entries
- *
- * 4. If tomorrow you put "Control Node Master Bedroom" in SVG,
- *    the same call returns Master Bedroom data — no code changes needed.
- *
- * ─────────────────────────────────────────────────────────────────────────
- */
+
 public final class ControlNodeRepository {
 
     private static final String TAG             = "ControlNodeRepository";
