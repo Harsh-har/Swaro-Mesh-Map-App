@@ -154,39 +154,73 @@ public class SvgColorManager {
             String normalizedId = id.trim().toLowerCase();
 
             if (resetMode) {
-                // Show everything
+                // Show everything clearly
                 setElementVisible(el, true);
+                setElementOpacity(el, null);
+                setTechnicianLayerVisible(el, true); // Restore icons for all areas
             } else {
-                // Determine if this element should be shown
+                // Determine if this element is the focused target
                 boolean isTarget = normalizedId.equals(target)
                         || (normalizedId.contains(target) && !target.isEmpty())
                         || (target != null && target.contains(normalizedId) && !normalizedId.isEmpty());
 
-                // ── FIX: Keep Walls and Background visible during focus ────────
+                // ── Focus Logic: Dim others, keep target and structure clear ────
                 if (id.equals("Walls") || id.equals("Background")) {
+                    // Always show structure clearly
                     setElementVisible(el, true);
-                } else if (id.equals("Other")) {
-                    setElementVisible(el, isTarget);
+                    setElementOpacity(el, null);
                 } else if (!id.isEmpty()) {
-                    // It's a room or something else with an ID
-                    setElementVisible(el, isTarget);
+                    // It's a room group or other identified group (Furniture, etc.)
+                    setElementVisible(el, true);
+                    if (isTarget) {
+                        setElementOpacity(el, null); // Full visibility for target
+                        setTechnicianLayerVisible(el, true); // Ensure icons are shown in target
+                    } else {
+                        setElementOpacity(el, "0.15"); // Dim other areas (furniture)
+                        setTechnicianLayerVisible(el, false); // Hide icons for non-focused areas
+                    }
                 } else {
-                    // It's an anonymous element (path, rect, etc) at the top level
-                    // Hide it to keep the focus clean
+                    // Anonymous elements at top level - usually noise, hide them
                     setElementVisible(el, false);
                 }
             }
         }
 
-        // 3. Selection Layer handling
+        // Hide selection layers during focus so they don't overlay the dimmed areas
         if (resetMode) {
             restoreAllSelectionLayers();
         } else {
-            // Hide selection layers inside the focused room too so they don't dim the room
             hideAllSelectionLayers();
         }
 
         Log.d(TAG, "applyAreaFocus: focusedRoomGroupId=" + (resetMode ? "RESET" : focusedRoomGroupId));
+    }
+
+    private void setElementOpacity(Element el, String opacity) {
+        if (el == null) return;
+        if (opacity == null) {
+            el.removeAttribute("opacity");
+        } else {
+            el.setAttribute("opacity", opacity);
+        }
+    }
+
+    /**
+     * Finds the Technician_Layer group inside a room group and toggles its visibility.
+     */
+    private void setTechnicianLayerVisible(Element roomGroup, boolean visible) {
+        if (roomGroup == null) return;
+        NodeList children = roomGroup.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (!(node instanceof Element)) continue;
+            Element el = (Element) node;
+            String id = el.getAttribute("id");
+            if (id != null && id.startsWith("Technician_Layer")) {
+                setElementVisible(el, visible);
+                return; // Only one technician layer per room usually
+            }
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════

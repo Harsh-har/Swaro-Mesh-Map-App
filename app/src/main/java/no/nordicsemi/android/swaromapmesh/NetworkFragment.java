@@ -315,25 +315,28 @@ public class NetworkFragment extends Fragment {
         if (binding == null || bounds == null) return;
         cancelAnimators();
 
-        float vW = binding.svgView.getWidth();
-        float vH = binding.svgView.getHeight();
+        // Get actual usable width (excluding padding)
+        float vW = binding.svgView.getWidth() - binding.svgView.getPaddingLeft() - binding.svgView.getPaddingRight();
+        float vH = binding.svgView.getHeight() - binding.svgView.getPaddingTop() - binding.svgView.getPaddingBottom();
+        
         if (vW <= 0 || vH <= 0) return;
 
-        float padding = 40f;
-        RectF padded  = new RectF(bounds);
-        padded.inset(-padding, -padding);
+        // FIT TO WIDTH logic:
+        // Use 0 padding for a perfect edge-to-edge fit.
+        float targetScale = vW / bounds.width();
 
-        float scaleX      = vW / padded.width();
-        float scaleY      = vH / padded.height();
-        float targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, Math.min(scaleX, scaleY)));
+        // Limit the scale between minZoom and MAX_ZOOM
+        targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, targetScale));
 
         float cx = bounds.centerX();
         float cy = bounds.centerY();
 
-        float targetTX = (vW / 2f) - (cx - svgParser.vbX) * targetScale;
-        float targetTY = (vH / 2f) - (cy - svgParser.vbY) * targetScale;
+        // Calculate translation to center the area's center point in the view, 
+        // accounting for the view's own padding.
+        float targetTX = (vW / 2f) + binding.svgView.getPaddingLeft() - (cx - svgParser.vbX) * targetScale;
+        float targetTY = (vH / 2f) + binding.svgView.getPaddingTop() - (cy - svgParser.vbY) * targetScale;
 
-        Log.d(TAG, "zoomToAreaBounds: scale=" + targetScale
+        Log.d(TAG, "zoomToAreaBounds (Perfect Fit): scale=" + targetScale
                 + " TX=" + targetTX + " TY=" + targetTY);
 
         animateToMatrixNoClamp(targetScale, targetTX, targetTY);
@@ -413,13 +416,17 @@ public class NetworkFragment extends Fragment {
             colorManager.restoreIconGroupColor(info.element);
         }
 
-        if (pendingAreaId != null) {
-            final String focusId = pendingAreaId;
-            pendingAreaId = null;
-            focusOnArea(focusId);
-        } else {
+        // Always ensure minZoom is calculated before focusing
+        binding.svgView.post(() -> {
+            if (binding == null) return;
             fitFloorPlanToView(false);
-        }
+
+            if (pendingAreaId != null) {
+                final String focusId = pendingAreaId;
+                pendingAreaId = null;
+                focusOnArea(focusId);
+            }
+        });
 
         showLoading(false);
     }
@@ -620,12 +627,23 @@ public class NetworkFragment extends Fragment {
                     @Override
                     public boolean onDoubleTap(MotionEvent e) {
                         hasMoved = true;
-                        if (focusedAreaId != null) {
-                            exitAreaFocus();
+                        // If we are zoomed in (more than minZoom), zoom out to show the FULL map
+                        if (getScale() > minZoom + 0.01f) {
+                            fitFloorPlanToView(true);
                         } else {
-                            float target = getScale() > minZoom + 0.5f
-                                    ? minZoom : DOUBLE_TAP_ZOOM;
-                            animateZoomTo(target, e.getX(), e.getY());
+                            // If we are already zoomed out:
+                            // 1. If an area was previously focused, zoom back into it
+                            // 2. Otherwise, zoom in to the double-tap point
+                            if (focusedAreaId != null) {
+                                RectF bounds = getBoundsForArea(focusedAreaId);
+                                if (bounds != null) {
+                                    zoomToAreaBounds(bounds);
+                                } else {
+                                    animateZoomTo(DOUBLE_TAP_ZOOM, e.getX(), e.getY());
+                                }
+                            } else {
+                                animateZoomTo(DOUBLE_TAP_ZOOM, e.getX(), e.getY());
+                            }
                         }
                         return true;
                     }
@@ -746,9 +764,17 @@ public class NetworkFragment extends Fragment {
         float   svgX = c[0];
         float   svgY = c[1];
 
-        // 1. Device tap — always allowed
+        // 1. Device tap
         String hitIconId = findDeviceAt(svgX, svgY);
         if (hitIconId != null) {
+            // Check if interaction should be restricted to focused area
+            if (focusedAreaId != null) {
+                DeviceInfo info = deviceMap.get(hitIconId);
+                if (info == null || !focusedAreaId.equals(info.areaId)) {
+                    Log.d(TAG, "handleSvgTap: Ignoring device tap outside focused area");
+                    return;
+                }
+            }
             onDeviceTapped(hitIconId);
             return;
         }
@@ -756,10 +782,8 @@ public class NetworkFragment extends Fragment {
         // 2. Area tap
         String hitAreaId = findAreaAt(svgX, svgY);
         if (hitAreaId != null) {
-            // ── FIX: Jab area list se focus aya ho toh map tap se area change band ──
-            // Sirf exit allowed hai (same area tap), naya focus nahi
+            // Jab focused mode ho toh dusra area tap ignore (exit double tap/back press se)
             if (focusedAreaId != null) {
-                // Koi bhi area tap ignore — exit sirf double tap ya back press se
                 return;
             }
             focusOnArea(hitAreaId);
@@ -769,8 +793,6 @@ public class NetworkFragment extends Fragment {
         // 3. Empty space tap
         if (selectedDeviceId != null) {
             deselectCurrentDevice();
-        } else if (focusedAreaId != null) {
-            exitAreaFocus();
         }
     }
 
@@ -793,6 +815,12 @@ public class NetworkFragment extends Fragment {
 
         DeviceInfo device = deviceMap.get(hitIconId);
         if (device == null) return;
+
+        // Restriction: Only allow operations inside the focused area
+        if (focusedAreaId != null && !focusedAreaId.equals(device.areaId)) {
+            Log.d(TAG, "handleSvgLongPress: Ignoring long press outside focused area");
+            return;
+        }
 
         binding.svgView.performHapticFeedback(
                 android.view.HapticFeedbackConstants.LONG_PRESS);
