@@ -24,6 +24,7 @@ import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.Decryptor.EncryptedMeshImportHelper;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentSettingsBinding;
 import no.nordicsemi.android.swaromapmesh.databinding.LayoutContainerBinding;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentError;
@@ -57,11 +58,31 @@ public class SettingsFragment extends Fragment implements
     private final androidx.activity.result.ActivityResultLauncher<String> fileSelector =
             registerForActivityResult(new GetContent(), result -> {
                 if (result != null) {
-                    mViewModel.disconnect();
-                    mViewModel.getMeshManagerApi().importMeshNetwork(result);
+                    new Thread(() -> {
+                        try {
+                            String meshJson = EncryptedMeshImportHelper
+                                    .readAndDecrypt(requireContext(), result);
+
+                            Log.d(TAG, "Decryption success, JSON length: " + meshJson.length());
+
+                            requireActivity().runOnUiThread(() -> {
+                                mViewModel.disconnect();
+                                mViewModel.getMeshManagerApi().importMeshNetworkJson(meshJson);
+                            });
+
+                        } catch (Exception e) {
+                            Log.e(TAG, "Import failed: " + e.getMessage(), e);
+                            requireActivity().runOnUiThread(() ->
+                                    DialogFragmentError
+                                            .newInstance(
+                                                    getString(R.string.title_network_import),
+                                                    "Decryption failed: " + e.getMessage())
+                                            .show(getChildFragmentManager(), null)
+                            );
+                        }
+                    }).start();
                 }
             });
-
     @Override
     public void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
