@@ -233,7 +233,6 @@ public class NetworkFragment extends Fragment {
         colorManager.applyAreaFocus(areaId);
 
         final RectF finalBounds = new RectF(areaBounds);
-
         reRenderSvgThenZoom(finalBounds);
     }
 
@@ -269,52 +268,26 @@ public class NetworkFragment extends Fragment {
             }
         });
     }
+
     private RectF getBoundsForArea(String areaId) {
         if (areaId == null) return null;
 
-        // ── MANUAL FALLBACK MAPPING (corrected to match office.svg) ──────────
-        Map<String, String> fallbackMapping = new LinkedHashMap<>();
-        fallbackMapping.put("Master_Bedroom_MBDR", "Bedroom_1");
-        fallbackMapping.put("Guest_Bedroom_GBDR", "Bedroom_2");
-        fallbackMapping.put("Parents_Bedroom_PBDR", "Bedroom_3");
-        fallbackMapping.put("Kids_Room_KDR", "Bedroom_4");
-        fallbackMapping.put("Drawing_Room_DR", "Drawing_Room");
-        fallbackMapping.put("Kitchen_KTC", "Kitchen");
-        fallbackMapping.put("Common_Area_CMA", "Common_Area");
-        fallbackMapping.put("Outdoor_OTD", "Outdoor");
-        fallbackMapping.put("Side_Lobby_SLO", "Side_Lobby");
-
-        // First try direct lookup in selectionLayerBounds (should work after remap)
+        // 1. Direct lookup (already auto-remapped by parser)
         RectF bounds = svgParser.selectionLayerBounds.get(areaId);
-        if (bounds != null) {
-            Log.d(TAG, "getBoundsForArea: direct match '" + areaId + "'");
-            return bounds;
-        }
+        if (bounds != null) return bounds;
 
-        // Try fallback mapping
-        String mappedKey = fallbackMapping.get(areaId);
-        if (mappedKey != null) {
-            bounds = svgParser.selectionLayerBounds.get(mappedKey);
-            if (bounds != null) {
-                Log.d(TAG, "getBoundsForArea: fallback mapping '" + areaId + "' → '" + mappedKey + "'");
-                return bounds;
-            }
-        }
-
-        // Try fuzzy match
-        String normalizedArea = areaId.replaceAll("_[A-Z]{2,4}$", "").toLowerCase();
+        // 2. Fuzzy match (handles edge cases)
+        String normalizedArea = areaId.replaceAll("_[A-Z]{2,6}$", "").toLowerCase();
         for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
-            String key = entry.getKey();
-            String normalizedKey = key.toLowerCase();
-            if (normalizedArea.equals(normalizedKey) ||
-                    normalizedArea.contains(normalizedKey) ||
-                    normalizedKey.contains(normalizedArea)) {
-                Log.d(TAG, "getBoundsForArea: fuzzy match '" + areaId + "' → '" + key + "'");
+            String normalizedKey = entry.getKey().toLowerCase();
+            if (normalizedArea.equals(normalizedKey)
+                    || normalizedArea.contains(normalizedKey)
+                    || normalizedKey.contains(normalizedArea)) {
                 return entry.getValue();
             }
         }
 
-        // Try by device bounds union as last resort
+        // 3. Device bounds union as last resort
         List<String> iconIds = svgParser.areaMap.get(areaId);
         if (iconIds != null && !iconIds.isEmpty()) {
             RectF union = null;
@@ -325,10 +298,7 @@ public class NetworkFragment extends Fragment {
                     else union.union(info.bounds);
                 }
             }
-            if (union != null) {
-                Log.d(TAG, "getBoundsForArea: device union for '" + areaId + "'");
-                return union;
-            }
+            return union;
         }
 
         Log.w(TAG, "getBoundsForArea: NO BOUNDS for '" + areaId + "'");
@@ -336,7 +306,7 @@ public class NetworkFragment extends Fragment {
     }
     private void exitAreaFocus() {
         focusedAreaId = null;
-        colorManager.applyAreaFocus(null); // Restore all groups
+        colorManager.applyAreaFocus(null);
         reRenderSvg();
         binding.svgView.post(() -> fitFloorPlanToView(true));
     }
@@ -350,11 +320,11 @@ public class NetworkFragment extends Fragment {
         if (vW <= 0 || vH <= 0) return;
 
         float padding = 40f;
-        RectF padded = new RectF(bounds);
+        RectF padded  = new RectF(bounds);
         padded.inset(-padding, -padding);
 
-        float scaleX = vW / padded.width();
-        float scaleY = vH / padded.height();
+        float scaleX      = vW / padded.width();
+        float scaleY      = vH / padded.height();
         float targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, Math.min(scaleX, scaleY)));
 
         float cx = bounds.centerX();
@@ -363,11 +333,11 @@ public class NetworkFragment extends Fragment {
         float targetTX = (vW / 2f) - (cx - svgParser.vbX) * targetScale;
         float targetTY = (vH / 2f) - (cy - svgParser.vbY) * targetScale;
 
-        Log.d(TAG, "zoomToAreaBounds: scale=" + targetScale + " TX=" + targetTX + " TY=" + targetTY);
+        Log.d(TAG, "zoomToAreaBounds: scale=" + targetScale
+                + " TX=" + targetTX + " TY=" + targetTY);
 
-        // ✅ NoClamp version
         animateToMatrixNoClamp(targetScale, targetTX, targetTY);
-    }    // ══════════════════════════════════════════════════════════════════════
+    }
 
     private void animateToMatrixNoClamp(float targetScale, float targetTX, float targetTY) {
         matrix.getValues(matrixValues);
@@ -390,6 +360,8 @@ public class NetworkFragment extends Fragment {
         });
         animator.start();
     }
+
+    // ══════════════════════════════════════════════════════════════════════
     //  SVG LOADING
     // ══════════════════════════════════════════════════════════════════════
 
@@ -397,7 +369,7 @@ public class NetworkFragment extends Fragment {
         showLoading(true);
         loadExecutor.execute(() -> {
             try {
-                InputStream is = requireContext().getAssets().open(assetFileName);
+                InputStream is  = requireContext().getAssets().open(assetFileName);
                 Document    doc = svgParser.parseDocument(is);
                 is.close();
 
@@ -412,7 +384,6 @@ public class NetworkFragment extends Fragment {
                 svgParser.remapSelectionBoundsToAreaIds();
                 floorPlanBounds = null;
 
-                // Debug: print all available bounds
                 Log.d(TAG, "=== Available selection bounds ===");
                 for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
                     Log.d(TAG, "  Key: '" + entry.getKey() + "' -> " + entry.getValue());
@@ -438,18 +409,15 @@ public class NetworkFragment extends Fragment {
 
         colorManager.init(document, svgParser, deviceMap);
 
-        // Show all Technician_Layer icons
         for (DeviceInfo info : deviceMap.values()) {
             colorManager.restoreIconGroupColor(info.element);
         }
 
-        // If there's a pending area to focus, do it
         if (pendingAreaId != null) {
             final String focusId = pendingAreaId;
             pendingAreaId = null;
             focusOnArea(focusId);
         } else {
-            // Just fit the whole floor plan
             fitFloorPlanToView(false);
         }
 
@@ -552,10 +520,6 @@ public class NetworkFragment extends Fragment {
 
                 mainHandler.post(() -> {
                     if (binding == null) return;
-                    
-                    // Store current matrix to prevent reset during drawable update
-                    Matrix currentMatrix = new Matrix(binding.svgView.getImageMatrix());
-                    
                     binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
                     binding.svgView.setImageDrawable(drawable);
                     binding.svgView.setVisibility(View.VISIBLE);
@@ -563,8 +527,7 @@ public class NetworkFragment extends Fragment {
                     if (!mAutoSetupInProgress)
                         binding.progressBar.setVisibility(View.GONE);
 
-                    boolean matrixIsIdentity = isMatrixIdentity(frozenMatrix);
-                    if (matrixIsIdentity) {
+                    if (isMatrixIdentity(frozenMatrix)) {
                         binding.svgView.post(() -> fitFloorPlanToView(false));
                     } else {
                         binding.svgView.setImageMatrix(frozenMatrix);
@@ -779,28 +742,31 @@ public class NetworkFragment extends Fragment {
 
     private void handleSvgTap(float touchX, float touchY) {
         if (svgDocument == null) return;
-        float[] c         = touchToSvgCoords(touchX, touchY);
-        float   svgX      = c[0];
-        float   svgY      = c[1];
+        float[] c    = touchToSvgCoords(touchX, touchY);
+        float   svgX = c[0];
+        float   svgY = c[1];
 
+        // 1. Device tap — always allowed
         String hitIconId = findDeviceAt(svgX, svgY);
-
         if (hitIconId != null) {
             onDeviceTapped(hitIconId);
             return;
         }
 
+        // 2. Area tap
         String hitAreaId = findAreaAt(svgX, svgY);
-
         if (hitAreaId != null) {
-            if (hitAreaId.equals(focusedAreaId)) {
-                exitAreaFocus();
-            } else {
-                focusOnArea(hitAreaId);
+            // ── FIX: Jab area list se focus aya ho toh map tap se area change band ──
+            // Sirf exit allowed hai (same area tap), naya focus nahi
+            if (focusedAreaId != null) {
+                // Koi bhi area tap ignore — exit sirf double tap ya back press se
+                return;
             }
+            focusOnArea(hitAreaId);
             return;
         }
 
+        // 3. Empty space tap
         if (selectedDeviceId != null) {
             deselectCurrentDevice();
         } else if (focusedAreaId != null) {
@@ -981,7 +947,6 @@ public class NetworkFragment extends Fragment {
         float vW = binding.svgView.getWidth();
         float vH = binding.svgView.getHeight();
         RectF boundary = getFloorPlanBounds();
-
 
         float minTX, maxTX, minTY, maxTY;
 

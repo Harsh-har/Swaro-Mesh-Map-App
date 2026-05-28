@@ -56,10 +56,25 @@ public class SvgColorManager {
             snapshotIconRectFill(info.element);
 
         userLayerMap = svgParser.parseUserLayer(document);
+        hideUserLayerGroupsRecursive(document.getDocumentElement());
         hideAllUserLayerElements();
 
         Log.d(TAG, "init: " + deviceMap.size() + " tech icons, "
                 + userLayerMap.size() + " user-layer elements");
+    }
+
+    private void hideUserLayerGroupsRecursive(Element parent) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (!(node instanceof Element)) continue;
+            Element el = (Element) node;
+            String id = el.getAttribute("id");
+            if (id != null && id.startsWith("User_Layer")) {
+                setElementVisible(el, false);
+            }
+            hideUserLayerGroupsRecursive(el);
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -143,12 +158,14 @@ public class SvgColorManager {
                 setElementVisible(el, true);
             } else {
                 // Determine if this element should be shown
-                boolean isTarget = normalizedId.equals(target) 
+                boolean isTarget = normalizedId.equals(target)
                         || (normalizedId.contains(target) && !target.isEmpty())
                         || (target != null && target.contains(normalizedId) && !normalizedId.isEmpty());
 
-                // If it's a known structural group (Background, Walls, Other) and not the target, hide it
-                if (id.equals("Background") || id.equals("Walls") || id.equals("Other")) {
+                // ── FIX: Keep Walls and Background visible during focus ────────
+                if (id.equals("Walls") || id.equals("Background")) {
+                    setElementVisible(el, true);
+                } else if (id.equals("Other")) {
                     setElementVisible(el, isTarget);
                 } else if (!id.isEmpty()) {
                     // It's a room or something else with an ID
@@ -280,6 +297,16 @@ public class SvgColorManager {
         Element el = userLayerMap.get(techIconId);
         if (el != null) {
             setUserLayerElementVisible(el, true);
+            
+            // Also ensure the parent User_Layer group is visible
+            Node parent = el.getParentNode();
+            if (parent instanceof Element) {
+                Element parentEl = (Element) parent;
+                String parentId = parentEl.getAttribute("id");
+                if (parentId != null && parentId.startsWith("User_Layer")) {
+                    setElementVisible(parentEl, true);
+                }
+            }
         }
     }
 
