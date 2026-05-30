@@ -8,15 +8,11 @@ import android.content.IntentFilter;
 import android.location.LocationManager;
 import android.os.ParcelUuid;
 import android.util.Log;
-
 import androidx.annotation.NonNull;
-
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
 import javax.inject.Inject;
-
 import dagger.hilt.android.qualifiers.ApplicationContext;
 import no.nordicsemi.android.swaromapmesh.MeshManagerApi;
 import no.nordicsemi.android.swaromapmesh.MeshNetwork;
@@ -30,10 +26,6 @@ import no.nordicsemi.android.support.v18.scanner.ScanRecord;
 import no.nordicsemi.android.support.v18.scanner.ScanResult;
 import no.nordicsemi.android.support.v18.scanner.ScanSettings;
 
-/**
- * Repository for scanning Bluetooth Mesh devices.
- * Fixed: stopScan() no longer clears results; connected flag prevents scan restart after proxy connect.
- */
 public class ScannerRepository {
 
     private static final String TAG = ScannerRepository.class.getSimpleName();
@@ -44,15 +36,19 @@ public class ScannerRepository {
     private final ScannerLiveData mScannerLiveData;
     private final ScannerStateLiveData mScannerStateLiveData;
 
+    // Primary filter UUID (used in single-UUID scan mode)
     private UUID mFilterUuid;
+
+    // Secondary filter UUID (used in dual-UUID scan mode, null otherwise)
+    private UUID mSecondaryFilterUuid = null;
 
     // Proxy scan callback for auto-connect
     private ProxyScanCallback mProxyScanCallback;
 
-    // ✅ FIX: Flag to prevent scan restart after proxy connection is established
+    // Flag to prevent scan restart after proxy connection is established
     private boolean mIsConnected = false;
 
-    //RSSI Filter
+    // RSSI Filter
     private int mRssiThreshold = Integer.MIN_VALUE;
 
     // ------------------------------------------------------------------------
@@ -63,23 +59,36 @@ public class ScannerRepository {
         @Override
         public void onScanResult(final int callbackType, @NonNull final ScanResult result) {
             try {
-                // ✅ FIX: If already connected, ignore all scan results to prevent interference
+                // If already connected, ignore all scan results to prevent interference
                 if (mIsConnected) return;
-
                 if (mFilterUuid == null) return;
 
-                // ---------------- PROVISIONING SCAN ----------------
-                if (mFilterUuid.equals(BleMeshManager.MESH_PROVISIONING_UUID)) {
+                final ScanRecord record = result.getScanRecord();
+                if (record == null) return;
+
+                // ── Detect which UUID this result carries ─────────────────
+                final List<ParcelUuid> serviceUuids = record.getServiceUuids();
+
+                boolean hasProvisioning = serviceUuids != null
+                        && serviceUuids.contains(
+                        new ParcelUuid(BleMeshManager.MESH_PROVISIONING_UUID));
+
+                boolean hasProxy = serviceUuids != null
+                        && serviceUuids.contains(
+                        new ParcelUuid(BleMeshManager.MESH_PROXY_UUID));
+
+                // ── Handle provisioning UUID result ───────────────────────
+                if (hasProvisioning) {
                     if (Utils.isLocationRequired(mContext)
                             && !Utils.isLocationEnabled(mContext)) {
                         Utils.markLocationNotRequired(mContext);
                     }
                     updateScannerLiveData(result);
+                    return;
                 }
 
-                // ---------------- PROXY SCAN ----------------
-                else if (mFilterUuid.equals(BleMeshManager.MESH_PROXY_UUID)) {
-
+                // ── Handle proxy UUID result ──────────────────────────────
+                if (hasProxy) {
                     final byte[] serviceData =
                             Utils.getServiceData(result, BleMeshManager.MESH_PROXY_UUID);
 
@@ -96,7 +105,7 @@ public class ScannerRepository {
                     if (matched) {
                         updateScannerLiveData(result);
 
-                        // Auto proxy callback
+                        // Notify proxy auto-connect callback
                         if (mProxyScanCallback != null) {
                             mProxyScanCallback.onProxyFound(result);
                         }
@@ -192,16 +201,17 @@ public class ScannerRepository {
     }
 
     // ------------------------------------------------------------------------
-    // Scan control
+    // Scan control — single UUID
     // ------------------------------------------------------------------------
+
     public void startScan(@NonNull final UUID filterUuid) {
-        // ✅ FIX: Do not start scan if already connected to proxy
         if (mIsConnected) {
             Log.d(TAG, "startScan() ignored — already connected to proxy");
             return;
         }
 
-        mFilterUuid = filterUuid;
+        mFilterUuid          = filterUuid;
+        mSecondaryFilterUuid = null;
 
         if (mScannerStateLiveData.isScanning()) return;
 
@@ -224,6 +234,49 @@ public class ScannerRepository {
         Log.d(TAG, "Scan started with UUID: " + filterUuid);
     }
 
+    // ------------------------------------------------------------------------
+    // Scan control — dual UUID  ← NEW
+    // ------------------------------------------------------------------------
+
+
+    public void startScanDual(
+            @NonNull final UUID primaryUuid,
+            @NonNull final UUID secondaryUuid) {
+
+        if (mIsConnected) {
+            Log.d(TAG, "startScanDual() ignored — already connected to proxy");
+            return;
+        }
+
+        mFilterUuid          = primaryUuid;
+        mSecondaryFilterUuid = secondaryUuid;
+
+        if (mScannerStateLiveData.isScanning()) return;
+
+        mScannerStateLiveData.scanningStarted();
+
+        final ScanSettings settings = new ScanSettings.Builder()
+                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setReportDelay(0)
+                .setUseHardwareFilteringIfSupported(false)
+                .build();
+
+        // Add both UUIDs as separate scan filters
+        final List<ScanFilter> filters = new ArrayList<>();
+        filters.add(new ScanFilter.Builder()
+                .setServiceUuid(new ParcelUuid(primaryUuid))
+                .build());
+        filters.add(new ScanFilter.Builder()
+                .setServiceUuid(new ParcelUuid(secondaryUuid))
+                .build());
+
+        BluetoothLeScannerCompat.getScanner()
+                .startScan(filters, settings, mScanCallbacks);
+
+        Log.d(TAG, "Dual scan started: primary=" + primaryUuid
+                + " secondary=" + secondaryUuid);
+    }
+
     /**
      * Start proxy scan with a callback for when a proxy node is found.
      */
@@ -233,7 +286,7 @@ public class ScannerRepository {
     }
 
     /**
-     * ✅ FIX: stopScan() does NOT clear scanner results anymore.
+     * stopScan() does NOT clear scanner results.
      * Results are preserved so auto-connect can still find the device.
      * Call clearResults() explicitly if you want to wipe the list.
      */
@@ -244,7 +297,8 @@ public class ScannerRepository {
             Log.e(TAG, "stopScan error: " + e.getMessage());
         }
         mScannerStateLiveData.scanningStopped();
-        mProxyScanCallback = null;
+        mSecondaryFilterUuid = null;
+        mProxyScanCallback   = null;
         Log.d(TAG, "Scan stopped. Results preserved.");
     }
 
@@ -257,7 +311,7 @@ public class ScannerRepository {
     }
 
     // ------------------------------------------------------------------------
-    // ✅ Connection state management
+    // Connection state management
     // ------------------------------------------------------------------------
 
     /**
@@ -290,7 +344,6 @@ public class ScannerRepository {
     // Helpers
     // ------------------------------------------------------------------------
     private void updateScannerLiveData(final ScanResult result) {
-        // ✅ RSSI filter
         if (mRssiThreshold != Integer.MIN_VALUE && result.getRssi() < mRssiThreshold) {
             Log.d(TAG, "Skipping device RSSI=" + result.getRssi()
                     + " below threshold=" + mRssiThreshold);
@@ -311,6 +364,7 @@ public class ScannerRepository {
             mScannerStateLiveData.deviceFound();
         }
     }
+
     private boolean checkIfNodeIdentityMatches(final byte[] serviceData) {
         final MeshNetwork network = mMeshManagerApi.getMeshNetwork();
         if (network != null) {
@@ -322,6 +376,7 @@ public class ScannerRepository {
         }
         return false;
     }
+
     public void setRssiThreshold(int threshold) {
         mRssiThreshold = threshold;
         Log.d(TAG, "RSSI threshold set: " + threshold);

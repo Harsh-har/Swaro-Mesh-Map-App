@@ -8,12 +8,11 @@ import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-
 import java.util.List;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityDeviceDetailBinding;
+import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgDeviceMapper;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
@@ -25,17 +24,15 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private static final String TAG = "DeviceDetailActivity";
 
     // ── Intent extras (public — used by callers) ───────────────────────────
-    public static final String EXTRA_PURE_DEVICE_NAME  = "pure_device_name";
-    public static final String EXTRA_DEVICE_ID         = "device_id";
-    public static final String EXTRA_ELEMENT_ID        = "element_id";
-    public static final String EXTRA_RECEIVE_ID = "receive_id";
-    public static final String EXTRA_DEVICE_NAME       = "device_name";
+    public static final String EXTRA_PURE_DEVICE_NAME   = "pure_device_name";
+    public static final String EXTRA_DEVICE_ID          = "device_id";
+    public static final String EXTRA_ELEMENT_ID         = "element_id";
+    public static final String EXTRA_RECEIVE_ID         = "receive_id";
+    public static final String EXTRA_DEVICE_NAME        = "device_name";
     public static final String EXTRA_AUTO_FILTER_DEVICE = "auto_filter_device";
-    public static final String EXTRA_DEVICE_TYPE       = "device_type";
-    public static final String DEVICE_TYPE_SERVER      = "server";
-    public static final String DEVICE_TYPE_CLIENT      = "client";
-
-    // ── REMOVED: PREFS_NAME, KEY_PROVISIONED_DEVICES, KEY_SERVER_SVG_DEVICE_ID
+    public static final String EXTRA_DEVICE_TYPE        = "device_type";
+    public static final String DEVICE_TYPE_SERVER       = "server";
+    public static final String DEVICE_TYPE_CLIENT       = "client";
 
     private ActivityDeviceDetailBinding binding;
     private SharedViewModel             sharedViewModel;
@@ -46,6 +43,8 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private String deviceName;
     private String deviceType;
     private int    svgElementIdInt = -1;
+
+    private String mBleFilterName = null;
 
     private final ActivityResultLauncher<Intent> provisioner =
             registerForActivityResult(
@@ -68,9 +67,10 @@ public class DeviceDetailActivity extends AppCompatActivity {
         deviceId   = getIntent().getStringExtra(EXTRA_DEVICE_ID);
         deviceName = getIntent().getStringExtra(EXTRA_DEVICE_NAME);
         elementId  = getIntent().getStringExtra(EXTRA_ELEMENT_ID);
-        receiveId = getIntent().getStringExtra(EXTRA_RECEIVE_ID);
+        receiveId  = getIntent().getStringExtra(EXTRA_RECEIVE_ID);
         deviceType = getIntent().getStringExtra(EXTRA_DEVICE_TYPE);
 
+        // ── SVG element ID (numeric) ───
         if (elementId != null && !elementId.isEmpty()) {
             try {
                 svgElementIdInt = Integer.parseInt(elementId.trim());
@@ -89,6 +89,12 @@ public class DeviceDetailActivity extends AppCompatActivity {
             deviceName = extractPureDeviceName(deviceId);
         }
 
+        // ── BLE filter name nikalo SVG ID / deviceName se ─────────────────
+        mBleFilterName = resolveBleFilterName(deviceId, deviceName);
+        Log.d(TAG, "onCreate: deviceId='" + deviceId
+                + "' deviceName='" + deviceName
+                + "' → mBleFilterName='" + mBleFilterName + "'");
+
         if (svgElementIdInt != -1) {
             ClientServerElementStore.saveServerSvgElementId(deviceId, svgElementIdInt);
             Log.d(TAG, "✅ onCreate: saved svgElementId=" + svgElementIdInt
@@ -98,6 +104,36 @@ public class DeviceDetailActivity extends AppCompatActivity {
         setupToolbar();
         populateDeviceInfo();
         setupButtons();
+    }
+
+    // =========================================================================
+    // BLE filter name resolver
+    // =========================================================================
+
+    private String resolveBleFilterName(String id, String name) {
+        if (id != null && !id.isEmpty()) {
+            String normalised = id.trim().replace(" ", "_").replace("-", "_");
+            String filter = SvgDeviceMapper.getProductCode(normalised);
+            if (filter != null) {
+                Log.d(TAG, "Full Product Code from deviceId: '" + id + "' → '" + filter + "'");
+                return filter;
+            }
+        }
+
+        // Try deviceName
+        if (name != null && !name.isEmpty()) {
+            String normalised = name.trim().replace(" ", "_").replace("-", "_");
+            String filter = SvgDeviceMapper.getProductCode(normalised);
+            if (filter != null) {
+                Log.d(TAG, "Full Product Code from deviceName: '" + name + "' → '" + filter + "'");
+                return filter;
+            }
+        }
+
+        // Fallback — deviceName as-is
+        Log.w(TAG, "BLE filter: no mapping found for id='" + id
+                + "' name='" + name + "' — using name as fallback");
+        return name;
     }
 
     // =========================================================================
@@ -141,16 +177,17 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
         binding.tvElementIdValue.setText(
                 (elementId != null && !elementId.isEmpty()) ? elementId : "—");
-
         binding.tvreciveldValue.setText(
                 (receiveId != null && !receiveId.isEmpty()) ? receiveId : "—");
 
         Log.d(TAG, "populateDeviceInfo: deviceName=" + deviceName
                 + " originalId=" + deviceId
                 + " elementId=" + elementId
-                + " receiveId=" + receiveId        // ← added
-                + " svgElementIdInt=" + svgElementIdInt);
+                + " receiveId=" + receiveId
+                + " svgElementIdInt=" + svgElementIdInt
+                + " bleFilterName=" + mBleFilterName);
     }
+
     private void setupButtons() {
         binding.btnConnect.setOnClickListener(v -> {
             Intent intent = new Intent(this, ScannerActivity.class);
@@ -167,17 +204,27 @@ public class DeviceDetailActivity extends AppCompatActivity {
             Intent intent = new Intent(this, ScannerActivity.class);
             intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
             intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID,    deviceId);
-            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE,     deviceName);
             intent.putExtra(EXTRA_DEVICE_NAME,            deviceName);
             intent.putExtra(EXTRA_DEVICE_TYPE,            deviceType);
             intent.putExtra(EXTRA_ELEMENT_ID,             elementId);
-            intent.putExtra(EXTRA_RECEIVE_ID,             receiveId); // ← ADD THIS
+            intent.putExtra(EXTRA_RECEIVE_ID,             receiveId);
 
-            Log.d(TAG, "Launch provisioning: deviceId=" + deviceId
+
+            intent.putExtra(EXTRA_AUTO_FILTER_DEVICE, mBleFilterName);
+
+            Log.d(TAG, "Launch provisioning:"
+                    + " deviceId=" + deviceId
                     + " deviceName=" + deviceName
+                    + " bleFilterName=" + mBleFilterName
                     + " receiveId=" + receiveId);
+
             provisioner.launch(intent);
-        });    }
+        });
+    }
+
+    // =========================================================================
+    // Provisioning result
+    // =========================================================================
 
     private void handleProvisioningResult(final ActivityResult result) {
         Log.d(TAG, "handleProvisioningResult: code=" + result.getResultCode());
@@ -204,7 +251,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         }
         final String finalSvgDeviceId = svgDeviceId;
 
-        // ── Resolve receiveId — result se update karo agar aaya ho ───────
+        // ── Resolve receiveId ─────────────────────────────────────────────
         String receivedReceiveId = data.getStringExtra(EXTRA_RECEIVE_ID);
         if (receivedReceiveId != null && !receivedReceiveId.isEmpty()) {
             receiveId = receivedReceiveId;
@@ -213,7 +260,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
             Log.d(TAG, "handleProvisioningResult: receiveId from class field='" + receiveId + "'");
         }
 
-        // ── Resolve svgElementId ──────────────────────────────────────────
         if (svgElementIdInt == -1) {
             Log.e(TAG, "❌ svgElementIdInt = -1 — elementId was invalid: " + elementId);
         }
@@ -223,9 +269,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
         if (provisionedNode == null) {
             Log.e(TAG, "❌ provisionedNode is null — trying network fallback");
-
-            List<ProvisionedMeshNode> nodes =
-                    sharedViewModel.getAllProvisionedNodes();
+            List<ProvisionedMeshNode> nodes = sharedViewModel.getAllProvisionedNodes();
             if (nodes != null && !nodes.isEmpty()) {
                 provisionedNode = nodes.get(nodes.size() - 1);
                 Log.d(TAG, "✅ Fallback node: 0x"
@@ -267,15 +311,12 @@ public class DeviceDetailActivity extends AppCompatActivity {
                 + " mac=" + provisionedNode.getMacAddress()
                 + " receiveId=" + receiveId);
 
-        // ── UUID → SVG mapping ────────────────────────────────────────────
         sharedViewModel.mapNodeToSvg(provisionedNode.getUuid(), finalSvgDeviceId);
         Log.d(TAG, "✅ mapNodeToSvg: uuid=" + provisionedNode.getUuid()
                 + " → " + finalSvgDeviceId);
 
-        // ── Sync ViewModel LiveData from Store ────────────────────────────
         sharedViewModel.syncFromStore();
 
-        // ── Device-type specific logic ────────────────────────────────────
         if (DEVICE_TYPE_SERVER.equals(deviceType)) {
             sharedViewModel.setServerSvgDeviceId(finalSvgDeviceId);
             Log.d(TAG, "🖥️ SERVER provisioned: " + finalSvgDeviceId);
@@ -289,6 +330,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         Log.d(TAG, "✅ Provisioning fully completed for: " + finalSvgDeviceId);
         finish();
     }
+
     // =========================================================================
     // Toast helper
     // =========================================================================
