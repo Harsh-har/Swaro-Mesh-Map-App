@@ -207,9 +207,9 @@ public class SvgParsers {
         String rawText = rg.getTextContent();
         if (rawText == null || rawText.trim().isEmpty()) return result;
 
-        // Format: (Icon ID | deviceId1, deviceId2, deviceId3)
+        // Updated Regex: Handles spaces, colons, and hyphens in both Client and Server names
         Pattern p = Pattern.compile(
-                "\\(\\s*([^|]+?)\\s*\\|\\s*((?:[\\w:.\\-]+\\s*,\\s*)*[\\w:.\\-]+)\\s*\\)");
+                "\\(\\s*([^|]+?)\\s*\\|\\s*((?:[\\w\\s:.\\-]+\\s*,\\s*)*[\\w\\s:.\\-]+)\\s*\\)");
         Matcher m = p.matcher(rawText);
         while (m.find()) {
             String iconId      = m.group(1).trim();

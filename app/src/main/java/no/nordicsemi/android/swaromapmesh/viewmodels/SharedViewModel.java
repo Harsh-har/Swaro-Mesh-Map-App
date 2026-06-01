@@ -2,7 +2,6 @@ package no.nordicsemi.android.swaromapmesh.viewmodels;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -14,6 +13,7 @@ import androidx.lifecycle.LiveData;
 import androidx.lifecycle.MutableLiveData;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -54,8 +54,8 @@ public class SharedViewModel extends BaseViewModel
     private static final int GENERIC_ONOFF_SERVER = 0x1000;
 
     // ── Publication retry constants ────────────────────────────────────────
-    private static final int  PUB_MAX_RETRIES = 3;
-    private static final long PUB_TIMEOUT_MS  = 8_000L;
+    private static final int  PUB_MAX_RETRIES = 5;
+    private static final long PUB_TIMEOUT_MS  = 20_000L;
 
     private final SharedPreferences prefs;
     private final Context mContext;
@@ -103,6 +103,7 @@ public class SharedViewModel extends BaseViewModel
 
         mContext = context;
         ClientServerElementStore.init(context);
+        ClientServerElementStore.syncAndCleanKeys();
 
         mScannerRepository = scannerRepository;
         scannerRepository.registerBroadcastReceivers();
@@ -117,7 +118,7 @@ public class SharedViewModel extends BaseViewModel
         if (savedSvgUri != null) svgUri.setValue(Uri.parse(savedSvgUri));
 
         syncFromStore();
-        getNodes().observeForever(nodes -> syncFromStore());
+        // getNodes().observeForever(nodes -> syncFromStore()); // ❌ REMOVED: Hammering the store causes timeouts
         mNrfMeshRepository.setOnNetworkImportedCallback(this::onNetworkImported);
         mNrfMeshRepository.setAutoSetupCompleteListener(this::onAutoSetupComplete);
         observePublicationStatus();
@@ -192,70 +193,71 @@ public class SharedViewModel extends BaseViewModel
 
             String normalizedKey = ClientServerElementStore.normalize(nodeName);
 
-            boolean isClient = false;
-            boolean isServer = false;
+            boolean clientFlag = false;
+            boolean serverFlag = false;
 
             for (Element element : node.getElements().values()) {
                 for (no.nordicsemi.android.swaromapmesh.transport.MeshModel model
                         : element.getMeshModels().values()) {
-                    if (model.getModelId() == 0x1001) isClient = true;
-                    if (model.getModelId() == 0x1000) isServer = true;
+                    if (model.getModelId() == 0x1001) clientFlag = true;
+                    if (model.getModelId() == 0x1000) serverFlag = true;
                 }
             }
 
             Log.d(TAG, "buildClientDataFromImportedNodes: node=" + nodeName
                     + " normalized=" + normalizedKey
-                    + " isClient=" + isClient + " isServer=" + isServer
+                    + " isClient=" + clientFlag + " isServer=" + serverFlag
                     + " unicast=0x" + String.format("%04X", unicastAddr));
 
-            if (isServer && !isClient) {
-                if (ClientServerElementStore.getServerUnicastAddress(normalizedKey) == -1) {
-                    editor.putInt("server_unicast_" + normalizedKey, unicastAddr);
-                    editor.putInt("server_primary_addr_" + normalizedKey, unicastAddr);
-                    existingProvisioned.add(normalizedKey);
-
-                    for (Element element : node.getElements().values()) {
-                        for (no.nordicsemi.android.swaromapmesh.transport.MeshModel model
-                                : element.getMeshModels().values()) {
-                            if (model.getModelId() == 0x1000
-                                    && model.getPublicationSettings() != null) {
-                                int pubAddr = model.getPublicationSettings().getPublishAddress();
-                                editor.putString("imported_pub_addr_" + normalizedKey,
-                                        String.format("%04X", pubAddr));
-                            }
-                        }
-                    }
-                    Log.d(TAG, "  ✅ Server saved: key=" + normalizedKey
-                            + " unicast=0x" + String.format("%04X", unicastAddr));
+            // ✅ ALWAYS save the primary unicast address and primary element address for any valid node
+            if (clientFlag || serverFlag) {
+                editor.putInt("server_unicast_" + normalizedKey, unicastAddr);
+                editor.putInt("server_primary_addr_" + normalizedKey, unicastAddr);
+                if (clientFlag) {
+                    editor.putInt("client_unicast_" + normalizedKey, unicastAddr);
                 }
+                existingProvisioned.add(normalizedKey);
             }
 
-            if (isClient) {
-                // ── FIX: Elements strictly 0-based, index 0 to 39 only ──────
-                List<Element> sortedElements = new ArrayList<>(node.getElements().values());
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    sortedElements.sort((a, b) ->
-                            Integer.compare(a.getElementAddress(), b.getElementAddress()));
+            if (serverFlag) {
+                // Save imported publication address if it's a server
+                for (Element element : node.getElements().values()) {
+                    for (no.nordicsemi.android.swaromapmesh.transport.MeshModel model
+                            : element.getMeshModels().values()) {
+                        if (model.getModelId() == 0x1000
+                                && model.getPublicationSettings() != null) {
+                            int pubAddr = model.getPublicationSettings().getPublishAddress();
+                            editor.putString("imported_pub_addr_" + normalizedKey,
+                                    String.format("%04X", pubAddr));
+                        }
+                    }
                 }
+                Log.d(TAG, "  ✅ Server metadata saved for: " + normalizedKey);
+            }
 
-                // Cap at 40 elements (index 0..39)
-                int elementCount = Math.min(sortedElements.size(), 40);
+            if (clientFlag) {
+                // ── ENSURE: Primary element (unicast address) is strictly at index 0 ──────
+                List<Element> sortedElements = new ArrayList<>(node.getElements().values());
+                
+                // Use explicit sorting to ensure Element 0 is always at index 0 regardless of OS version
+                Collections.sort(sortedElements, (a, b) ->
+                        Integer.compare(a.getElementAddress(), b.getElementAddress()));
+
+                // ✅ FIXED: Skip the primary element (index 0) and save starting from mesh element 1.
+                // This ensures SVG ID 18 maps to Store Index 18 which is Mesh Element 19 (0x0079).
+                int elementCount = Math.min(sortedElements.size() - 1, 40);
 
                 for (int i = 0; i < elementCount; i++) {
-                    Element el       = sortedElements.get(i);
+                    Element el       = sortedElements.get(i + 1);
                     int     elemAddr = el.getElementAddress();
 
-                    // ✅ FIXED: Only save index i (0-based). No i+1 duplicate.
                     editor.putInt("element_addr_" + normalizedKey + "_" + i, elemAddr);
 
                     Log.d(TAG, "  Client element[" + i + "]=0x"
                             + String.format("%04X", elemAddr));
                 }
-
-                editor.putInt("server_unicast_" + normalizedKey, unicastAddr);
-                existingProvisioned.add(normalizedKey);
-                Log.d(TAG, "  ✅ Client saved: key=" + normalizedKey
-                        + " elements=" + elementCount);
+                Log.d(TAG, "  ✅ Client elements saved: key=" + normalizedKey
+                        + " count=" + elementCount);
             }
         }
 
@@ -277,132 +279,107 @@ public class SharedViewModel extends BaseViewModel
     }
 
     private void triggerPublicationSetup(@NonNull ProvisionedMeshNode completedNode) {
-        Log.d(TAG, "📡 triggerPublicationSetup: node=0x"
-                + String.format("%04X", completedNode.getUnicastAddress())
-                + " name=" + completedNode.getNodeName());
+        int completedAddr = completedNode.getUnicastAddress();
+        Log.d(TAG, "📡 triggerPublicationSetup: node=0x" + String.format("%04X", completedAddr));
 
         List<ApplicationKey> appKeys = getNetworkLiveData().getAppKeys();
         if (appKeys == null || appKeys.isEmpty()) {
-            Log.e(TAG, "triggerPublicationSetup: no AppKey");
+            Log.e(TAG, "  ❌ Abort: No AppKeys available for publication setup");
             return;
         }
         int appKeyIndex = appKeys.get(0).getKeyIndex();
 
         SharedPreferences meshPrefs = mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
-        if (provisionedKeys.isEmpty()) return;
 
-        boolean anyScheduled = false;
         long delayOffset = 0;
 
         for (String serverKey : provisionedKeys) {
+            String cleanKey = ClientServerElementStore.normalize(serverKey);
+            int serverAddr = ClientServerElementStore.getServerUnicastAddress(cleanKey);
+            if (serverAddr == -1 || !isNodeInNetwork(serverAddr)) continue;
 
-            int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
-            if (serverAddr == -1) continue;
-            if (!isNodeInNetwork(serverAddr)) {
-                Log.d(TAG, "  Server 0x" + String.format("%04X", serverAddr) + " not in network — skip");
-                continue;
+            String mappedClientName = ClientServerElementStore.getMappedClientForServer(cleanKey);
+            if (mappedClientName == null) continue;
+
+            // ── TARGETED OPTIMIZATION (Address-based) ─────────────────────
+            int clientUnicast = ClientServerElementStore.getClientUnicastAddress(mappedClientName);
+
+            boolean isTargetServer = (serverAddr == completedAddr);
+            boolean isTargetClient = (clientUnicast != -1 && clientUnicast == completedAddr);
+
+            if (!isTargetServer && !isTargetClient) {
+                continue; // Skip unrelated nodes
             }
-            if (!isServerNode(serverAddr)) {
-                Log.w(TAG, "  0x" + String.format("%04X", serverAddr) + " has no OnOff Server model — skip");
-                continue;
-            }
+            // ──────────────────────────────────────────────────────────────
 
-            String areaPrefix = serverKey.contains(":")
-                    ? serverKey.split(":")[0].trim().toLowerCase() : "";
+            int serverSvgElementId = ClientServerElementStore.getServerSvgElementId(cleanKey);
+            if (serverSvgElementId == -1) continue;
 
-            int svgElementId = ClientServerElementStore.getServerSvgElementId(serverKey);
-            if (svgElementId == -1) {
-                Log.w(TAG, "  svgElementId=-1 for key=" + serverKey + " — skip");
-                continue;
-            }
-
-            String clientNamePart = findClientNameByElementId(areaPrefix, svgElementId);
-            if (clientNamePart == null) {
-                Log.d(TAG, "  No client found with elementId=" + svgElementId
-                        + " area=" + areaPrefix + " — skip");
-                continue;
-            }
-
-            int cToSAddr = ClientServerElementStore.getClientAddress(clientNamePart, svgElementId);
+            // ── RESOLVE CLIENT ELEMENT ADDRESS (with Network Fallback) ─────
+            // SVG ID 18 maps to Store Index 18 which is Mesh Element 19 (index 19 in sorted list)
+            int cToSAddr = ClientServerElementStore.getClientAddress(mappedClientName, serverSvgElementId);
             if (cToSAddr == -1) {
-                Log.d(TAG, "  C→S addr not found: clientName=" + clientNamePart);
-                continue;
+                // Fallback: Try to find the client node in the live network and get the address manually
+                ProvisionedMeshNode clientNode = findNodeBySvgDeviceId(mappedClientName);
+                if (clientNode != null) {
+                    List<Element> elements = new ArrayList<>(clientNode.getElements().values());
+                    Collections.sort(elements, (a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
+                    int idx = serverSvgElementId;
+                    // SVG ID 18 maps to Mesh Element 19 (index 19 in sorted list)
+                    if (idx + 1 < elements.size()) {
+                        cToSAddr = elements.get(idx + 1).getElementAddress();
+                        Log.d(TAG, "  💡 Resolved client address via live network: 0x" + String.format("%04X", cToSAddr));
+                    }
+                }
             }
-            if (!isNodeInNetwork(cToSAddr)) {
-                Log.d(TAG, "  C→S 0x" + String.format("%04X", cToSAddr) + " not in network — skip");
+
+            if (cToSAddr == -1 || !isNodeInNetwork(cToSAddr)) {
+                Log.e(TAG, "  ❌ Skipping: Client '" + mappedClientName + "' element address for server "
+                        + cleanKey + " not found.");
                 continue;
             }
 
-            String receiveIdStr = ClientServerElementStore.getReceiveId(serverKey);
+            // S→C: Optional feedback element address (Removed +1 offset)
             int sToCAddr = -1;
+            String receiveIdStr = ClientServerElementStore.getReceiveId(cleanKey);
             if (receiveIdStr != null && !receiveIdStr.trim().isEmpty()) {
                 try {
-                    int receiveIndex = Integer.parseInt(receiveIdStr.trim());
-                    sToCAddr = ClientServerElementStore.getClientAddress(clientNamePart, receiveIndex);
-                    Log.d(TAG, "  receiveId=" + receiveIndex
-                            + " → S→C addr=0x" + String.format("%04X", sToCAddr));
-                } catch (NumberFormatException e) {
-                    Log.w(TAG, "  Invalid receiveId=" + receiveIdStr);
-                }
-            }
-            if (sToCAddr == -1) {
-                String importedPubAddrHex = meshPrefs.getString("imported_pub_addr_" + serverKey, null);
-                if (importedPubAddrHex != null) {
-                    try {
-                        int importedAddr = Integer.parseInt(importedPubAddrHex, 16);
-                        if (isNodeInNetwork(importedAddr)) {
-                            sToCAddr = importedAddr;
-                            Log.d(TAG, "  S→C fallback via imported_pub_addr=0x"
-                                    + String.format("%04X", sToCAddr));
-                        }
-                    } catch (NumberFormatException ignored) {}
-                }
+                    int rIdx = Integer.parseInt(receiveIdStr.trim());
+                    sToCAddr = ClientServerElementStore.getClientAddress(mappedClientName, rIdx);
+                } catch (NumberFormatException ignored) {}
             }
 
             if (AutoPublicationHelper.isPublicationSetupComplete(meshPrefs, cToSAddr, serverAddr)) {
-                Log.d(TAG, "  Already complete: 0x" + String.format("%04X", cToSAddr)
-                        + " ↔ 0x" + String.format("%04X", serverAddr));
+                Log.d(TAG, "  ✅ Publication already complete for: 0x" + String.format("%04X", cToSAddr) + " -> 0x" + String.format("%04X", serverAddr));
                 continue;
             }
 
             String pairKey = cToSAddr + "_" + serverAddr;
-            if (meshPrefs.getBoolean("pub_inflight_" + pairKey, false)) {
-                Log.d(TAG, "  Already in-flight: " + pairKey + " — skip");
-                continue;
-            }
+            if (meshPrefs.getBoolean("pub_inflight_" + pairKey, false)) continue;
+
             meshPrefs.edit().putBoolean("pub_inflight_" + pairKey, true).apply();
 
-            Log.d(TAG, "  Scheduling pair: " + serverKey);
-            Log.d(TAG, "     C→S: 0x" + String.format("%04X", cToSAddr)
-                    + " → Server 0x" + String.format("%04X", serverAddr));
-            if (sToCAddr != -1)
-                Log.d(TAG, "     S→C: Server 0x" + String.format("%04X", serverAddr)
-                        + " → 0x" + String.format("%04X", sToCAddr));
-            else
-                Log.d(TAG, "     S→C: skipped (no receiveId or addr not found)");
+            final int fCToSAddr = cToSAddr;
+            final int fSToCAddr = sToCAddr;
+            final int fServerAddr = serverAddr;
+            final int fAppKey = appKeyIndex;
+            final String fPairKey = pairKey;
 
-            final int    fCToSAddr   = cToSAddr;
-            final int    fSToCAddr   = sToCAddr;
-            final int    fServerAddr = serverAddr;
-            final int    fAppKey     = appKeyIndex;
-            final String fPairKey    = pairKey;
+            Log.d(TAG, "🚀 QUEUED Targeted Auto-Config: Client 0x" + String.format("%04X", fCToSAddr)
+                    + " (" + mappedClientName + ") ↔ Server 0x" + String.format("%04X", fServerAddr)
+                    + " (" + cleanKey + ") in " + (delayOffset/1000) + "s");
 
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                Log.d(TAG, "⚡ EXECUTING Targeted Auto-Config for 0x" + String.format("%04X", fServerAddr));
                 setupPublicationPairDirectional(fCToSAddr, fSToCAddr, fServerAddr, fAppKey);
-                new Handler(Looper.getMainLooper()).postDelayed(
-                        () -> meshPrefs.edit().remove("pub_inflight_" + fPairKey).apply(),
-                        10_000);
+
+                // Cleanup in-flight flag after a longer timeout to allow for retries
+                new Handler(Looper.getMainLooper()).postDelayed(() -> meshPrefs.edit().remove("pub_inflight_" + fPairKey).apply(), 60_000);
             }, delayOffset);
 
-            delayOffset += 4000;
-            anyScheduled = true;
+            delayOffset += 5000;
         }
-
-        if (anyScheduled)
-            Log.d(TAG, "✅ triggerPublicationSetup: pairs scheduled");
-        else
-            Log.d(TAG, "triggerPublicationSetup: nothing to schedule");
     }
 
     // =========================================================================
@@ -608,25 +585,27 @@ public class SharedViewModel extends BaseViewModel
             return;
         }
 
-        schedulePublicationWithRetry(
-                clientNode, cToSAddr, GENERIC_ONOFF_CLIENT,
-                serverAddr, appKeyIndex, "C→S");
+        final ProvisionedMeshNode fClientNode = clientNode;
+        final ProvisionedMeshNode fServerNode = serverNode;
 
-        final ProvisionedMeshNode fServerNode  = serverNode;
-        final int                 fAppKeyIndex = appKeyIndex;
-        final int                 fSToCAddr    = sToCAddr;
-        final int                 fServerAddr  = serverAddr;
+        // 1. Configure C→S with a 3000ms delay to allow mesh relaying paths to settle
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            Log.d(TAG, "📡 Sending C→S config for 0x" + String.format("%04X", serverAddr));
+            schedulePublicationWithRetry(
+                    fClientNode, cToSAddr, GENERIC_ONOFF_CLIENT,
+                    serverAddr, appKeyIndex, "C→S");
+        }, 3000);
 
-        if (fSToCAddr != -1 && isNodeInNetwork(fSToCAddr)) {
-            new Handler(Looper.getMainLooper()).postDelayed(() ->
-                            schedulePublicationWithRetry(
-                                    fServerNode, fServerAddr, GENERIC_ONOFF_SERVER,
-                                    fSToCAddr, fAppKeyIndex, "S→C"),
-                    1500);
+        // 2. Configure S→C with a larger stagger delay
+        if (sToCAddr != -1 && isNodeInNetwork(sToCAddr)) {
+            new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                Log.d(TAG, "📡 Sending staggered S→C config for 0x" + String.format("%04X", serverAddr));
+                schedulePublicationWithRetry(
+                        fServerNode, serverAddr, GENERIC_ONOFF_SERVER,
+                        sToCAddr, appKeyIndex, "S→C");
+            }, 8000); // 8s gap to ensure C->S is processed
         } else {
-            Log.d(TAG, "  S→C skipped:"
-                    + " sToCAddr=0x" + String.format("%04X", fSToCAddr)
-                    + (fSToCAddr == -1 ? " (not found)" : " (not in network)"));
+            Log.d(TAG, "  S→C skipped: sToCAddr=" + String.format("%04X", sToCAddr));
         }
     }
 
@@ -775,6 +754,12 @@ public class SharedViewModel extends BaseViewModel
         mPendingPublications.remove(key);
         Log.d(TAG, "✅ Publication fully confirmed [" + attempt.label + "] key=" + key
                 + " after " + attempt.attemptCount + " attempt(s)");
+        
+        // Mark as complete in prefs for C→S direction
+        if (attempt.label.contains("C→S")) {
+            AutoPublicationHelper.markPublicationSetupComplete(prefs, attempt.elementAddress, attempt.publishAddress);
+        }
+
         mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().remove("pub_inflight_" + key).apply();
     }
@@ -919,14 +904,16 @@ public class SharedViewModel extends BaseViewModel
     public void onClientProvisioned(@NonNull ProvisionedMeshNode clientNode,
                                     @NonNull String svgDeviceId) {
         List<Element> sorted = new ArrayList<>(clientNode.getElements().values());
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-            sorted.sort((a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
-        }
-        // ✅ FIXED: 0-based index, cap at 40
+        
+        // Ensure primary element is at index 0 by sorting by address
+        Collections.sort(sorted, (a, b) -> Integer.compare(a.getElementAddress(), b.getElementAddress()));
+
+        // ✅ FIXED: Store elements starting from element 1 at index 0.
+        // This ensures SVG ID 18 maps to element 19 (0x0079).
         Map<Integer, Integer> elementAddresses = new HashMap<>();
-        int count = Math.min(sorted.size(), 40);
+        int count = Math.min(sorted.size() - 1, 40);
         for (int i = 0; i < count; i++) {
-            elementAddresses.put(i, sorted.get(i).getElementAddress());
+            elementAddresses.put(i, sorted.get(i + 1).getElementAddress());
         }
         ClientServerElementStore.saveAllClientElementAddresses(svgDeviceId, elementAddresses);
         Log.d(TAG, "✅ onClientProvisioned: saved "
@@ -1073,10 +1060,10 @@ public class SharedViewModel extends BaseViewModel
         return deviceName != null && deviceName.equals(getSelectedDeviceValue());
     }
 
-    public void setSelectedDevice(String device) {
-        if (device == null) device = DEFAULT_SELECTED_DEVICE;
-        selectedDevice.setValue(device);
-        prefs.edit().putString(KEY_SELECTED_DEVICE, device).apply();
+    public void setSelectedDevice(String deviceName) {
+        String finalName = deviceName == null ? DEFAULT_SELECTED_DEVICE : deviceName;
+        selectedDevice.setValue(finalName);
+        prefs.edit().putString(KEY_SELECTED_DEVICE, finalName).apply();
     }
 
     public void clearSelectedDevice() { setSelectedDevice(DEFAULT_SELECTED_DEVICE); }

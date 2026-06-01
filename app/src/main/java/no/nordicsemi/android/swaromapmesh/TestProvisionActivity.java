@@ -370,16 +370,14 @@ public class TestProvisionActivity extends AppCompatActivity {
         // ✅ FIX: use a separate 0-based display counter instead of
         //         (elemAddr - base), so the list always starts at 0
         //         regardless of which elements have AppKey bound.
-        int displayIndex = 0;  // ← this is what shows in the UI: 0, 1, 2 … 39
+        int baseAddr = controlNode.getUnicastAddress();
 
         for (Element el : sorted) {
             MeshModel model = el.getMeshModels().get(0x1001);
             if (model == null) continue;
 
-            // ✅ FIX: AppKey bound check HATA DIYA — isse koi element skip
-            //         nahi hoga aur index 0..39 continuous rahega.
-
             int elemAddr = el.getElementAddress();
+            int elementOffset = elemAddr - baseAddr;
 
             int    pubAddr    = 0;
             String pubHex     = "—";
@@ -401,7 +399,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             }
 
             llClientElements.addView(buildRow(
-                    displayIndex,        // ✅ 0-based display index (0 … 39)
+                    elementOffset,        // ✅ Use element offset (0-based) instead of running counter
                     String.format("0x%04X", elemAddr),
                     pubHex,
                     serverName,
@@ -409,14 +407,12 @@ public class TestProvisionActivity extends AppCompatActivity {
                     pubAddr,
                     uniToName));
 
-            Log.d(TAG, "showClientElements: idx=" + displayIndex
+            Log.d(TAG, "showClientElements: idx=" + elementOffset
                     + " elemAddr=0x" + String.format("%04X", elemAddr)
                     + " pub=" + pubHex + " server=" + serverName);
-
-            displayIndex++;   // increment only for bound elements
         }
 
-        if (displayIndex == 0) {
+        if (llClientElements.getChildCount() == 0) {
             MaterialTextView tv = new MaterialTextView(this);
             tv.setText("No mapped elements found");
             tv.setTextColor(0xFF888888);
@@ -426,7 +422,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             llClientElements.addView(tv);
         }
 
-        Log.d(TAG, "showClientElements: " + displayIndex + " rows for " + deviceId);
+        Log.d(TAG, "showClientElements: " + llClientElements.getChildCount() + " rows for " + deviceId);
     }
 
     // ─────────────────────────────────────────────────────────────────────────

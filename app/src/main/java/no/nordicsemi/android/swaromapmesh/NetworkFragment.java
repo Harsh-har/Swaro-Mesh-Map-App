@@ -369,6 +369,15 @@ public class NetworkFragment extends Fragment {
         iconToDeviceRelations.clear();
         iconToDeviceRelations.putAll(relations);
 
+        // ✅ Save hardcoded relations from SVG to Store for auto-publication
+        for (Map.Entry<String, Set<String>> entry : relations.entrySet()) {
+            String clientIconId = entry.getKey();
+            for (String serverDeviceId : entry.getValue()) {
+                ClientServerElementStore.saveSvgRelation(serverDeviceId, clientIconId);
+            }
+        }
+        ClientServerElementStore.syncAndCleanKeys();
+
         colorManager.init(document, svgParser, deviceMap);
         refreshColors();
         renderSvg(svg, true);

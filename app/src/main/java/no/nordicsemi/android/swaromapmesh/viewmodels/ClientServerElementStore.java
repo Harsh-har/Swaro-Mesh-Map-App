@@ -46,6 +46,7 @@ public final class ClientServerElementStore {
     private static final String PRE_CLIENT_UNICAST = "client_unicast_";
     private static final String PRE_CLIENT_ADDR    = "element_addr_";
     private static final String PRE_CLIENT_TO_SVR  = "client_to_server_";
+    private static final String PRE_SVG_RELATION   = "svg_rel_";
     private static final String KEY_PROVISIONED    = "provisioned_devices";
 
     private static SharedPreferences sPrefs;
@@ -97,7 +98,16 @@ public final class ClientServerElementStore {
 
     public static String normalize(String key) {
         if (key == null) return "";
-        return key.trim().toLowerCase();
+        String k = key.trim().toLowerCase();
+        
+        // 1. Strip prefix if exists (e.g., "smt:relay node" -> "relay node")
+        if (k.contains(":")) {
+            k = k.substring(k.indexOf(":") + 1).trim();
+        }
+        
+        // 2. Nuclear Normalization: Remove ALL spaces and underscores
+        // This ensures "Relay Node 1", "relay_node_1", and "relaynode1" all match.
+        return k.replace(" ", "").replace("_", "");
     }
 
     // =========================================================================
@@ -492,6 +502,45 @@ public final class ClientServerElementStore {
         return getPrefs().getString(key, null);
     }
 
+    // ==================== SVG RELATION MAPPING ====================
+
+    /**
+     * Saves mapping: Server ID -> Client ID (from SVG Relation group)
+     */
+    public static void saveSvgRelation(String serverDeviceId, String clientIconId) {
+        if (!checkInit("saveSvgRelation")
+                || isEmpty(serverDeviceId, "saveSvgRelation")
+                || isEmpty(clientIconId, "saveSvgRelation")) return;
+
+        String key = PRE_SVG_RELATION + normalize(serverDeviceId);
+        getPrefs().edit().putString(key, normalize(clientIconId)).apply();
+        Log.d(TAG, "🔗 saveSvgRelation: Server[" + normalize(serverDeviceId)
+                + "] is linked to Client[" + normalize(clientIconId) + "]");
+    }
+
+    /**
+     * Returns the Client ID mapped to a Server ID.
+     * Robust: checks both prefixed and non-prefixed variants if needed.
+     */
+    public static String getMappedClientForServer(String serverDeviceId) {
+        if (!checkInit("getMappedClientForServer") || serverDeviceId == null) return null;
+        
+        String cleanKey = normalize(serverDeviceId);
+        String client = getPrefs().getString(PRE_SVG_RELATION + cleanKey, null);
+        
+        if (client == null) {
+            // Fallback: the SVG might have stored it with the prefix (e.g. smt:relay_node1)
+            // while the provisioned node is just "relay_node1".
+            Map<String, ?> all = getPrefs().getAll();
+            for (String k : all.keySet()) {
+                if (k.startsWith(PRE_SVG_RELATION) && k.endsWith(cleanKey)) {
+                    return (String) all.get(k);
+                }
+            }
+        }
+        return client;
+    }
+
     // =========================================================================
     // PROVISIONED DEVICES SET
     // =========================================================================
@@ -530,6 +579,87 @@ public final class ClientServerElementStore {
         } else {
             Log.w(TAG, "⚠️ unmarkProvisioned: not found → " + key);
         }
+    }
+
+    /**
+     * Deduplicates and normalizes all provisioned keys AND all other data keys.
+     * Use this when updating the normalization logic to migrate old data to new formats.
+     */
+    public static void syncAndCleanKeys() {
+        if (!checkInit("syncAndCleanKeys")) return;
+        SharedPreferences prefs = getPrefs();
+        SharedPreferences.Editor ed = prefs.edit();
+        Map<String, ?> allEntries = prefs.getAll();
+
+        // 1. Prefixes to migrate
+        String[] prefixes = {
+                PRE_SVR_UNICAST, PRE_SVR_MESH_IDX, PRE_SVR_PRIM_ADDR, PRE_SVR_SVG_ID,
+                PRE_SVR_AREA_ID, PRE_SVR_MAC, PRE_SVR_RECEIVE_ID, PRE_CLIENT_UNICAST,
+                PRE_SVG_RELATION, PRE_CLIENT_TO_SVR
+        };
+
+        for (Map.Entry<String, ?> entry : allEntries.entrySet()) {
+            String fullKey = entry.getKey();
+            
+            // Handle standard prefixed keys
+            for (String prefix : prefixes) {
+                if (fullKey.startsWith(prefix)) {
+                    String rawId = fullKey.substring(prefix.length());
+                    String cleanId = normalize(rawId);
+                    
+                    Object val = entry.getValue();
+                    String cleanVal = null;
+                    if (val instanceof String) {
+                        // If the VALUE is also a device ID (in relations), normalize it too
+                        if (prefix.equals(PRE_SVG_RELATION) || prefix.equals(PRE_CLIENT_TO_SVR)) {
+                            cleanVal = normalize((String) val);
+                        } else {
+                            cleanVal = (String) val;
+                        }
+                    }
+
+                    boolean keyChanged = !rawId.equals(cleanId);
+                    boolean valChanged = (val instanceof String) && !val.equals(cleanVal);
+
+                    if (keyChanged || valChanged) {
+                        ed.remove(fullKey);
+                        if (val instanceof String) ed.putString(prefix + cleanId, cleanVal);
+                        else if (val instanceof Integer) ed.putInt(prefix + cleanId, (Integer) val);
+                        else if (val instanceof Long) ed.putLong(prefix + cleanId, (Long) val);
+                        else if (val instanceof Boolean) ed.putBoolean(prefix + cleanId, (Boolean) val);
+                        Log.d(TAG, "🔄 Migrated: " + fullKey + " → " + prefix + cleanId);
+                    }
+                }
+            }
+            
+            // Special handling for client element addresses: "element_addr_key_index"
+            if (fullKey.startsWith(PRE_CLIENT_ADDR)) {
+                String remainder = fullKey.substring(PRE_CLIENT_ADDR.length());
+                int lastUnderscore = remainder.lastIndexOf("_");
+                if (lastUnderscore != -1) {
+                    String rawId = remainder.substring(0, lastUnderscore);
+                    String index = remainder.substring(lastUnderscore + 1);
+                    String cleanId = normalize(rawId);
+                    if (!rawId.equals(cleanId)) {
+                        ed.remove(fullKey);
+                        ed.putInt(PRE_CLIENT_ADDR + cleanId + "_" + index, (Integer) entry.getValue());
+                        Log.d(TAG, "🔄 Migrated Addr: " + fullKey + " → " + PRE_CLIENT_ADDR + cleanId + "_" + index);
+                    }
+                }
+            }
+        }
+
+        // 2. Clean the provisioned device set
+        Set<String> keys = getProvisionedKeys();
+        Set<String> cleanSet = new HashSet<>();
+        for (String k : keys) {
+            String normalized = normalize(k);
+            if (!normalized.isEmpty()) cleanSet.add(normalized);
+        }
+        ed.putStringSet(KEY_PROVISIONED, cleanSet);
+        
+        ed.apply();
+        Log.d(TAG, "🧹 syncAndCleanKeys: fully migrated data to nuclear normalized keys (total provisioned: " + cleanSet.size() + ")");
     }
 
     // =========================================================================
