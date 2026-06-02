@@ -18,9 +18,9 @@ public final class SvgDeviceMapper {
         Map<String, String> m = new HashMap<>();
 
         // Relay
-        m.put("RL01",   "SW-RL01-006");
-        m.put("RL02",   "SW-RL02-012");
-        m.put("RL03",   "SW-RL03-016");
+        m.put("RL01",   "Relay Node");
+        m.put("RL02",   "Relay Node");
+        m.put("RL03",   "Relay Node");
 
         // Controllers
         m.put("CLF01",  "SW-CLF01-100");

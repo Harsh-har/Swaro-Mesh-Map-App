@@ -29,6 +29,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
     public static final String EXTRA_ELEMENT_ID         = "element_id";
     public static final String EXTRA_RECEIVE_ID         = "receive_id";
     public static final String EXTRA_DEVICE_NAME        = "device_name";
+    public static final String EXTRA_AREA_ID           = "area_id";
     public static final String EXTRA_AUTO_FILTER_DEVICE = "auto_filter_device";
     public static final String EXTRA_DEVICE_TYPE        = "device_type";
     public static final String DEVICE_TYPE_SERVER       = "server";
@@ -38,6 +39,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private SharedViewModel             sharedViewModel;
 
     private String deviceId;
+    private String areaId;
     private String elementId;
     private String receiveId;
     private String deviceName;
@@ -66,6 +68,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
         deviceId   = getIntent().getStringExtra(EXTRA_DEVICE_ID);
         deviceName = getIntent().getStringExtra(EXTRA_DEVICE_NAME);
+        areaId     = getIntent().getStringExtra(EXTRA_AREA_ID);
         elementId  = getIntent().getStringExtra(EXTRA_ELEMENT_ID);
         receiveId  = getIntent().getStringExtra(EXTRA_RECEIVE_ID);
         deviceType = getIntent().getStringExtra(EXTRA_DEVICE_TYPE);
@@ -99,6 +102,11 @@ public class DeviceDetailActivity extends AppCompatActivity {
             ClientServerElementStore.saveServerSvgElementId(deviceId, svgElementIdInt);
             Log.d(TAG, "✅ onCreate: saved svgElementId=" + svgElementIdInt
                     + " for device=" + deviceId);
+        }
+
+        if (areaId != null && !areaId.isEmpty()) {
+            ClientServerElementStore.saveServerAreaId(deviceId, areaId);
+            Log.d(TAG, "✅ onCreate: saved areaId=" + areaId + " for device=" + deviceId);
         }
 
         setupToolbar();

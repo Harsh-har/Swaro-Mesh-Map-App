@@ -151,6 +151,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
         }
 
         setupNodeNameCard();
+        setupDeviceIdCard();
         setupNetKeysCard();
         setupAppKeysCard();
         setupTtlCard();
@@ -209,6 +210,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
         containerNodeName.image.setBackground(
                 ContextCompat.getDrawable(this, R.drawable.ic_label));
         containerNodeName.title.setText(R.string.title_node_name);
+        containerNodeName.editIcon.setVisibility(View.VISIBLE);
         final TextView nodeNameView = containerNodeName.text;
         nodeNameView.setVisibility(View.VISIBLE);
         containerNodeName.getRoot().setOnClickListener(v -> {
@@ -216,6 +218,16 @@ public class NodeConfigurationActivity extends BaseActivity implements
                     DialogFragmentNodeName.newInstance(nodeNameView.getText().toString());
             fragment.show(getSupportFragmentManager(), null);
         });
+    }
+
+    private void setupDeviceIdCard() {
+        final LayoutContainerBinding containerDeviceId = binding.containerDeviceId;
+        containerDeviceId.image.setBackground(
+                ContextCompat.getDrawable(this, R.drawable.ic_info_24dp));
+        containerDeviceId.title.setText(R.string.title_device_id);
+        containerDeviceId.text.setVisibility(View.VISIBLE);
+        containerDeviceId.editIcon.setVisibility(View.GONE);
+        containerDeviceId.getRoot().setClickable(false);
     }
 
     private void setupNetKeysCard() {
@@ -307,10 +319,37 @@ public class NodeConfigurationActivity extends BaseActivity implements
                     (ElementAdapter) binding.recyclerViewElements.getAdapter();
             if (adapter != null) adapter.update(meshNode);
 
-            if (getSupportActionBar() != null)
-                getSupportActionBar().setSubtitle(meshNode.getNodeName());
+            String svgId = mSharedViewModel.getSvgIdFromNode(meshNode);
+            String areaName = null;
+            if (svgId != null) {
+                if (svgId.contains(":")) {
+                    areaName = svgId.split(":")[0];
+                } else {
+                    areaName = ClientServerElementStore.getServerAreaId(svgId);
+                }
+            }
 
-            binding.containerNodeName.text.setText(meshNode.getNodeName());
+            // Fallback: If areaName is still null, try to extract it from svgId if it has the format AREA_CODE_INDEX
+            if (areaName == null && svgId != null && svgId.contains("_")) {
+                areaName = svgId.split("_")[0];
+            }
+
+            String nodeName = meshNode.getNodeName();
+            if (areaName != null && !areaName.isEmpty()) {
+                String fullDisplayName = areaName + ": " + nodeName;
+                binding.containerNodeName.text.setText(fullDisplayName);
+                if (getSupportActionBar() != null)
+                    getSupportActionBar().setSubtitle(fullDisplayName);
+            } else {
+                binding.containerNodeName.text.setText(nodeName);
+                if (getSupportActionBar() != null)
+                    getSupportActionBar().setSubtitle(nodeName);
+            }
+
+            if (binding.containerDeviceId != null) {
+                binding.containerDeviceId.text.setText(svgId != null ? svgId : getString(R.string.unknown));
+            }
+
             updateClickableViews();
             updateCompositionDataUi(meshNode);
 

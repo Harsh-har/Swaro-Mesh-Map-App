@@ -131,17 +131,32 @@ public class NodeAdapter extends RecyclerView.Adapter<NodeAdapter.ViewHolder> {
         }
 
         // AREA NAME
-        if (storeKey != null && storeKey.contains(":")) {
-            String area = storeKey.split(":")[0].trim();
-            if (!area.isEmpty()) {
-                area = area.substring(0, 1).toUpperCase() + area.substring(1);
-                holder.areaName.setText(area);
-                holder.areaTitleView.setVisibility(View.VISIBLE);
-                holder.areaName.setVisibility(View.VISIBLE);
-            } else {
-                holder.areaTitleView.setVisibility(View.GONE);
-                holder.areaName.setVisibility(View.GONE);
+        String area = null;
+        if (storeKey != null) {
+            // Priority 1: Formal Area ID from Store (saved by NetworkFragment)
+            area = ClientServerElementStore.getServerAreaId(storeKey);
+
+            // Priority 2: Full key if it contains a colon (legacy format)
+            if (area == null && storeKey.contains(":")) {
+                area = storeKey.split(":")[0].trim();
             }
+
+            // Priority 3: Fallback - extract from key if it has AREA_CODE_INDEX format
+            if (area == null && storeKey.contains("_")) {
+                area = storeKey.split("_")[0];
+            }
+        }
+
+        if (area != null && !area.isEmpty()) {
+            // Remove room-code suffix (e.g., _MBDR) and replace underscores with spaces
+            String cleanedArea = area.replaceAll("_[A-Z0-9]{2,6}$", "")
+                    .replace("_", " ")
+                    .replace("-", " ")
+                    .trim();
+            
+            holder.areaName.setText(cleanedArea);
+            holder.areaTitleView.setVisibility(View.VISIBLE);
+            holder.areaName.setVisibility(View.VISIBLE);
         } else {
             holder.areaTitleView.setVisibility(View.GONE);
             holder.areaName.setVisibility(View.GONE);

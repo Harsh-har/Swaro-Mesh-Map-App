@@ -255,14 +255,20 @@ public class GroupsFragment extends Fragment implements
     }
 
     private void navigateToNodeConfig(final ProvisionedMeshNode node) {
+        String svgId = mViewModel.getSvgIdFromNode(node);
+        Intent intent = new Intent(requireActivity(), NodeConfigurationActivity.class);
+        if (svgId != null) {
+            intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID, svgId);
+        }
+
         if (!mViewModel.isProxyEnabled()) {
-            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
+            startActivity(intent);
             return;
         }
 
         final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
         if (Boolean.TRUE.equals(isConnected)) {
-            startActivity(new Intent(requireActivity(), NodeConfigurationActivity.class));
+            startActivity(intent);
         } else {
             stopAutoProxyScan();
             startProxyConnectInBackground(node.getMacAddress());

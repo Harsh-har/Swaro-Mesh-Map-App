@@ -170,6 +170,9 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             int svgId = prefs.getInt("server_svg_element_id_" + key, -1);
             if (svgId != -1) entry.addProperty("svgElementId", svgId);
 
+            String areaId = prefs.getString("server_area_id_" + key, null);
+            if (areaId != null && !areaId.isEmpty()) entry.addProperty("areaId", areaId);
+
             String mac = prefs.getString("mac_" + key, null);
             if (mac != null && !mac.isEmpty()) entry.addProperty("mac", mac);
 
@@ -200,6 +203,17 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
             }
         }
 
+        // ── Step 3: Global UUID -> SVG Mapping ───────────────────────────
+        // These are stored as "node_svg_<uuid>"
+        final JsonObject nodeSvgMap = new JsonObject();
+        for (Map.Entry<String, ?> e : prefs.getAll().entrySet()) {
+            if (e.getKey().startsWith("node_svg_")) {
+                String uuid = e.getKey().substring("node_svg_".length());
+                nodeSvgMap.addProperty(uuid, String.valueOf(e.getValue()));
+            }
+        }
+        if (nodeSvgMap.size() > 0) root.add("node_svg_mappings", nodeSvgMap);
+
         MeshLogger.verbose(TAG, "serializeSwaromapData: exported " + root.size() + " device(s)");
         return root;
     }
@@ -226,6 +240,16 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
 
         for (Map.Entry<String, JsonElement> entry : swaromapData.entrySet()) {
             final String     key = entry.getKey();
+
+            // ── Handle global mappings ─────────────────────────────────────
+            if (key.equals("node_svg_mappings")) {
+                final JsonObject mappings = entry.getValue().getAsJsonObject();
+                for (Map.Entry<String, JsonElement> m : mappings.entrySet()) {
+                    meshEditor.putString("node_svg_" + m.getKey(), m.getValue().getAsString());
+                }
+                continue;
+            }
+
             final JsonObject obj = entry.getValue().getAsJsonObject();
 
             if (obj.has("unicast")) {
@@ -238,6 +262,9 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
 
             if (obj.has("svgElementId"))
                 meshEditor.putInt("server_svg_element_id_" + key, obj.get("svgElementId").getAsInt());
+
+            if (obj.has("areaId"))
+                meshEditor.putString("server_area_id_" + key, obj.get("areaId").getAsString());
 
             if (obj.has("mac"))
                 meshEditor.putString("mac_" + key, obj.get("mac").getAsString());

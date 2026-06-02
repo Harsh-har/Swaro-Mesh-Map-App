@@ -412,6 +412,15 @@ public class NetworkFragment extends Fragment {
 
         colorManager.init(document, svgParser, deviceMap);
 
+        // ── Save device ID → area ID mappings to store ────────────────────
+        for (Map.Entry<String, DeviceInfo> entry : devices.entrySet()) {
+            String deviceId = entry.getKey();
+            String areaId   = entry.getValue().areaId;
+            if (areaId != null && !areaId.isEmpty()) {
+                ClientServerElementStore.saveServerAreaId(deviceId, areaId);
+            }
+        }
+
         for (DeviceInfo info : deviceMap.values()) {
             colorManager.restoreIconGroupColor(info.element);
         }
@@ -904,6 +913,9 @@ public class NetworkFragment extends Fragment {
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+        if (device != null && device.areaId != null) {
+            intent.putExtra(DeviceDetailActivity.EXTRA_AREA_ID, device.areaId);
+        }
         startActivity(intent);
     }
 
