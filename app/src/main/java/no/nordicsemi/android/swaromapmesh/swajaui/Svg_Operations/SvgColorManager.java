@@ -423,3 +423,5 @@ public class SvgColorManager {
     public void restoreAllFurniture() {}
     public void forceResnapshotAllDevices(Map m) {}
 }
+
+

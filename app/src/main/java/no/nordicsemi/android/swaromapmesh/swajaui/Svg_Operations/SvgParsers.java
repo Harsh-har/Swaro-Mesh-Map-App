@@ -647,7 +647,7 @@ public class SvgParsers {
                     cx[0] = args.get(i + 4); cy[0] = args.get(i + 5);
                 }
                 break;
-            case 'c':
+                case 'c':
                 for (int i = 0; i + 5 < args.size(); i += 6) {
                     xs.add(cx[0] + args.get(i));     ys.add(cy[0] + args.get(i + 1));
                     xs.add(cx[0] + args.get(i + 2)); ys.add(cy[0] + args.get(i + 3));
