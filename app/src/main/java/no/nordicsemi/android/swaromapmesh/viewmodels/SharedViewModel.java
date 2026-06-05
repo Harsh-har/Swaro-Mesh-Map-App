@@ -221,16 +221,18 @@ public class SharedViewModel extends BaseViewModel
         for (String serverKey : provisionedKeys) {
 
             // ── 1. Server unicast address ──────────────────────────────────
-            int serverAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
-            if (serverAddr == -1) continue;
-            if (!isNodeInNetwork(serverAddr)) {
-                Log.d(TAG, "  Server 0x" + String.format("%04X", serverAddr) + " not in network — skip");
+            int primaryServerAddr = ClientServerElementStore.getServerUnicastAddress(serverKey);
+            if (primaryServerAddr == -1) continue;
+            if (!isNodeInNetwork(primaryServerAddr)) {
+                Log.d(TAG, "  Server 0x" + String.format("%04X", primaryServerAddr) + " not in network — skip");
                 continue;
             }
 
             // ── 2. Verify server node (must have OnOff Server model) ───────
-            if (!isServerNode(serverAddr)) {
-                Log.w(TAG, "  0x" + String.format("%04X", serverAddr) + " has no OnOff Server model — skip");
+            // Find the actual element that has the OnOff Server model
+            int serverAddr = findServerModelAddress(primaryServerAddr);
+            if (serverAddr == -1) {
+                Log.w(TAG, "  0x" + String.format("%04X", primaryServerAddr) + " has no OnOff Server model — skip");
                 continue;
             }
 
@@ -291,12 +293,18 @@ public class SharedViewModel extends BaseViewModel
             }
 
             // ── 9. In-flight guard ─────────────────────────────────────────
-            String pairKey = cToSAddr + "_" + serverAddr;
-            if (meshPrefs.getBoolean("pub_inflight_" + pairKey, false)) {
-                Log.d(TAG, "  Already in-flight: " + pairKey + " — skip");
+            String csKey = cToSAddr + "_" + serverAddr;
+            String scKey = serverAddr + "_" + sToCAddr;
+            
+            if (meshPrefs.getBoolean("pub_inflight_" + csKey, false)) {
+                Log.d(TAG, "  Already in-flight: " + csKey + " — skip");
                 continue;
             }
-            meshPrefs.edit().putBoolean("pub_inflight_" + pairKey, true).apply();
+            
+            meshPrefs.edit().putBoolean("pub_inflight_" + csKey, true).apply();
+            if (sToCAddr != -1) {
+                meshPrefs.edit().putBoolean("pub_inflight_" + scKey, true).apply();
+            }
 
             // ── 10. Log & schedule ─────────────────────────────────────────
             Log.d(TAG, "  Scheduling pair: " + serverKey);
@@ -305,20 +313,20 @@ public class SharedViewModel extends BaseViewModel
             if (sToCAddr != -1)
                 Log.d(TAG, "     S→C: Server 0x" + String.format("%04X", serverAddr)
                         + " → 0x" + String.format("%04X", sToCAddr));
-            else
-                Log.d(TAG, "     S→C: skipped (no receiveId or addr not found)");
 
             final int fCToSAddr   = cToSAddr;
             final int fSToCAddr   = sToCAddr;
             final int fServerAddr = serverAddr;
             final int fAppKey     = appKeyIndex;
-            final String fPairKey = pairKey;
+            final String fCsKey   = csKey;
+            final String fScKey   = scKey;
 
             new Handler(Looper.getMainLooper()).postDelayed(() -> {
                 setupPublicationPairDirectional(fCToSAddr, fSToCAddr, fServerAddr, fAppKey);
-                new Handler(Looper.getMainLooper()).postDelayed(
-                        () -> meshPrefs.edit().remove("pub_inflight_" + fPairKey).apply(),
-                        10_000);
+                new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                    meshPrefs.edit().remove("pub_inflight_" + fCsKey).apply();
+                    meshPrefs.edit().remove("pub_inflight_" + fScKey).apply();
+                }, 10_000);
             }, delayOffset);
 
             delayOffset += 4000;
@@ -375,20 +383,32 @@ public class SharedViewModel extends BaseViewModel
         return null;
     }
 
-    private boolean isServerNode(int unicastAddr) {
+    /**
+     * Finds the actual element address that has the Generic OnOff Server model (0x1000)
+     * in the node that contains anyAddr.
+     */
+    private int findServerModelAddress(int anyAddr) {
         List<ProvisionedMeshNode> nodes = getAllProvisionedNodes();
-        if (nodes == null) return false;
+        if (nodes == null) return -1;
         for (ProvisionedMeshNode node : nodes) {
+            // Check if any element of this node matches anyAddr
+            boolean belongsToThisNode = false;
             for (Element el : node.getElements().values()) {
-                if (el.getElementAddress() == unicastAddr) {
-                    boolean hasServer = el.getMeshModels().containsKey(0x1000);
-                    Log.d(TAG, "isServerNode: 0x" + String.format("%04X", unicastAddr)
-                            + " hasOnOffServer=" + hasServer);
-                    return hasServer;
+                if (el.getElementAddress() == anyAddr) {
+                    belongsToThisNode = true;
+                    break;
+                }
+            }
+            if (belongsToThisNode) {
+                // Return the address of the element that has the server model
+                for (Element el : node.getElements().values()) {
+                    if (el.getMeshModels().containsKey(GENERIC_ONOFF_SERVER)) {
+                        return el.getElementAddress();
+                    }
                 }
             }
         }
-        return false;
+        return -1;
     }
 
     @Nullable
@@ -693,6 +713,14 @@ public class SharedViewModel extends BaseViewModel
         SharedPreferences meshPrefs =
                 mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         meshPrefs.edit().remove("pub_inflight_" + key).apply();
+
+        // Mark setup as complete in store if this was C→S
+        if ("C→S".equals(attempt.label)) {
+            AutoPublicationHelper.markPublicationSetupComplete(meshPrefs, attempt.elementAddress, attempt.publishAddress);
+        } else if ("S→C".equals(attempt.label)) {
+            // For S→C, we use serverAddr as elementAddress and clientAddr as publishAddress
+            AutoPublicationHelper.markPublicationSetupComplete(meshPrefs, attempt.publishAddress, attempt.elementAddress);
+        }
     }
 
     /**
@@ -722,8 +750,8 @@ public class SharedViewModel extends BaseViewModel
                             schedulePublicationWithRetry(
                                     fAttempt.node,
                                     fAttempt.elementAddress,
-                                    fAttempt.publishAddress,
                                     fAttempt.modelId,
+                                    fAttempt.publishAddress,
                                     fAttempt.appKeyIndex,
                                     fAttempt.label),
                     retryDelay);
