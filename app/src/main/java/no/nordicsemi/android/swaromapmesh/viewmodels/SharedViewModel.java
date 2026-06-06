@@ -2,10 +2,15 @@ package no.nordicsemi.android.swaromapmesh.viewmodels;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.media.AudioManager;
+import android.media.ToneGenerator;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
+import android.speech.tts.TextToSpeech;
 import android.util.Log;
 import android.widget.Toast;
 
@@ -18,6 +23,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -36,6 +42,7 @@ import no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationStatus
 import no.nordicsemi.android.swaromapmesh.transport.Element;
 import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.utils.FeedbackManager;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
 @HiltViewModel
@@ -60,6 +67,7 @@ public class SharedViewModel extends BaseViewModel
 
     private final SharedPreferences prefs;
     private final Context mContext;
+    private final FeedbackManager mFeedbackManager;
 
     // ── Repositories ───────────────────────────────────────────────────────
     private final ScannerRepository      mScannerRepository;
@@ -98,11 +106,13 @@ public class SharedViewModel extends BaseViewModel
     SharedViewModel(
             @NonNull final NrfMeshRepository nrfMeshRepository,
             @NonNull final ScannerRepository scannerRepository,
+            @NonNull final FeedbackManager feedbackManager,
             @ApplicationContext @NonNull final Context context
     ) {
         super(nrfMeshRepository);
 
         mContext = context;
+        mFeedbackManager = feedbackManager;
         ClientServerElementStore.init(context);
 
         mScannerRepository = scannerRepository;
@@ -132,6 +142,14 @@ public class SharedViewModel extends BaseViewModel
 
         // ── Observe publication status for retry logic ─────────────────────
         observePublicationStatus();
+    }
+
+    public void performSuccessFeedback(String message) {
+        mFeedbackManager.performSuccessFeedback(message);
+    }
+
+    public void performLongHapticWithBeep() {
+        mFeedbackManager.performLongHapticWithBeep();
     }
 
     @Override
@@ -708,6 +726,8 @@ public class SharedViewModel extends BaseViewModel
 
         Log.d(TAG, "✅ Publication fully confirmed [" + attempt.label + "] key=" + key
                 + " after " + attempt.attemptCount + " attempt(s)");
+
+        mFeedbackManager.performLongHapticWithBeep();
 
         // Clean up inflight pref flag if it was set
         SharedPreferences meshPrefs =

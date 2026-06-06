@@ -286,6 +286,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         }
 
         showProvisionedToast(finalSvgDeviceId);
+        sharedViewModel.performLongHapticWithBeep();
         Log.d(TAG, "✅ Provisioning fully completed for: " + finalSvgDeviceId);
         finish();
     }

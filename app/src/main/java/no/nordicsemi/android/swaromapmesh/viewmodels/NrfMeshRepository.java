@@ -75,6 +75,7 @@ import no.nordicsemi.android.swaromapmesh.transport.VendorModelMessageStatus;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.BleMeshManager;
 import no.nordicsemi.android.swaromapmesh.ble.BleMeshManagerCallbacks;
+import no.nordicsemi.android.swaromapmesh.utils.FeedbackManager;
 import no.nordicsemi.android.swaromapmesh.utils.ProvisionerStates;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.support.v18.scanner.BluetoothLeScannerCompat;
@@ -140,6 +141,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     // ── Core objects ──────────────────────────────────────────────────────────
     private final MeshManagerApi mMeshManagerApi;
     private final BleMeshManager mBleMeshManager;
+    private final FeedbackManager mFeedbackManager;
     private final Handler        mHandler;
 
     private UnprovisionedMeshNode      mUnprovisionedMeshNode;
@@ -192,7 +194,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     @Inject
     public NrfMeshRepository(final MeshManagerApi meshManagerApi,
-                             final BleMeshManager bleMeshManager) {
+                             final BleMeshManager bleMeshManager,
+                             final FeedbackManager feedbackManager) {
         mMeshManagerApi = meshManagerApi;
         mMeshManagerApi.setMeshManagerCallbacks(this);
         mMeshManagerApi.setProvisioningStatusCallbacks(this);
@@ -200,6 +203,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         mMeshManagerApi.loadMeshNetwork();
         mBleMeshManager = bleMeshManager;
         mBleMeshManager.setGattCallbacks(this);
+        mFeedbackManager = feedbackManager;
         mHandler = new Handler(Looper.getMainLooper());
     }
 
@@ -365,7 +369,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         final UnprovisionedBeacon beacon = (UnprovisionedBeacon) device.getBeacon();
         if (beacon != null) {
             mMeshManagerApi.identifyNode(beacon.getUuid(), ATTENTION_TIMER);
-
+            mFeedbackManager.performLongHaptic();
         } else {
             final byte[] serviceData = Utils.getServiceData(
                     device.getScanResult(), BleMeshManager.MESH_PROVISIONING_UUID);
@@ -373,6 +377,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
                 final UUID uuid = mMeshManagerApi.getDeviceUuid(serviceData);
                 Log.d(TAG, "✅✅✅Idenitify✅ ");
                 mMeshManagerApi.identifyNode(uuid, ATTENTION_TIMER);
+                mFeedbackManager.performLongHaptic();
             }
         }
     }

@@ -48,6 +48,7 @@ import no.nordicsemi.android.swaromapmesh.transport.MeshModel;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.HeartbeatPublication;
 import no.nordicsemi.android.swaromapmesh.utils.HeartbeatSubscription;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ModelConfigurationViewModel;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkTransmitSettings;
 import no.nordicsemi.android.swaromapmesh.utils.RelaySettings;
 import no.nordicsemi.android.swaromapmesh.R;
@@ -313,6 +314,9 @@ public class ConfigurationServerActivity extends BaseModelConfigurationActivity 
             final ConfigHeartbeatPublicationStatus status = (ConfigHeartbeatPublicationStatus) meshMessage;
             mViewModel.removeMessage();
             if (status.isSuccessful()) {
+                if (mViewModel instanceof ModelConfigurationViewModel) {
+                    ((ModelConfigurationViewModel) mViewModel).performLongHapticWithBeep();
+                }
                 updateHeartbeatPublication();
                 if (handleStatuses()) return;
             } else {

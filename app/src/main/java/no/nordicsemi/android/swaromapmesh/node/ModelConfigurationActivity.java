@@ -6,6 +6,7 @@ import com.google.android.material.snackbar.Snackbar;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.transport.*;
 import no.nordicsemi.android.swaromapmesh.R;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ModelConfigurationViewModel;
 
 
 
@@ -38,6 +39,9 @@ public abstract class ModelConfigurationActivity extends BaseModelConfigurationA
             final ConfigModelPublicationStatus status = (ConfigModelPublicationStatus) meshMessage;
             mViewModel.removeMessage();
             if (status.isSuccessful()) {
+                if (mViewModel instanceof ModelConfigurationViewModel) {
+                    ((ModelConfigurationViewModel) mViewModel).performLongHapticWithBeep();
+                }
                 handleStatuses();
             } else {
                 displayStatusDialogFragment(getString(R.string.title_publication_status), status.getStatusCodeName());
