@@ -25,7 +25,8 @@ public class RssiFilterActivity extends AppCompatActivity {
     private RadioGroup rgSignalStrength;
     private Button btnApply, btnReset;
 
-    private int selectedSignal = DevicesAdapter.SIGNAL_100;
+    // ── DEFAULT changed to SIGNAL_VERY_CLOSE ──────────────────────────────
+    private int selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,12 +34,11 @@ public class RssiFilterActivity extends AppCompatActivity {
         EdgeToEdge.enable(this);
         setContentView(R.layout.activity_rssi_filter);
 
-        // ViewModel (Hilt handles injection)
         mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         rgSignalStrength = findViewById(R.id.rgSignalStrength);
-        btnApply = findViewById(R.id.btnApply);
-        btnReset = findViewById(R.id.btnReset);
+        btnApply         = findViewById(R.id.btnApply);
+        btnReset         = findViewById(R.id.btnReset);
 
         Integer current = mSharedViewModel.getSignalThreshold().getValue();
         if (current != null) selectedSignal = current;
@@ -57,13 +57,15 @@ public class RssiFilterActivity extends AppCompatActivity {
             else
                 selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
         });
+
         btnApply.setOnClickListener(v -> {
             mSharedViewModel.setSignalThreshold(selectedSignal);
             finish();
         });
 
+        // ── Reset now restores to SIGNAL_VERY_CLOSE, not SIGNAL_DEFAULT ───
         btnReset.setOnClickListener(v -> {
-            selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
+            selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
             mSharedViewModel.setSignalThreshold(selectedSignal);
             setInitialSelection(selectedSignal);
         });
