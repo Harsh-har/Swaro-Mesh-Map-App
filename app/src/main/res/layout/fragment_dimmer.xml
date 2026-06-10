@@ -11,84 +11,6 @@
     android:paddingStart="24dp"
     android:paddingEnd="24dp">
 
-    <!-- Color Temperature Heading -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="6dp"
-        android:text="Color Temperature"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:fontFamily="sans-serif-medium" />
-
-    <!-- Kelvin label -->
-    <TextView
-        android:id="@+id/kelvinLabel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="10dp"
-        android:textColor="#AAAAAA"
-        android:textSize="12sp"
-        android:fontFamily="sans-serif" />
-
-    <!-- Color Temperature Slider (REVERTED TO ORIGINAL STYLE) -->
-    <FrameLayout
-        android:layout_width="match_parent"
-        android:layout_height="44dp">
-
-        <View
-            android:id="@+id/colorTempTrack"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:background="@drawable/slider_brightness_track" />
-
-        <SeekBar
-            android:id="@+id/colorTempSeek"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:max="100"
-            android:progress="50"
-            android:progressDrawable="@android:color/transparent"
-            android:thumb="@android:color/transparent"
-            android:background="@android:color/transparent"
-            android:splitTrack="false"
-            android:paddingStart="0dp"
-            android:paddingEnd="0dp" />
-
-        <View
-            android:id="@+id/colorTempThumb"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:layout_gravity="center_vertical"
-            android:background="@drawable/slider_thumb_inner_yellow"
-            android:elevation="4dp" />
-    </FrameLayout>
-
-    <!-- Warm / Cool labels -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="6dp"
-        android:orientation="horizontal">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Warm"
-            android:textColor="#FFAA44"
-            android:textSize="11sp" />
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:gravity="end"
-            android:text="Cool"
-            android:textColor="#AAD4FF"
-            android:textSize="11sp" />
-    </LinearLayout>
-
     <!-- Brightness Heading -->
     <TextView
         android:layout_width="match_parent"
@@ -100,31 +22,35 @@
         android:textSize="14sp"
         android:fontFamily="sans-serif-medium" />
 
-    <!-- Brightness Slider Row (NEW DIMMER STYLE) -->
+    <!-- Brightness Slider Row -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical">
 
+        <!-- Slider Container -->
         <FrameLayout
             android:layout_width="0dp"
             android:layout_height="44dp"
             android:layout_weight="1">
 
+            <!-- Track -->
             <View
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:background="@drawable/slider_brightness_track" />
 
+            <!-- Fill -->
             <View
-                android:id="@+id/tunableBrightnessFill"
+                android:id="@+id/dimmerBrightnessFill"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:background="@drawable/slider_brightness_fill" />
 
+            <!-- Invisible SeekBar for interaction -->
             <SeekBar
-                android:id="@+id/tunableBrightnessSeek"
+                android:id="@+id/dimmerBrightnessSeek"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:max="100"
@@ -136,8 +62,9 @@
                 android:paddingStart="0dp"
                 android:paddingEnd="0dp" />
 
+            <!-- Decrease Button -->
             <ImageButton
-                android:id="@+id/brightDecrement"
+                android:id="@+id/dimmerDecrement"
                 android:layout_width="72dp"
                 android:layout_height="match_parent"
                 android:layout_gravity="start"
@@ -147,8 +74,9 @@
                 app:tint="#FFFFFF"
                 android:padding="6dp" />
 
+            <!-- Increase Button -->
             <ImageButton
-                android:id="@+id/brightIncrement"
+                android:id="@+id/dimmerIncrement"
                 android:layout_width="72dp"
                 android:layout_height="match_parent"
                 android:layout_gravity="end"
@@ -158,23 +86,26 @@
                 app:tint="#FFFFFF"
                 android:padding="6dp" />
 
+            <!-- Hidden Thumb View -->
             <View
-                android:id="@+id/tunableBrightnessThumb"
+                android:id="@+id/dimmerBrightnessThumb"
                 android:layout_width="1dp"
                 android:layout_height="1dp"
                 android:visibility="invisible" />
+
         </FrameLayout>
 
+        <!-- Status area -->
         <TextView
-            android:id="@+id/tunableBrightnessLabel"
+            android:id="@+id/dimmerBrightnessLabel"
             android:layout_width="48dp"
             android:layout_height="wrap_content"
             android:layout_marginStart="12dp"
             android:text="60%"
             android:textColor="#FFFFFF"
             android:textSize="13sp"
-            android:gravity="start"
-            android:fontFamily="sans-serif-medium" />
+            android:fontFamily="sans-serif-medium"
+            android:gravity="start" />
 
     </LinearLayout>
 

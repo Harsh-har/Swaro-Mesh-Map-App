@@ -1,0 +1,461 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1A1A1A">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:gravity="top|center_horizontal"
+        android:paddingTop="16dp"
+        android:paddingBottom="32dp"
+        android:paddingStart="24dp"
+        android:paddingEnd="24dp">
+
+        <!-- ===== GLOBAL BRIGHTNESS ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"
+            android:text="All Brightness"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_track" />
+
+                <View
+                    android:id="@+id/globalBrightnessFill"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_fill" />
+
+                <SeekBar
+                    android:id="@+id/globalBrightnessSeek"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:max="100"
+                    android:progress="60"
+                    android:progressDrawable="@android:color/transparent"
+                    android:thumb="@android:color/transparent"
+                    android:background="@android:color/transparent"
+                    android:splitTrack="false"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp" />
+
+                <ImageButton
+                    android:id="@+id/globalDecrement"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="start"
+                    android:src="@drawable/ic_chevron_left"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Decrease"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <ImageButton
+                    android:id="@+id/globalIncrement"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="end"
+                    android:src="@drawable/ic_chevron_right"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Increase"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <View
+                    android:id="@+id/globalBrightnessThumb"
+                    android:layout_width="1dp"
+                    android:layout_height="1dp"
+                    android:visibility="invisible" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/globalBrightnessLabel"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="60%"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:gravity="start"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginTop="24dp"
+            android:background="#333333" />
+
+        <!-- ===== LIGHT 1 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"
+            android:text="Light 1 — Brightness"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_track" />
+
+                <View
+                    android:id="@+id/brightnessFill1"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_fill" />
+
+                <SeekBar
+                    android:id="@+id/brightnessSeek1"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:max="100"
+                    android:progress="60"
+                    android:progressDrawable="@android:color/transparent"
+                    android:thumb="@android:color/transparent"
+                    android:background="@android:color/transparent"
+                    android:splitTrack="false"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp" />
+
+                <ImageButton
+                    android:id="@+id/decrement1"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="start"
+                    android:src="@drawable/ic_chevron_left"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Decrease"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <ImageButton
+                    android:id="@+id/increment1"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="end"
+                    android:src="@drawable/ic_chevron_right"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Increase"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <View
+                    android:id="@+id/brightnessThumb1"
+                    android:layout_width="1dp"
+                    android:layout_height="1dp"
+                    android:visibility="invisible" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/brightnessLabel1"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="60%"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:gravity="start"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <!-- ===== LIGHT 2 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"
+            android:text="Light 2 — Brightness"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_track" />
+
+                <View
+                    android:id="@+id/brightnessFill2"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_fill" />
+
+                <SeekBar
+                    android:id="@+id/brightnessSeek2"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:max="100"
+                    android:progress="60"
+                    android:progressDrawable="@android:color/transparent"
+                    android:thumb="@android:color/transparent"
+                    android:background="@android:color/transparent"
+                    android:splitTrack="false"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp" />
+
+                <ImageButton
+                    android:id="@+id/decrement2"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="start"
+                    android:src="@drawable/ic_chevron_left"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Decrease"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <ImageButton
+                    android:id="@+id/increment2"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="end"
+                    android:src="@drawable/ic_chevron_right"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Increase"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <View
+                    android:id="@+id/brightnessThumb2"
+                    android:layout_width="1dp"
+                    android:layout_height="1dp"
+                    android:visibility="invisible" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/brightnessLabel2"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="60%"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:gravity="start"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <!-- ===== LIGHT 3 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"
+            android:text="Light 3 — Brightness"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_track" />
+
+                <View
+                    android:id="@+id/brightnessFill3"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_fill" />
+
+                <SeekBar
+                    android:id="@+id/brightnessSeek3"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:max="100"
+                    android:progress="60"
+                    android:progressDrawable="@android:color/transparent"
+                    android:thumb="@android:color/transparent"
+                    android:background="@android:color/transparent"
+                    android:splitTrack="false"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp" />
+
+                <ImageButton
+                    android:id="@+id/decrement3"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="start"
+                    android:src="@drawable/ic_chevron_left"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Decrease"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <ImageButton
+                    android:id="@+id/increment3"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="end"
+                    android:src="@drawable/ic_chevron_right"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Increase"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <View
+                    android:id="@+id/brightnessThumb3"
+                    android:layout_width="1dp"
+                    android:layout_height="1dp"
+                    android:visibility="invisible" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/brightnessLabel3"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="60%"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:gravity="start"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+        <!-- ===== LIGHT 4 ===== -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="8dp"
+            android:text="Light 4 — Brightness"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <FrameLayout
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1">
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_track" />
+
+                <View
+                    android:id="@+id/brightnessFill4"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:background="@drawable/slider_brightness_fill" />
+
+                <SeekBar
+                    android:id="@+id/brightnessSeek4"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:max="100"
+                    android:progress="60"
+                    android:progressDrawable="@android:color/transparent"
+                    android:thumb="@android:color/transparent"
+                    android:background="@android:color/transparent"
+                    android:splitTrack="false"
+                    android:paddingStart="0dp"
+                    android:paddingEnd="0dp" />
+
+                <ImageButton
+                    android:id="@+id/decrement4"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="start"
+                    android:src="@drawable/ic_chevron_left"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Decrease"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <ImageButton
+                    android:id="@+id/increment4"
+                    android:layout_width="72dp"
+                    android:layout_height="match_parent"
+                    android:layout_gravity="end"
+                    android:src="@drawable/ic_chevron_right"
+                    android:background="@drawable/bg_slider_btn_ripple"
+                    android:contentDescription="Increase"
+                    app:tint="#FFFFFF"
+                    android:padding="6dp" />
+
+                <View
+                    android:id="@+id/brightnessThumb4"
+                    android:layout_width="1dp"
+                    android:layout_height="1dp"
+                    android:visibility="invisible" />
+            </FrameLayout>
+
+            <TextView
+                android:id="@+id/brightnessLabel4"
+                android:layout_width="48dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:text="60%"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:gravity="start"
+                android:fontFamily="sans-serif-medium" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

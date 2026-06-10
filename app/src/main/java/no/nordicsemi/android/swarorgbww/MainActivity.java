@@ -28,7 +28,7 @@ public class MainActivity extends AppCompatActivity implements
 
     private SharedViewModel mViewModel;
 
-    private RgbControllerFragment mNetworkFragment;
+    private Fragment mNetworkFragment;
     private GroupsFragment mGroupsFragment;
     private ProxyFilterFragment mProxyFilterFragment;
     private Fragment mSettingsFragment;
@@ -52,15 +52,15 @@ public class MainActivity extends AppCompatActivity implements
             getSupportActionBar().setTitle(R.string.app_name);
         }
 
-        // fragment_network is now a FrameLayout — add RgbControllerFragment manually
+        // fragment_network is now a FrameLayout — add LightSelectorFragment manually
         if (savedInstanceState == null) {
             getSupportFragmentManager().beginTransaction()
-                    .add(R.id.fragment_network, new RgbControllerFragment())
+                    .add(R.id.fragment_network, new LightSelectorFragment())
                     .commit();
         }
 
-        // Find fragments from XML (groups, proxy, settings are still <fragment> tags)
-        mNetworkFragment = (RgbControllerFragment)
+        // Find fragments
+        mNetworkFragment =
                 getSupportFragmentManager().findFragmentById(R.id.fragment_network);
 
         mGroupsFragment = (GroupsFragment)
@@ -160,9 +160,13 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     public boolean onNavigationItemSelected(@NonNull MenuItem item) {
 
-        // When network tab is selected, pop back stack so RgbControllerFragment
-        // is visible again (in case TunableWhiteFragment was opened)
+        // When network tab is selected, pop back stack so LightSelectorFragment
+        // is visible again
         if (item.getItemId() == R.id.action_network) {
+            getSupportFragmentManager().popBackStack(
+                    "selection",
+                    androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE
+            );
             getSupportFragmentManager().popBackStack(
                     "tunable",
                     androidx.fragment.app.FragmentManager.POP_BACK_STACK_INCLUSIVE
@@ -170,7 +174,7 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         // Re-fetch mNetworkFragment after possible back stack pop
-        mNetworkFragment = (RgbControllerFragment)
+        mNetworkFragment =
                 getSupportFragmentManager().findFragmentById(R.id.fragment_network);
 
         FragmentTransaction ft = getSupportFragmentManager().beginTransaction();
