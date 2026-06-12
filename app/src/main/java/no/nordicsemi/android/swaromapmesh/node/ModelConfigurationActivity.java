@@ -40,7 +40,7 @@ public abstract class ModelConfigurationActivity extends BaseModelConfigurationA
             mViewModel.removeMessage();
             if (status.isSuccessful()) {
                 if (mViewModel instanceof ModelConfigurationViewModel) {
-                    ((ModelConfigurationViewModel) mViewModel).performLongHapticWithBeep();
+                    ((ModelConfigurationViewModel) mViewModel).performStrongDoubleVibration();
                 }
                 handleStatuses();
             } else {

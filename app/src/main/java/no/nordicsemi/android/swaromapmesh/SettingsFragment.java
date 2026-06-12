@@ -257,6 +257,8 @@ public class SettingsFragment extends Fragment implements
     public void onNetworkReset() {
         Log.d(TAG, "=== Starting network reset ===");
 
+        mViewModel.performStrongDoubleVibration();
+
         // 1. Reset mesh network
         mViewModel.resetMeshNetwork();
 

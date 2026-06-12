@@ -315,7 +315,7 @@ public class ConfigurationServerActivity extends BaseModelConfigurationActivity 
             mViewModel.removeMessage();
             if (status.isSuccessful()) {
                 if (mViewModel instanceof ModelConfigurationViewModel) {
-                    ((ModelConfigurationViewModel) mViewModel).performLongHapticWithBeep();
+                    ((ModelConfigurationViewModel) mViewModel).performStrongDoubleVibration();
                 }
                 updateHeartbeatPublication();
                 if (handleStatuses()) return;

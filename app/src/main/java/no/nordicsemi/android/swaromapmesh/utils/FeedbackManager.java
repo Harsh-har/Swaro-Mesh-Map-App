@@ -49,10 +49,24 @@ public class FeedbackManager {
         Vibrator v = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
         if (v != null && v.hasVibrator()) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                // Long continuous vibration (400ms)
-                v.vibrate(VibrationEffect.createOneShot(400, VibrationEffect.DEFAULT_AMPLITUDE));
+                // Stronger long vibration (500ms at MAX_AMPLITUDE)
+                v.vibrate(VibrationEffect.createOneShot(500, 255));
             } else {
-                v.vibrate(400);
+                v.vibrate(500);
+            }
+        }
+    }
+
+    public void performStrongDoubleVibration() {
+        Vibrator v = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+        if (v != null && v.hasVibrator()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                long[] timings = {0, 500, 200, 500};
+                int[] amplitudes = {0, 255, 0, 255};
+                v.vibrate(VibrationEffect.createWaveform(timings, amplitudes, -1));
+            } else {
+                long[] pattern = {0, 500, 200, 500};
+                v.vibrate(pattern, -1);
             }
         }
     }

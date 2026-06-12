@@ -156,6 +156,14 @@ public class SharedViewModel extends BaseViewModel
         mFeedbackManager.performLongHapticWithBeep();
     }
 
+    public void performLongHaptic() {
+        mFeedbackManager.performLongHaptic();
+    }
+
+    public void performStrongDoubleVibration() {
+        mFeedbackManager.performStrongDoubleVibration();
+    }
+
     @Override
     protected void onCleared() {
         super.onCleared();
@@ -675,7 +683,7 @@ public class SharedViewModel extends BaseViewModel
         Log.d(TAG, "✅ Publication fully confirmed [" + attempt.label + "] key=" + key
                 + " after " + attempt.attemptCount + " attempt(s)");
 
-        mFeedbackManager.performLongHapticWithBeep();
+        mFeedbackManager.performStrongDoubleVibration();
 
         SharedPreferences meshPrefs =
                 mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
@@ -771,6 +779,7 @@ public class SharedViewModel extends BaseViewModel
             ClientServerElementStore.clearDevice(key);
         }
         provisionedDeviceIds.setValue(new HashSet<>());
+        mFeedbackManager.performStrongDoubleVibration();
         Log.d(TAG, "🧹 clearProvisionedDevices done");
     }
 
@@ -838,6 +847,8 @@ public class SharedViewModel extends BaseViewModel
 
         nodeToSvgMap.remove(realNode.getUuid());
         prefs.edit().remove("node_svg_" + realNode.getUuid()).apply();
+
+        mFeedbackManager.performStrongDoubleVibration();
 
         forceSvgRefresh();
         Log.d(TAG, "✅ fullyDeleteNode complete: " + realNode.getNodeName());

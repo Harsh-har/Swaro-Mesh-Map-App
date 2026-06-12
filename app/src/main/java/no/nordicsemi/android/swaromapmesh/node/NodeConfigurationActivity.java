@@ -555,6 +555,7 @@ public class NodeConfigurationActivity extends BaseActivity implements
             Log.d(TAG, "ConfigNodeResetStatus received — clearing unicast=0x"
                     + String.format("%04X", mResetNodeUnicast));
 
+            mSharedViewModel.performStrongDoubleVibration();
             mSharedViewModel.performSuccessFeedback("Node reset successfully");
             clearDeviceFromStore(mResetNodeUnicast);
             mResetNodeUnicast = -1;

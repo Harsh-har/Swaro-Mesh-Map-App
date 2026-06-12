@@ -50,6 +50,10 @@ public class ModelConfigurationViewModel extends BaseViewModel {
         mFeedbackManager.performLongHapticWithBeep();
     }
 
+    public void performStrongDoubleVibration() {
+        mFeedbackManager.performStrongDoubleVibration();
+    }
+
     @Override
     protected void onCleared() {
         super.onCleared();
