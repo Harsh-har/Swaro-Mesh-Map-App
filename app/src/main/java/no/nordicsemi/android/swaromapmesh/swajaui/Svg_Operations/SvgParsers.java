@@ -1,5 +1,6 @@
 package no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations;
 
+import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.util.Log;
 import org.w3c.dom.Document;
@@ -19,56 +20,26 @@ import java.util.regex.Pattern;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
-
 public class SvgParsers {
 
     private static final String TAG = "SvgParsers";
 
-    // ViewBox values — updated by parseViewBox()
     public float vbX = 0f, vbY = 0f, vbW = 1200f, vbH = 640f;
-
-    // Area ID → list of icon IDs in that area
     public final Map<String, List<String>> areaMap = new LinkedHashMap<>();
-
-    // Area ID → selection_layer Element reference (for dim logic)
     public final Map<String, Element> selectionLayerElements = new HashMap<>();
-
-    // Area ID → bounding box in SVG coordinates
     public final Map<String, RectF> selectionLayerBounds = new HashMap<>();
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  DOCUMENT PARSING
-    // ══════════════════════════════════════════════════════════════════════
-
-    public Document parseDocument(InputStream inputStream) {
-        if (inputStream == null) return null;
+    public Document parseDocument(InputStream is) {
         try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(false);
-            factory.setValidating(false);
-            try {
-                factory.setFeature(
-                        "http://xml.org/sax/features/external-general-entities", false);
-                factory.setFeature(
-                        "http://xml.org/sax/features/external-parameter-entities", false);
-                factory.setFeature(
-                        "http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            } catch (Exception ignored) {}
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            builder.setEntityResolver(
-                    (pub, sys) -> new org.xml.sax.InputSource(new java.io.StringReader("")));
-            Document doc = builder.parse(inputStream);
-            doc.getDocumentElement().normalize();
-            return doc;
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            dbf.setNamespaceAware(false);
+            DocumentBuilder db = dbf.newDocumentBuilder();
+            return db.parse(is);
         } catch (Exception e) {
-            Log.e(TAG, "Error parsing XML document", e);
+            Log.e(TAG, "Error parsing SVG document", e);
             return null;
         }
     }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  VIEWBOX
-    // ══════════════════════════════════════════════════════════════════════
 
     public void parseViewBox(Document document) {
         Element root = document.getDocumentElement();
@@ -99,10 +70,6 @@ public class SvgParsers {
         }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  DEVICE EXTRACTION  (<g id="Icons">)
-    // ══════════════════════════════════════════════════════════════════════
-
     public Map<String, DeviceInfo> extractDevices(Document document) {
         Map<String, DeviceInfo> devices = new LinkedHashMap<>();
         areaMap.clear();
@@ -110,9 +77,10 @@ public class SvgParsers {
         try {
             Element iconsGroup = findElementById(document.getDocumentElement(), "Icons");
             if (iconsGroup == null) {
-                scanForLeafIcons(document.getDocumentElement(), devices, null);
+                scanForLeafIcons(document.getDocumentElement(), devices, null, new Matrix());
                 return devices;
             }
+            Matrix iconsMatrix = getCumulativeTransform(iconsGroup);
             NodeList areaNodes = iconsGroup.getChildNodes();
             for (int i = 0; i < areaNodes.getLength(); i++) {
                 Node aNode = areaNodes.item(i);
@@ -124,7 +92,7 @@ public class SvgParsers {
                 if (areaId == null || areaId.isEmpty()) continue;
 
                 int before = devices.size();
-                scanForLeafIcons(aEl, devices, areaId);
+                scanForLeafIcons(aEl, devices, areaId, iconsMatrix);
 
                 List<String> iconIds = new ArrayList<>();
                 for (Map.Entry<String, DeviceInfo> e : devices.entrySet())
@@ -138,10 +106,17 @@ public class SvgParsers {
         return devices;
     }
 
-    private void scanForLeafIcons(Element el, Map<String, DeviceInfo> devices, String areaId) {
+    private void scanForLeafIcons(Element el, Map<String, DeviceInfo> devices, String areaId, Matrix parentMatrix) {
         String id = el.getAttribute("id");
+        String transformAttr = el.getAttribute("transform");
+        Matrix currentMatrix = parentMatrix;
+        if (transformAttr != null && !transformAttr.isEmpty()) {
+            currentMatrix = new Matrix(parentMatrix);
+            currentMatrix.postConcat(parseTransform(transformAttr));
+        }
+
         if (!id.isEmpty() && hasDirectRectChild(el) && !hasDirectGChild(el)) {
-            processDeviceElement(el, devices, areaId);
+            processDeviceElement(el, devices, areaId, parentMatrix);
             return;
         }
         NodeList children = el.getChildNodes();
@@ -150,14 +125,16 @@ public class SvgParsers {
             if (child instanceof Element) {
                 String tag = normalizeTag(((Element) child).getTagName());
                 if ("g".equals(tag))
-                    scanForLeafIcons((Element) child, devices, areaId);
+                    scanForLeafIcons((Element) child, devices, areaId, currentMatrix);
             }
         }
     }
-    private void processDeviceElement(Element el, Map<String, DeviceInfo> devices, String areaId) {
+
+    private void processDeviceElement(Element el, Map<String, DeviceInfo> devices, String areaId, Matrix parentMatrix) {
         String id = el.getAttribute("id");
         if (id == null || id.isEmpty() || devices.containsKey(id)) return;
-        RectF bounds = computeBounds(el);
+        
+        RectF bounds = computeBounds(el, parentMatrix);
         if (bounds == null || bounds.isEmpty()) return;
 
         String elementId = extractElementId(el);
@@ -165,21 +142,18 @@ public class SvgParsers {
 
         String receiveId = extractReceiveId(el);
 
-        Log.d(TAG, "processDevice: id=" + id
-                + " elementId=" + elementId
-                + " receiveId=" + receiveId);
+        Log.d(TAG, "processDevice: id=" + id + " elementId=" + elementId + " bounds=" + bounds);
 
         DeviceInfo info = new DeviceInfo(id, el, bounds, elementId, areaId);
         info.receiveId = receiveId;
         devices.put(id, info);
     }
+
     private boolean hasDirectRectChild(Element el) {
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                if ("rect".equals(normalizeTag(((Element) child).getTagName()))) return true;
-            }
+            Node c = children.item(i);
+            if (c instanceof Element && "rect".equals(normalizeTag(((Element) c).getTagName()))) return true;
         }
         return false;
     }
@@ -187,164 +161,86 @@ public class SvgParsers {
     private boolean hasDirectGChild(Element el) {
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                if ("g".equals(normalizeTag(((Element) child).getTagName()))) return true;
-            }
+            Node c = children.item(i);
+            if (c instanceof Element && "g".equals(normalizeTag(((Element) c).getTagName()))) return true;
         }
         return false;
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  RELATION PARSING  (<g id="Relation">)
-    // ══════════════════════════════════════════════════════════════════════
-
     public Map<String, Set<String>> parseRelations(Document document) {
-        Map<String, Set<String>> result = new HashMap<>();
-        if (document == null) return result;
-        Element rg = findElementById(document.getDocumentElement(), "Relation");
-        if (rg == null) return result;
-        String rawText = rg.getTextContent();
-        if (rawText == null || rawText.trim().isEmpty()) return result;
+        Map<String, Set<String>> relations = new HashMap<>();
+        Element root = document.getDocumentElement();
+        Element relationGroup = findElementById(root, "Relation");
+        if (relationGroup == null) return relations;
 
-        // Format: (Icon ID | deviceId1, deviceId2, deviceId3)
-        Pattern p = Pattern.compile(
-                "\\(\\s*([^|]+?)\\s*\\|\\s*((?:[\\w:.\\-]+\\s*,\\s*)*[\\w:.\\-]+)\\s*\\)");
-        Matcher m = p.matcher(rawText);
+        String text = relationGroup.getTextContent();
+        if (text == null) return relations;
+
+        Pattern p = Pattern.compile("\\(([^|]+)\\|([^)]+)\\)");
+        Matcher m = p.matcher(text);
         while (m.find()) {
-            String iconId      = m.group(1).trim();
-            String devicesPart = m.group(2).trim();
-
-            String[] deviceIds = devicesPart.split("\\s*,\\s*");
-            for (String deviceId : deviceIds) {
-                deviceId = deviceId.trim();
-                if (!iconId.isEmpty() && !deviceId.isEmpty()) {
-                    result.computeIfAbsent(iconId, k -> new HashSet<>()).add(deviceId);
-                }
+            String iconId = m.group(1).trim();
+            String deviceList = m.group(2).trim();
+            Set<String> devices = new HashSet<>();
+            for (String d : deviceList.split(",")) {
+                String trimmed = d.trim();
+                if (!trimmed.isEmpty()) devices.add(trimmed);
             }
+            relations.put(iconId, devices);
         }
-        return result;
+        return relations;
     }
-    // ══════════════════════════════════════════════════════════════════════
-    //  SELECTION LAYER PARSING  (<g id="selection_layer">)
-    // ══════════════════════════════════════════════════════════════════════
 
     public void parseSelectionLayer(Document document) {
         selectionLayerBounds.clear();
         selectionLayerElements.clear();
         if (document == null) return;
 
-        // Try direct "selection_layer" ID
         Element selLayer = findElementById(document.getDocumentElement(), "selection_layer");
-        
-        // Try fuzzy "selection" matches if not found
-        if (selLayer == null) {
-            selLayer = findElementFuzzy(document.getDocumentElement(), "selection");
-        }
+        if (selLayer == null) selLayer = findElementFuzzy(document.getDocumentElement(), "selection");
+        if (selLayer == null) return;
 
-        if (selLayer == null) {
-            Log.w(TAG, "No <g id='selection_layer'> or similar found in SVG");
-            return;
-        }
+        Matrix parentMatrix = getCumulativeTransform((Element) selLayer);
 
         NodeList children = selLayer.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
-            Element el  = (Element) child;
-            String  tag = normalizeTag(el.getTagName());
-            String  id  = el.getAttribute("id");
+            Element el = (Element) child;
+            String id = el.getAttribute("id");
             if (id == null || id.isEmpty()) continue;
 
             selectionLayerElements.put(id, el);
-
-            RectF bounds = null;
-            if ("rect".equals(tag))         bounds = computeRectBounds(el);
-            else if ("polygon".equals(tag)) bounds = computePolyBounds(el);
-            else if ("path".equals(tag))    bounds = computePathBounds(el);
-
+            RectF bounds = computeBounds(el, parentMatrix);
             if (bounds != null && !bounds.isEmpty()) {
                 selectionLayerBounds.put(id, bounds);
-                Log.d(TAG, "SelectionLayer '" + id + "' → " + bounds);
             }
         }
-        Log.d(TAG, "selection_layer parsed: " + selectionLayerBounds.size() + " areas");
+        remapSelectionBoundsToAreaIds();
     }
 
-    public void remapSelectionBoundsToAreaIds() {
-        if (selectionLayerBounds.isEmpty() || areaMap.isEmpty()) return;
+    private void remapSelectionBoundsToAreaIds() {
         Map<String, RectF> remapped = new HashMap<>();
-        for (Map.Entry<String, RectF> entry : selectionLayerBounds.entrySet()) {
-            String selId = entry.getKey();
-            String normSel = normalize(selId);
-            String matchedAreaId = null;
+        for (String selId : selectionLayerBounds.keySet()) {
             for (String areaId : areaMap.keySet()) {
-                if (isFuzzyMatch(normalize(areaId), normSel)) {
-                    matchedAreaId = areaId;
+                if (isFuzzyMatch(normalize(selId), normalize(areaId))) {
+                    remapped.put(areaId, selectionLayerBounds.get(selId));
                     break;
                 }
-            }
-            if (matchedAreaId != null) {
-                remapped.put(matchedAreaId, entry.getValue());
-                Log.d(TAG, "Remapped selection bound '" + selId + "' to area '" + matchedAreaId + "'");
-            } else {
-                remapped.put(selId, entry.getValue());
             }
         }
         selectionLayerBounds.putAll(remapped);
     }
 
-    public Map<String, Element> parseUserLayer(Document document) {
-        Map<String, Element> userMap = new HashMap<>();
-        if (document == null) return userMap;
-        
-        // Find all groups whose ID starts with "User_Layer"
-        scanForUserLayerElements(document.getDocumentElement(), userMap);
-        return userMap;
-    }
-
-    private void scanForUserLayerElements(Element parent, Map<String, Element> userMap) {
-        String id = parent.getAttribute("id");
-        if (id != null && id.startsWith("User_Layer")) {
-            // This is a user layer group. Its children (like <path>) correspond to icons by ID.
-            NodeList children = parent.getChildNodes();
-            for (int i = 0; i < children.getLength(); i++) {
-                Node child = children.item(i);
-                if (child instanceof Element) {
-                    Element el = (Element) child;
-                    String childId = el.getAttribute("id");
-                    if (childId != null && !childId.isEmpty()) {
-                        userMap.put(childId, el);
-                    }
-                }
-            }
-        }
-        NodeList children = parent.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                scanForUserLayerElements((Element) child, userMap);
-            }
-        }
-    }
-
-    private Element findElementFuzzy(Element root, String keyword) {
-        String id = root.getAttribute("id");
-        if (id != null && id.toLowerCase().contains(keyword.toLowerCase())) return root;
-        NodeList children = root.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                Element found = findElementFuzzy((Element) child, keyword);
-                if (found != null) return found;
-            }
+    public Element findElementFuzzy(Element root, String target) {
+        String normTarget = normalize(target);
+        NodeList allGroups = root.getElementsByTagName("g");
+        for (int i = 0; i < allGroups.getLength(); i++) {
+            Element el = (Element) allGroups.item(i);
+            if (isFuzzyMatch(normalize(el.getAttribute("id")), normTarget)) return el;
         }
         return null;
     }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  ELEMENT ID METADATA  (<elementId> child tag)
-    // ══════════════════════════════════════════════════════════════════════
 
     public String extractElementId(Element element) {
         return findElementIdInNode(element);
@@ -352,88 +248,106 @@ public class SvgParsers {
 
     private String findElementIdInNode(Node node) {
         if (node instanceof Element) {
-            Element el  = (Element) node;
-            String  tag = el.getTagName();
-            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-            if ("elementId".equalsIgnoreCase(tag)) {
-                String text = el.getTextContent();
-                return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
+            Element el = (Element) node;
+            String eid = el.getAttribute("elementId");
+            if (!eid.isEmpty()) return eid;
+
+            // Search in all descendants for <elementId>
+            NodeList all = el.getElementsByTagName("*");
+            for (int i = 0; i < all.getLength(); i++) {
+                Element sub = (Element) all.item(i);
+                if ("elementid".equals(normalizeTag(sub.getTagName()))) {
+                    String content = sub.getTextContent().trim();
+                    if (!content.isEmpty()) return content;
+                }
             }
-        }
-        NodeList children = node.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            String r = findElementIdInNode(children.item(i));
-            if (r != null) return r;
         }
         return null;
     }
+
     public String extractReceiveId(Element element) {
         return findReceiveIdInNode(element);
     }
 
     private String findReceiveIdInNode(Node node) {
         if (node instanceof Element) {
-            Element el  = (Element) node;
-            String  tag = el.getTagName();
-            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-            if ("reciveId".equalsIgnoreCase(tag)) {
-                String text = el.getTextContent();
-                return (text != null && !text.trim().isEmpty()) ? text.trim() : null;
+            Element el = (Element) node;
+            String rid = el.getAttribute("reciveId");
+            if (rid.isEmpty()) rid = el.getAttribute("receiveId");
+            if (!rid.isEmpty()) return rid;
+
+            // Search in all descendants for <reciveId> or <receiveId>
+            NodeList all = el.getElementsByTagName("*");
+            for (int i = 0; i < all.getLength(); i++) {
+                Element sub = (Element) all.item(i);
+                String tag = normalizeTag(sub.getTagName());
+                if ("reciveid".equals(tag) || "receiveid".equals(tag)) {
+                    String content = sub.getTextContent().trim();
+                    if (!content.isEmpty()) return content;
+                }
             }
         }
-        NodeList children = node.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            String r = findReceiveIdInNode(children.item(i));
-            if (r != null) return r;
-        }
         return null;
-    }    // ══════════════════════════════════════════════════════════════════════
-    //  ELEMENT FINDER
-    // ══════════════════════════════════════════════════════════════════════
+    }
 
-    public Element findElementById(Element root, String targetId) {
-        if (targetId.equals(root.getAttribute("id"))) return root;
+    public Element findElementById(Element root, String id) {
+        if (id.equals(root.getAttribute("id"))) return root;
         NodeList children = root.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element) {
-                Element found = findElementById((Element) child, targetId);
+                Element found = findElementById((Element) child, id);
                 if (found != null) return found;
             }
         }
         return null;
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  BOUNDS COMPUTATION
-    // ══════════════════════════════════════════════════════════════════════
-
-    /**
-     * Dispatches to the correct bounds-computation method based on SVG tag name.
-     */
     public RectF computeBounds(Element element) {
-        String tag = normalizeTag(element.getTagName());
-        switch (tag) {
-            case "g":        return computeGroupBounds(element);
-            case "rect":     return computeRectBounds(element);
-            case "circle":   return computeCircleBounds(element);
-            case "ellipse":  return computeEllipseBounds(element);
-            case "path":     return computePathBounds(element);
-            case "polygon":
-            case "polyline": return computePolyBounds(element);
-            case "line":     return computeLineBounds(element);
-            case "use":      return computeUseBounds(element);
-            default:         return null;
-        }
+        if (element == null) return null;
+        Node parent = element.getParentNode();
+        Matrix parentMatrix = (parent instanceof Element) ? getCumulativeTransform((Element) parent) : new Matrix();
+        return computeBounds(element, parentMatrix);
     }
 
-    public RectF computeGroupBounds(Element element) {
+    public RectF computeBounds(Element element, Matrix parentMatrix) {
+        String transform = element.getAttribute("transform");
+        Matrix localMatrix = parentMatrix;
+        if (transform != null && !transform.isEmpty()) {
+            localMatrix = new Matrix(parentMatrix);
+            localMatrix.postConcat(parseTransform(transform));
+        }
+
+        String tag = normalizeTag(element.getTagName());
+        if ("g".equals(tag)) {
+            return computeGroupBounds(element, localMatrix);
+        }
+
+        RectF bounds = null;
+        switch (tag) {
+            case "rect":     bounds = computeRectBounds(element); break;
+            case "circle":   bounds = computeCircleBounds(element); break;
+            case "ellipse":  bounds = computeEllipseBounds(element); break;
+            case "path":     bounds = computePathBounds(element); break;
+            case "polygon":
+            case "polyline": bounds = computePolyBounds(element); break;
+            case "line":     bounds = computeLineBounds(element); break;
+            case "use":      bounds = computeUseBounds(element); break;
+        }
+
+        if (bounds != null && !bounds.isEmpty()) {
+            localMatrix.mapRect(bounds);
+        }
+        return bounds;
+    }
+
+    public RectF computeGroupBounds(Element element, Matrix currentMatrix) {
         RectF union = null;
         NodeList children = element.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element) {
-                RectF b = computeBounds((Element) child);
+                RectF b = computeBounds((Element) child, currentMatrix);
                 if (b != null && !b.isEmpty()) {
                     if (union == null) union = new RectF(b);
                     else union.union(b);
@@ -443,199 +357,159 @@ public class SvgParsers {
         return union;
     }
 
-    public RectF computeRectBounds(Element el) {
-        Float x = fa(el, "x"), y = fa(el, "y");
-        Float w = fa(el, "width"), h = fa(el, "height");
-        if (w == null || h == null || w <= 0 || h <= 0) return null;
-        float xv = x != null ? x : 0f, yv = y != null ? y : 0f;
-        return new RectF(xv, yv, xv + w, yv + h);
+    public RectF computeRectBounds(Element element) {
+        float x = fa(element, "x");
+        float y = fa(element, "y");
+        float w = fa(element, "width");
+        float h = fa(element, "height");
+        return new RectF(x, y, x + w, y + h);
     }
 
-    public RectF computeCircleBounds(Element el) {
-        Float cx = fa(el, "cx"), cy = fa(el, "cy"), r = fa(el, "r");
-        if (r == null || r <= 0) return null;
-        float cxv = cx != null ? cx : 0f, cyv = cy != null ? cy : 0f;
-        return new RectF(cxv - r, cyv - r, cxv + r, cyv + r);
+    public RectF computeCircleBounds(Element element) {
+        float cx = fa(element, "cx");
+        float cy = fa(element, "cy");
+        float r  = fa(element, "r");
+        return new RectF(cx - r, cy - r, cx + r, cy + r);
     }
 
-    public RectF computeEllipseBounds(Element el) {
-        Float cx = fa(el, "cx"), cy = fa(el, "cy");
-        Float rx = fa(el, "rx"), ry = fa(el, "ry");
-        if (rx == null || ry == null) return null;
-        float cxv = cx != null ? cx : 0f, cyv = cy != null ? cy : 0f;
-        return new RectF(cxv - rx, cyv - ry, cxv + rx, cyv + ry);
+    public RectF computeEllipseBounds(Element element) {
+        float cx = fa(element, "cx");
+        float cy = fa(element, "cy");
+        float rx = fa(element, "rx");
+        float ry = fa(element, "ry");
+        return new RectF(cx - rx, cy - ry, cx + rx, cy + ry);
     }
 
-    public RectF computePathBounds(Element el) {
-        return parsePathBounds(el.getAttribute("d"));
+    public RectF computePathBounds(Element element) {
+        String d = element.getAttribute("d");
+        return parsePathBounds(d);
     }
 
-    public RectF computePolyBounds(Element el) {
-        return parsePointsBounds(el.getAttribute("points"));
+    public RectF computePolyBounds(Element element) {
+        String pts = element.getAttribute("points");
+        return parsePointsBounds(pts);
     }
 
-    public RectF computeLineBounds(Element el) {
-        Float x1 = fa(el, "x1"), y1 = fa(el, "y1");
-        Float x2 = fa(el, "x2"), y2 = fa(el, "y2");
-        float x1v = x1 != null ? x1 : 0f, y1v = y1 != null ? y1 : 0f;
-        float x2v = x2 != null ? x2 : 0f, y2v = y2 != null ? y2 : 0f;
-        return new RectF(Math.min(x1v, x2v), Math.min(y1v, y2v),
-                Math.max(x1v, x2v), Math.max(y1v, y2v));
+    public RectF computeLineBounds(Element element) {
+        float x1 = fa(element, "x1");
+        float y1 = fa(element, "y1");
+        float x2 = fa(element, "x2");
+        float y2 = fa(element, "y2");
+        return new RectF(Math.min(x1, x2), Math.min(y1, y2), Math.max(x1, x2), Math.max(y1, y2));
     }
 
-    public RectF computeUseBounds(Element el) {
-        Float x = fa(el, "x"), y = fa(el, "y");
-        Float w = fa(el, "width"), h = fa(el, "height");
-        if (w == null || h == null) return null;
-        float xv = x != null ? x : 0f, yv = y != null ? y : 0f;
-        return new RectF(xv, yv, xv + w, yv + h);
+    public RectF computeUseBounds(Element element) {
+        float x = fa(element, "x");
+        float y = fa(element, "y");
+        // For simplicity, treat 'use' as a point if we don't resolve the ref
+        return new RectF(x, y, x + 1, y + 1);
     }
 
     private Float fa(Element el, String attr) {
-        String v = el.getAttribute(attr);
-        if (v == null || v.isEmpty()) return null;
-        try { return Float.parseFloat(v.trim()); }
-        catch (NumberFormatException e) { return null; }
+        String val = el.getAttribute(attr);
+        if (val.isEmpty()) return 0f;
+        try { return Float.parseFloat(val.replaceAll("[^0-9.-]", "")); }
+        catch (NumberFormatException e) { return 0f; }
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  PATH BOUNDS
-    // ══════════════════════════════════════════════════════════════════════
-
-    private RectF parsePathBounds(String d) {
+    public RectF parsePathBounds(String d) {
         if (d == null || d.isEmpty()) return null;
-        List<Float> xs = new ArrayList<>(), ys = new ArrayList<>();
-        String cleaned = d.replaceAll("([MmLlHhVvCcSsQqTtAaZz])", " $1 ")
-                .replaceAll("([0-9])-", "$1 -").trim();
-        String[] tokens = cleaned.split("[\\s,]+");
-        char    cmd   = 'M';
-        float   curX  = 0, curY = 0, startX = 0, startY = 0;
-        List<Float> args = new ArrayList<>();
-        for (String token : tokens) {
-            if (token.isEmpty()) continue;
-            if (Character.isLetter(token.charAt(0))) {
-                processPathCommand(cmd, args, xs, ys,
-                        new float[]{curX}, new float[]{curY},
-                        new float[]{startX}, new float[]{startY});
-                if (!xs.isEmpty()) curX = xs.get(xs.size() - 1);
-                if (!ys.isEmpty()) curY = ys.get(ys.size() - 1);
-                cmd = token.charAt(0);
-                args.clear();
-            } else {
-                try { args.add(Float.parseFloat(token)); }
-                catch (NumberFormatException ignored) {}
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        String[] tokens = d.split("(?=[a-df-z])|(?<=[a-df-z])|[,\\s]+");
+        float curX = 0, curY = 0;
+        for (int i = 0; i < tokens.length; i++) {
+            String t = tokens[i].trim();
+            if (t.isEmpty()) continue;
+            char cmd = t.charAt(0);
+            if (Character.isLetter(cmd)) {
+                List<Float> params = new ArrayList<>();
+                int j = i + 1;
+                while (j < tokens.length && !Character.isLetter(tokens[j].trim().charAt(0))) {
+                    try { params.add(Float.parseFloat(tokens[j].trim())); } catch (Exception ignored) {}
+                    j++;
+                }
+                i = j - 1;
+                // Simple point extraction for bounding box
+                for (int k = 0; k < params.size() - 1; k += 2) {
+                    float px = params.get(k), py = params.get(k + 1);
+                    if (Character.isLowerCase(cmd)) { px += curX; py += curY; }
+                    minX = Math.min(minX, px); minY = Math.min(minY, py);
+                    maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+                    curX = px; curY = py;
+                }
             }
         }
-        processPathCommand(cmd, args, xs, ys,
-                new float[]{curX}, new float[]{curY},
-                new float[]{startX}, new float[]{startY});
-        if (xs.isEmpty() || ys.isEmpty()) return null;
-        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
-        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
-        for (float x : xs) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
-        for (float y : ys) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
-        return minX == Float.MAX_VALUE ? null : new RectF(minX, minY, maxX, maxY);
+        return (minX == Float.MAX_VALUE) ? null : new RectF(minX, minY, maxX, maxY);
     }
 
-    private void processPathCommand(char cmd, List<Float> args,
-                                    List<Float> xs, List<Float> ys,
-                                    float[] cx, float[] cy,
-                                    float[] sx, float[] sy) {
-        if (args.isEmpty()) return;
-        switch (cmd) {
-            case 'M':
-                for (int i = 0; i + 1 < args.size(); i += 2) {
-                    float x = args.get(i), y = args.get(i + 1);
-                    xs.add(x); ys.add(y); cx[0] = x; cy[0] = y;
-                    if (i == 0) { sx[0] = x; sy[0] = y; }
-                }
-                break;
-            case 'm':
-                for (int i = 0; i + 1 < args.size(); i += 2) {
-                    cx[0] += args.get(i); cy[0] += args.get(i + 1);
-                    xs.add(cx[0]); ys.add(cy[0]);
-                    if (i == 0) { sx[0] = cx[0]; sy[0] = cy[0]; }
-                }
-                break;
-            case 'L':
-                for (int i = 0; i + 1 < args.size(); i += 2) {
-                    float x = args.get(i), y = args.get(i + 1);
-                    xs.add(x); ys.add(y); cx[0] = x; cy[0] = y;
-                }
-                break;
-            case 'l':
-                for (int i = 0; i + 1 < args.size(); i += 2) {
-                    cx[0] += args.get(i); cy[0] += args.get(i + 1);
-                    xs.add(cx[0]); ys.add(cy[0]);
-                }
-                break;
-            case 'H':
-                for (float v : args) { xs.add(v); ys.add(cy[0]); cx[0] = v; }
-                break;
-            case 'h':
-                for (float v : args) { cx[0] += v; xs.add(cx[0]); ys.add(cy[0]); }
-                break;
-            case 'V':
-                for (float v : args) { xs.add(cx[0]); ys.add(v); cy[0] = v; }
-                break;
-            case 'v':
-                for (float v : args) { cy[0] += v; xs.add(cx[0]); ys.add(cy[0]); }
-                break;
-            case 'C':
-                for (int i = 0; i + 5 < args.size(); i += 6) {
-                    xs.add(args.get(i));     ys.add(args.get(i + 1));
-                    xs.add(args.get(i + 2)); ys.add(args.get(i + 3));
-                    xs.add(args.get(i + 4)); ys.add(args.get(i + 5));
-                    cx[0] = args.get(i + 4); cy[0] = args.get(i + 5);
-                }
-                break;
-            case 'c':
-                for (int i = 0; i + 5 < args.size(); i += 6) {
-                    xs.add(cx[0] + args.get(i));     ys.add(cy[0] + args.get(i + 1));
-                    xs.add(cx[0] + args.get(i + 2)); ys.add(cy[0] + args.get(i + 3));
-                    cx[0] += args.get(i + 4); cy[0] += args.get(i + 5);
-                    xs.add(cx[0]); ys.add(cy[0]);
-                }
-                break;
-            case 'A':
-                for (int i = 0; i + 6 < args.size(); i += 7) {
-                    float x = args.get(i + 5), y = args.get(i + 6);
-                    xs.add(x); ys.add(y); cx[0] = x; cy[0] = y;
-                }
-                break;
-            case 'a':
-                for (int i = 0; i + 6 < args.size(); i += 7) {
-                    cx[0] += args.get(i + 5); cy[0] += args.get(i + 6);
-                    xs.add(cx[0]); ys.add(cy[0]);
-                }
-                break;
-            case 'Z': case 'z':
-                xs.add(sx[0]); ys.add(sy[0]); cx[0] = sx[0]; cy[0] = sy[0];
-                break;
-        }
-    }
-
-    private RectF parsePointsBounds(String points) {
-        if (points == null || points.isEmpty()) return null;
-        String[] tokens = points.trim().split("[\\s,]+");
-        List<Float> xs = new ArrayList<>(), ys = new ArrayList<>();
-        for (int i = 0; i + 1 < tokens.length; i += 2) {
+    public RectF parsePointsBounds(String pts) {
+        if (pts == null || pts.isEmpty()) return null;
+        float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
+        String[] coords = pts.trim().split("[\\s,]+");
+        for (int i = 0; i < coords.length - 1; i += 2) {
             try {
-                xs.add(Float.parseFloat(tokens[i]));
-                ys.add(Float.parseFloat(tokens[i + 1]));
-            } catch (NumberFormatException ignored) {}
+                float x = Float.parseFloat(coords[i]);
+                float y = Float.parseFloat(coords[i + 1]);
+                minX = Math.min(minX, x); minY = Math.min(minY, y);
+                maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+            } catch (Exception ignored) {}
         }
-        if (xs.isEmpty()) return null;
-        float minX = Float.MAX_VALUE, maxX = -Float.MAX_VALUE;
-        float minY = Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
-        for (float x : xs) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
-        for (float y : ys) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
-        return new RectF(minX, minY, maxX, maxY);
+        return (minX == Float.MAX_VALUE) ? null : new RectF(minX, minY, maxX, maxY);
     }
 
-    // ══════════════════════════════════════════════════════════════════════
-    //  UTILITIES
-    // ══════════════════════════════════════════════════════════════════════
+    private Matrix getCumulativeTransform(Element element) {
+        Matrix m = new Matrix();
+        if (element == null) return m;
+        Node parent = element.getParentNode();
+        if (parent instanceof Element) {
+            m = getCumulativeTransform((Element) parent);
+        }
+        String transform = element.getAttribute("transform");
+        if (transform != null && !transform.isEmpty()) {
+            m.postConcat(parseTransform(transform));
+        }
+        return m;
+    }
+
+    private Matrix parseTransform(String transform) {
+        Matrix matrix = new Matrix();
+        if (transform == null || transform.isEmpty()) return matrix;
+        Pattern p = Pattern.compile("(\\w+)\\s*\\(([^)]+)\\)");
+        Matcher m = p.matcher(transform);
+        while (m.find()) {
+            String cmdGroup = m.group(1);
+            if (cmdGroup == null) continue;
+            String cmd = cmdGroup.toLowerCase();
+            String argsStr = m.group(2);
+            String[] args = argsStr.trim().split("[\\s,]+");
+            float[] params = new float[args.length];
+            for (int i = 0; i < args.length; i++) {
+                try { params[i] = Float.parseFloat(args[i]); } catch (Exception ignored) {}
+            }
+            switch (cmd) {
+                case "translate":
+                    if (params.length >= 2) matrix.postTranslate(params[0], params[1]);
+                    else if (params.length == 1) matrix.postTranslate(params[0], 0);
+                    break;
+                case "scale":
+                    if (params.length >= 2) matrix.postScale(params[0], params[1]);
+                    else if (params.length == 1) matrix.postScale(params[0], params[0]);
+                    break;
+                case "rotate":
+                    if (params.length >= 3) matrix.postRotate(params[0], params[1], params[2]);
+                    else if (params.length >= 1) matrix.postRotate(params[0]);
+                    break;
+                case "matrix":
+                    if (params.length == 6) {
+                        Matrix m6 = new Matrix();
+                        m6.setValues(new float[]{params[0], params[2], params[4], params[1], params[3], params[5], 0, 0, 1});
+                        matrix.postConcat(m6);
+                    }
+                    break;
+            }
+        }
+        return matrix;
+    }
 
     public String normalizeTag(String tag) {
         if (tag == null) return "";
@@ -650,11 +524,10 @@ public class SvgParsers {
     }
 
     public boolean isFuzzyMatch(String normId, String normFocus) {
-        if (normId.equals(normFocus))   return true;
+        if (normId.equals(normFocus)) return true;
         if (normFocus.contains(normId)) return true;
         if (normId.contains(normFocus)) return true;
-        String[] idWords    = normId.split("_");
-        String[] focusWords = normFocus.split("_");
+        String[] idWords = normId.split("_"), focusWords = normFocus.split("_");
         for (String iw : idWords) {
             if (iw.length() <= 2) continue;
             for (String fw : focusWords) {

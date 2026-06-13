@@ -71,7 +71,7 @@ public class NetworkFragment extends Fragment {
     private static final float TAP_TOLERANCE      = 8f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
-    private static final float TAP_MOVE_SLOP      = 10f;
+    private static final float TAP_MOVE_SLOP      = 20f;
     private static final long  TAP_MAX_DURATION   = 250;
 
     // ── Area / zoom lock state ────────────────────────────────────────────
@@ -936,6 +936,10 @@ public class NetworkFragment extends Fragment {
     }
 
     private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
+        float scale = getScale();
+        // Constant 24dp-equivalent hit area in pixels, converted to SVG units
+        float tolerance = 20f / (scale > 0 ? scale : 1f);
+
         for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
             String      iconId    = entry.getKey();
             Set<String> deviceIds = entry.getValue();
@@ -951,7 +955,7 @@ public class NetworkFragment extends Fragment {
                 if (bounds == null || bounds.isEmpty()) continue;
 
                 RectF expanded = new RectF(bounds);
-                expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+                expanded.inset(-tolerance, -tolerance);
 
                 if (expanded.contains(svgX, svgY)) {
                     return new RelationHitResult(iconId, deviceId);
@@ -972,12 +976,30 @@ public class NetworkFragment extends Fragment {
     private String findDeviceAt(float svgX, float svgY) {
         String bestId       = null;
         float  smallestArea = Float.MAX_VALUE;
+        float scale = getScale();
+        // Tolerance in SVG units that corresponds to ~24-30 pixels on screen
+        float tolerance = 25f / (scale > 0 ? scale : 1f);
+
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             RectF bounds   = entry.getValue().bounds;
             RectF expanded = new RectF(bounds);
-            float inset    = (bounds.width() < 20 || bounds.height() < 20)
-                    ? -Math.max(TAP_TOLERANCE, 15f) : -TAP_TOLERANCE;
-            expanded.inset(inset, inset);
+            
+            // If the icon is very small, we give it a minimum hit area of ~40 pixels
+            float minHitSize = 40f / (scale > 0 ? scale : 1f);
+            if (expanded.width() < minHitSize) {
+                float dx = (minHitSize - expanded.width()) / 2f;
+                expanded.left -= dx;
+                expanded.right += dx;
+            }
+            if (expanded.height() < minHitSize) {
+                float dy = (minHitSize - expanded.height()) / 2f;
+                expanded.top -= dy;
+                expanded.bottom += dy;
+            }
+
+            // Also add the general tolerance
+            expanded.inset(-tolerance, -tolerance);
+
             if (expanded.contains(svgX, svgY)) {
                 float area = bounds.width() * bounds.height();
                 if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
