@@ -1,5 +1,6 @@
 package no.nordicsemi.android.swaromapmesh;
 
+import static no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager.COLOR_TRANSPARENT;
 import android.animation.ValueAnimator;
 import android.content.Context;
 import android.content.Intent;
@@ -29,9 +30,16 @@ import androidx.annotation.Nullable;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import com.caverock.androidsvg.SVG;
+import com.caverock.androidsvg.SVGParseException;
 import org.w3c.dom.Document;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
+import java.io.File;
 import java.io.InputStream;
 import java.io.StringWriter;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -57,44 +65,49 @@ public class NetworkFragment extends Fragment {
 
     private static final String TAG = "NetworkFragment";
 
-    // ── Zoom constants ─────────────────────────────────────────────────────
-    private static final float MAX_ZOOM           = 10f;
-    private static final float DOUBLE_TAP_ZOOM    = 3.0f; // Zoom-in multiplier relative to minZoom
+    // ── Zoom constants ────────────────────────────────────────────────────
+    private static final float MAX_ZOOM           = 20f;
+    private static final float DOUBLE_TAP_ZOOM    = 2.5f;
     private static final float TAP_TOLERANCE      = 8f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
     private static final float TAP_MOVE_SLOP      = 10f;
-    private static final long  TAP_MAX_DURATION   = 250L;
+    private static final long  TAP_MAX_DURATION   = 250;
 
-    // ── Area focus state ───────────────────────────────────────────────────
-    private String focusedAreaId = null;
-    private String pendingAreaId = null;
+    // ── Area / zoom lock state ────────────────────────────────────────────
+    private float  areaLockedMinZoom  = -1f;
+    private String areaLockedId       = null;
+    private String currentFocusAreaId = null;
+    private String pendingFocusAreaId = null;
 
-    // ── Device state ───────────────────────────────────────────────────────
-    private final Map<String, DeviceInfo> deviceMap = new LinkedHashMap<>();
-    private String selectedDeviceId = null;
-
+    /** Cached union of all selection_layer bounds (= full floor plan rect). */
     private RectF floorPlanBounds = null;
 
-    // ── UI / ViewModel ─────────────────────────────────────────────────────
+    // ── UI ────────────────────────────────────────────────────────────────
     private FragmentNetworkBinding binding;
-    private boolean                mAutoSetupInProgress = false;
-    private SharedViewModel        mViewModel;
+    private boolean         mAutoSetupInProgress = false;
+    private SharedViewModel mViewModel;
 
-    // ── Threading ──────────────────────────────────────────────────────────
+    // ── Threading ─────────────────────────────────────────────────────────
     private final ExecutorService loadExecutor   = Executors.newSingleThreadExecutor();
     private final ExecutorService renderExecutor = Executors.newSingleThreadExecutor();
     private final Handler         mainHandler    = new Handler(Looper.getMainLooper());
     private Future<?> pendingRender;
 
-    // ── SVG helpers ────────────────────────────────────────────────────────
+    // ── Data ──────────────────────────────────────────────────────────────
+    private final Map<String, DeviceInfo>   deviceMap             = new LinkedHashMap<>();
+    private final Map<String, Set<String>>  iconToDeviceRelations = new HashMap<>();
+    private String selectedDeviceId;
+
+    // ── Helper classes ────────────────────────────────────────────────────
     private final SvgParsers      svgParser    = new SvgParsers();
     private final SvgColorManager colorManager = new SvgColorManager();
 
-    // ── SVG state ──────────────────────────────────────────────────────────
+    // ── SVG state ─────────────────────────────────────────────────────────
+    private SVG      currentSvg;
     private Document svgDocument;
 
-    // ── Zoom & pan ─────────────────────────────────────────────────────────
+    // ── Zoom & pan ────────────────────────────────────────────────────────
     private final Matrix  matrix       = new Matrix();
     private final float[] matrixValues = new float[9];
     private float   minZoom         = 1f;
@@ -102,7 +115,7 @@ public class NetworkFragment extends Fragment {
     private boolean isDragging      = false;
     private int     activePointerId = MotionEvent.INVALID_POINTER_ID;
 
-    // ── Gesture detectors ──────────────────────────────────────────────────
+    // ── Gesture detectors ─────────────────────────────────────────────────
     private ScaleGestureDetector scaleDetector;
     private GestureDetector      gestureDetector;
     private OverScroller         scroller;
@@ -110,10 +123,12 @@ public class NetworkFragment extends Fragment {
     private ValueAnimator        flingAnimator;
     private ValueAnimator        zoomAnimator;
 
-    // ── Tap helpers ────────────────────────────────────────────────────────
+    // ── Tap helpers ───────────────────────────────────────────────────────
     private float   tapDownX, tapDownY;
     private long    tapDownTime;
     private boolean hasMoved      = false;
+    // Tracks whether the current gesture involved 2+ fingers.
+    // When true, fling is suppressed so pinch-lift never jerks the map.
     private boolean wasMultiTouch = false;
 
     // ══════════════════════════════════════════════════════════════════════
@@ -132,34 +147,6 @@ public class NetworkFragment extends Fragment {
         return binding.getRoot();
     }
 
-    @Override
-    public void onResume() {
-        super.onResume();
-        if (svgDocument == null || deviceMap.isEmpty() || mAutoSetupInProgress) return;
-        selectedDeviceId = null;
-        reRenderSvg();
-    }
-
-    @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        cancelAnimators();
-        if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
-        if (pendingRender   != null) pendingRender.cancel(true);
-        loadExecutor.shutdownNow();
-        renderExecutor.shutdownNow();
-        binding = null;
-    }
-
-    private void cancelAnimators() {
-        if (flingAnimator != null) flingAnimator.cancel();
-        if (zoomAnimator  != null) zoomAnimator.cancel();
-    }
-
-    // ══════════════════════════════════════════════════════════════════════
-    //  VIEWMODEL OBSERVERS
-    // ══════════════════════════════════════════════════════════════════════
-
     private void observeViewModel() {
         mViewModel.getSvgUri().observe(getViewLifecycleOwner(), uri -> {
             if (uri != null) {
@@ -169,8 +156,9 @@ public class NetworkFragment extends Fragment {
 
         mViewModel.isAutoSetupInProgress().observe(getViewLifecycleOwner(), inProgress -> {
             if (binding == null) return;
+
             boolean wasInProgress = mAutoSetupInProgress;
-            mAutoSetupInProgress  = Boolean.TRUE.equals(inProgress);
+            mAutoSetupInProgress = Boolean.TRUE.equals(inProgress);
 
             if (mAutoSetupInProgress) {
                 binding.autoSetupOverlay.setVisibility(View.VISIBLE);
@@ -180,12 +168,14 @@ public class NetworkFragment extends Fragment {
                 binding.autoSetupOverlay.setVisibility(View.GONE);
                 binding.progressBar.setVisibility(View.GONE);
                 binding.svgView.setOnTouchListener(this::handleTouch);
+
                 if (wasInProgress) {
-                    Toast.makeText(requireContext(),
-                            "All process is complete", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(requireContext(), "All process is complete", Toast.LENGTH_SHORT).show();
                 }
+
                 if (wasInProgress && svgDocument != null && !deviceMap.isEmpty()) {
                     selectedDeviceId = null;
+                    refreshColors();
                     reRenderSvg();
                 }
             }
@@ -193,13 +183,54 @@ public class NetworkFragment extends Fragment {
 
         mViewModel.getFocusAreaId().observe(getViewLifecycleOwner(), areaId -> {
             if (areaId == null || areaId.isEmpty()) return;
-            pendingAreaId = areaId;
+
+            pendingFocusAreaId = areaId;
             mViewModel.setFocusAreaId(null);
+
             if (svgDocument != null && !svgParser.areaMap.isEmpty()) {
-                focusOnArea(areaId);
-                pendingAreaId = null;
+                zoomToArea(areaId);
+                pendingFocusAreaId = null;
             }
         });
+
+        mViewModel.getProvisionedDeviceIds().observe(getViewLifecycleOwner(), ids -> {
+            if (binding == null || svgDocument == null || deviceMap.isEmpty()) return;
+            if (mAutoSetupInProgress) return;
+            selectedDeviceId = null;
+            if (currentFocusAreaId == null && areaLockedId == null) {
+                colorManager.restoreAllAreas(
+                        svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+            }
+            refreshColors();
+            reRenderSvg();
+        });
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        if (svgDocument == null || deviceMap.isEmpty()) return;
+        if (mAutoSetupInProgress) return;
+        selectedDeviceId = null;
+        if (currentFocusAreaId == null && areaLockedId == null) {
+            colorManager.restoreAllAreas(
+                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+        }
+        colorManager.forceResnapshotAllDevices(deviceMap);
+        refreshColors();
+        reRenderSvg();
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        if (flingAnimator   != null) flingAnimator.cancel();
+        if (zoomAnimator    != null) zoomAnimator.cancel();
+        if (velocityTracker != null) { velocityTracker.recycle(); velocityTracker = null; }
+        if (pendingRender   != null) pendingRender.cancel(true);
+        loadExecutor.shutdownNow();
+        renderExecutor.shutdownNow();
+        binding = null;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -207,8 +238,23 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
 
     public boolean handleBackPress() {
-        if (focusedAreaId != null) {
-            exitAreaFocus();
+        if (areaLockedId != null) {
+            areaLockedId       = null;
+            areaLockedMinZoom  = -1f;
+            currentFocusAreaId = null;
+            colorManager.restoreAllAreas(
+                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+            refreshColors();
+            reRenderSvg();
+            binding.svgView.post(() -> fitFloorPlanToView(true));
+            return true;
+        }
+        if (currentFocusAreaId != null) {
+            currentFocusAreaId = null;
+            colorManager.restoreAllAreas(
+                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+            refreshColors();
+            reRenderSvg();
             return true;
         }
         if (selectedDeviceId != null) {
@@ -218,154 +264,19 @@ public class NetworkFragment extends Fragment {
         return false;
     }
 
-    public boolean isAreaFocused() { return focusedAreaId != null; }
+    public boolean isAreaZoomed() { return areaLockedId != null; }
 
     // ══════════════════════════════════════════════════════════════════════
-    //  AREA FOCUS LOGIC
+    //  PRIVATE INNER TYPES
     // ══════════════════════════════════════════════════════════════════════
 
-    private void focusOnArea(String areaId) {
-        Log.d(TAG, "focusOnArea: requested ID = '" + areaId + "'");
-        RectF areaBounds = getBoundsForArea(areaId);
-        if (areaBounds == null) {
-            Log.w(TAG, "focusOnArea: no bounds for " + areaId);
-            return;
+    private static class RelationHitResult {
+        final String iconId;
+        final String tappedDeviceId;
+        RelationHitResult(String iconId, String tappedDeviceId) {
+            this.iconId         = iconId;
+            this.tappedDeviceId = tappedDeviceId;
         }
-
-        Log.d(TAG, "focusOnArea '" + areaId + "' → " + areaBounds);
-        focusedAreaId = areaId;
-        colorManager.applyAreaFocus(areaId);
-
-        final RectF finalBounds = new RectF(areaBounds);
-        reRenderSvgThenZoom(finalBounds);
-    }
-
-    private void reRenderSvgThenZoom(RectF zoomBounds) {
-        if (svgDocument == null) return;
-        if (pendingRender != null && !pendingRender.isDone())
-            pendingRender.cancel(true);
-
-        pendingRender = renderExecutor.submit(() -> {
-            try {
-                String svgStr = documentToString(svgDocument);
-                if (svgStr.isEmpty()) return;
-                SVG svg = SVG.getFromString(svgStr);
-                int rW = Math.max(1, (int) svgParser.vbW);
-                int rH = Math.max(1, (int) svgParser.vbH);
-                Picture picture = svg.renderToPicture(rW, rH);
-                PictureDrawable drawable = new PictureDrawable(picture);
-
-                mainHandler.post(() -> {
-                    if (binding == null) return;
-                    binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
-                    binding.svgView.setImageDrawable(drawable);
-                    binding.svgView.setVisibility(View.VISIBLE);
-                    binding.svgPlaceholder.setVisibility(View.GONE);
-                    if (!mAutoSetupInProgress)
-                        binding.progressBar.setVisibility(View.GONE);
-                    binding.svgView.invalidate();
-
-                    binding.svgView.post(() -> zoomToAreaBounds(zoomBounds));
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "reRenderSvgThenZoom error", e);
-            }
-        });
-    }
-
-    private RectF getBoundsForArea(String areaId) {
-        if (areaId == null) return null;
-
-        // 1. Direct lookup (already auto-remapped by parser)
-        RectF bounds = svgParser.selectionLayerBounds.get(areaId);
-        if (bounds != null) return bounds;
-
-        // 2. Fuzzy match (handles edge cases)
-        String normalizedArea = areaId.replaceAll("_[A-Z]{2,6}$", "").toLowerCase();
-        for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
-            String normalizedKey = entry.getKey().toLowerCase();
-            if (normalizedArea.equals(normalizedKey)
-                    || normalizedArea.contains(normalizedKey)
-                    || normalizedKey.contains(normalizedArea)) {
-                return entry.getValue();
-            }
-        }
-
-        // 3. Device bounds union as last resort
-        List<String> iconIds = svgParser.areaMap.get(areaId);
-        if (iconIds != null && !iconIds.isEmpty()) {
-            RectF union = null;
-            for (String iconId : iconIds) {
-                DeviceInfo info = deviceMap.get(iconId);
-                if (info != null && info.bounds != null) {
-                    if (union == null) union = new RectF(info.bounds);
-                    else union.union(info.bounds);
-                }
-            }
-            return union;
-        }
-
-        Log.w(TAG, "getBoundsForArea: NO BOUNDS for '" + areaId + "'");
-        return null;
-    }
-    private void exitAreaFocus() {
-        focusedAreaId = null;
-        colorManager.applyAreaFocus(null);
-        reRenderSvg();
-        binding.svgView.post(() -> fitFloorPlanToView(true));
-    }
-
-    private void zoomToAreaBounds(RectF bounds) {
-        if (binding == null || bounds == null) return;
-        cancelAnimators();
-
-        // Get actual usable width (excluding padding)
-        float vW = binding.svgView.getWidth() - binding.svgView.getPaddingLeft() - binding.svgView.getPaddingRight();
-        float vH = binding.svgView.getHeight() - binding.svgView.getPaddingTop() - binding.svgView.getPaddingBottom();
-        
-        if (vW <= 0 || vH <= 0) return;
-
-        // FIT TO WIDTH logic:
-        // Use 0 padding for a perfect edge-to-edge fit.
-        float targetScale = vW / bounds.width();
-
-        // Limit the scale between minZoom and MAX_ZOOM
-        targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, targetScale));
-
-        float cx = bounds.centerX();
-        float cy = bounds.centerY();
-
-        // Calculate translation to center the area's center point in the view, 
-        // accounting for the view's own padding.
-        float targetTX = (vW / 2f) + binding.svgView.getPaddingLeft() - (cx - svgParser.vbX) * targetScale;
-        float targetTY = (vH / 2f) + binding.svgView.getPaddingTop() - (cy - svgParser.vbY) * targetScale;
-
-        Log.d(TAG, "zoomToAreaBounds (Perfect Fit): scale=" + targetScale
-                + " TX=" + targetTX + " TY=" + targetTY);
-
-        animateToMatrixNoClamp(targetScale, targetTX, targetTY);
-    }
-
-    private void animateToMatrixNoClamp(float targetScale, float targetTX, float targetTY) {
-        matrix.getValues(matrixValues);
-        float startScale = matrixValues[Matrix.MSCALE_X];
-        float startTX    = matrixValues[Matrix.MTRANS_X];
-        float startTY    = matrixValues[Matrix.MTRANS_Y];
-
-        ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
-        animator.setDuration(ANIMATION_DURATION);
-        animator.setInterpolator(new DecelerateInterpolator(2f));
-        animator.addUpdateListener(anim -> {
-            if (binding == null) return;
-            float t = (float) anim.getAnimatedValue();
-            matrixValues[Matrix.MSCALE_X] = startScale + (targetScale - startScale) * t;
-            matrixValues[Matrix.MSCALE_Y] = startScale + (targetScale - startScale) * t;
-            matrixValues[Matrix.MTRANS_X] = startTX    + (targetTX    - startTX)    * t;
-            matrixValues[Matrix.MTRANS_Y] = startTY    + (targetTY    - startTY)    * t;
-            matrix.setValues(matrixValues);
-            binding.svgView.setImageMatrix(matrix);
-        });
-        animator.start();
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -381,7 +292,7 @@ public class NetworkFragment extends Fragment {
                 InputStream is1, is2;
 
                 if (uriStr.startsWith("file://")) {
-                    java.io.File f = new java.io.File(uri.getPath());
+                    File f = new File(uri.getPath());
                     is1 = new java.io.FileInputStream(f);
                     is2 = new java.io.FileInputStream(f);
                 } else if (uri.getScheme() == null || uri.getScheme().equals("asset")) {
@@ -399,21 +310,16 @@ public class NetworkFragment extends Fragment {
                     mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
                     return;
                 }
-                
+                SVG      svg = SVG.getFromInputStream(is1); is1.close();
                 Document doc = svgParser.parseDocument(is2); is2.close();
-                is1.close(); // is1 not used in this simplified structural version
 
-                if (doc != null) {
-                    svgParser.parseViewBox(doc);
-                    Map<String, DeviceInfo> devices = svgParser.extractDevices(doc);
-                    svgParser.parseSelectionLayer(doc);
-                    svgParser.remapSelectionBoundsToAreaIds();
-                    floorPlanBounds = null;
-                    mainHandler.post(() -> onSvgLoaded(doc, devices));
-                } else {
-                    mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
-                }
+                if (doc != null) svgParser.parseViewBox(doc);
+                Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
+                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
+                svgParser.parseSelectionLayer(doc);
+                floorPlanBounds = null;
 
+                mainHandler.post(() -> onSvgLoaded(svg, doc, devices, relations));
             } catch (Exception e) {
                 Log.e(TAG, "Error loading SVG from URI: " + uri, e);
                 mainHandler.post(() -> { showLoading(false); showPlaceholder(true); });
@@ -421,39 +327,144 @@ public class NetworkFragment extends Fragment {
         });
     }
 
-    private void onSvgLoaded(Document document, Map<String, DeviceInfo> devices) {
+    private void onSvgLoaded(SVG svg, Document document,
+                             Map<String, DeviceInfo>  devices,
+                             Map<String, Set<String>> relations) {
+        currentSvg  = svg;
         svgDocument = document;
         deviceMap.clear();
         deviceMap.putAll(devices);
+        iconToDeviceRelations.clear();
+        iconToDeviceRelations.putAll(relations);
 
         colorManager.init(document, svgParser, deviceMap);
-
-        // ── Save device ID → area ID mappings to store ────────────────────
-        for (Map.Entry<String, DeviceInfo> entry : devices.entrySet()) {
-            String deviceId = entry.getKey();
-            String areaId   = entry.getValue().areaId;
-            if (areaId != null && !areaId.isEmpty()) {
-                ClientServerElementStore.saveServerAreaId(deviceId, areaId);
-            }
-        }
-
-        for (DeviceInfo info : deviceMap.values()) {
-            colorManager.restoreIconGroupColor(info.element);
-        }
-
-        // Always ensure minZoom is calculated before focusing
-        binding.svgView.post(() -> {
-            if (binding == null) return;
-            fitFloorPlanToView(false);
-
-            if (pendingAreaId != null) {
-                final String focusId = pendingAreaId;
-                pendingAreaId = null;
-                focusOnArea(focusId);
-            }
-        });
-
+        refreshColors();
+        renderSvg(svg, true);
         showLoading(false);
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  COLOR REFRESH
+    // ══════════════════════════════════════════════════════════════════════
+
+    private void refreshColors() {
+        String areaToDim = currentFocusAreaId;
+        if (areaToDim == null && selectedDeviceId != null) {
+            DeviceInfo info = deviceMap.get(selectedDeviceId);
+            if (info != null) areaToDim = info.areaId;
+        }
+
+        colorManager.refreshAllColors(
+                deviceMap,
+                getProvisionedSet(),
+                selectedDeviceId,
+                iconToDeviceRelations,
+                currentFocusAreaId
+        );
+
+        if (areaToDim != null) {
+            RectF bounds = svgParser.selectionLayerBounds.get(areaToDim);
+            if (bounds == null) {
+                List<String> iconIds = svgParser.areaMap.get(areaToDim);
+                if (iconIds != null) {
+                    for (String id : iconIds) {
+                        DeviceInfo info = deviceMap.get(id);
+                        if (info != null && info.bounds != null) {
+                            if (bounds == null) bounds = new RectF(info.bounds);
+                            else bounds.union(info.bounds);
+                        }
+                    }
+                }
+            }
+            colorManager.dimOtherAreas(
+                    areaToDim,
+                    svgParser.selectionLayerElements,
+                    svgParser.selectionLayerBounds,
+                    bounds
+            );
+        } else {
+            colorManager.restoreAllAreas(
+                    svgParser.selectionLayerElements,
+                    svgParser.selectionLayerBounds
+            );
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+    //  AREA ZOOM
+    // ══════════════════════════════════════════════════════════════════════
+
+    private void zoomToArea(String areaId) {
+        RectF areaBounds = svgParser.selectionLayerBounds.get(areaId);
+        if (areaBounds == null) {
+            List<String> iconIds = svgParser.areaMap.get(areaId);
+            if (iconIds == null || iconIds.isEmpty()) return;
+            for (String iconId : iconIds) {
+                DeviceInfo info = deviceMap.get(iconId);
+                if (info != null && info.bounds != null) {
+                    if (areaBounds == null) areaBounds = new RectF(info.bounds);
+                    else areaBounds.union(info.bounds);
+                }
+            }
+            if (areaBounds == null) return;
+        }
+
+        Log.d(TAG, "zoomToArea '" + areaId + "' → " + areaBounds);
+        currentFocusAreaId = areaId;
+
+        colorManager.dimOtherAreas(
+                areaId,
+                svgParser.selectionLayerElements,
+                svgParser.selectionLayerBounds,
+                new RectF(areaBounds));
+        refreshColors();
+        reRenderSvg();
+
+        final RectF finalBounds = new RectF(areaBounds);
+        mainHandler.postDelayed(() -> {
+            if (binding == null) return;
+            Runnable doZoom = () -> {
+                float vW = binding.svgView.getWidth();
+                float vH = binding.svgView.getHeight();
+                if (vW <= 0 || vH <= 0) {
+                    mainHandler.postDelayed(() -> zoomToArea(areaId), 150);
+                    return;
+                }
+                float padding     = 28f;
+                RectF padded      = new RectF(finalBounds);
+                padded.inset(-padding, -padding);
+
+                float scaleX      = vW / padded.width();
+                float scaleY      = vH / padded.height();
+                float targetScale = Math.min(MAX_ZOOM,
+                        Math.max(minZoom, Math.min(scaleX, scaleY)));
+
+                areaLockedId      = areaId;
+                areaLockedMinZoom = targetScale;
+
+                float cx     = padded.centerX() - svgParser.vbX;
+                float cy     = padded.centerY() - svgParser.vbY;
+                float transX = vW / 2f - cx * targetScale;
+                float transY = vH / 2f - cy * targetScale;
+
+                animateToMatrix(targetScale, transX, transY);
+            };
+
+            if (binding.svgView.getDrawable() != null)
+                binding.svgView.post(doZoom);
+            else
+                mainHandler.postDelayed(() -> binding.svgView.post(doZoom), 200);
+        }, 300);
+    }
+
+    private void exitAreaZoom() {
+        areaLockedId      = null;
+        areaLockedMinZoom = -1f;
+        colorManager.restoreAllAreas(
+                svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+        refreshColors();
+        reRenderSvg();
+        binding.svgView.post(() -> fitFloorPlanToView(true));
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -470,6 +481,8 @@ public class NetworkFragment extends Fragment {
 
     // ══════════════════════════════════════════════════════════════════════
     //  FLOOR PLAN FIT
+    //  FIX: Uses vbW/vbH (viewBox dimensions) instead of drawable intrinsic
+    //       size so the boundary is correct even without a selection_layer.
     // ══════════════════════════════════════════════════════════════════════
 
     private void fitFloorPlanToView(boolean animate) {
@@ -478,36 +491,45 @@ public class NetworkFragment extends Fragment {
         float vH = binding.svgView.getHeight();
         if (vW <= 0 || vH <= 0) return;
 
-        float svgW = svgParser.vbW > 0 ? svgParser.vbW
-                : binding.svgView.getDrawable().getIntrinsicWidth();
-        float svgH = svgParser.vbH > 0 ? svgParser.vbH
-                : binding.svgView.getDrawable().getIntrinsicHeight();
-
         RectF fp = getFloorPlanBounds();
-        float scale, transX, transY;
+        if (fp == null || fp.isEmpty()) {
+            float svgW  = svgParser.vbW > 0 ? svgParser.vbW : binding.svgView.getDrawable().getIntrinsicWidth();
+            float svgH  = svgParser.vbH > 0 ? svgParser.vbH : binding.svgView.getDrawable().getIntrinsicHeight();
+            float scale = Math.min(vW / svgW, vH / svgH);
+            minZoom = scale;
 
-        if (fp != null && !fp.isEmpty()) {
-            float padding = 16f;
-            RectF padded  = new RectF(fp);
-            padded.inset(-padding, -padding);
-            // ── FIX: Increased default zoom (1.5x) so map isn't too small ──
-            scale  = Math.min(vW / padded.width(), vH / padded.height()) * 1.5f;
-            float cx = padded.centerX() - svgParser.vbX;
-            float cy = padded.centerY() - svgParser.vbY;
-            transX = vW / 2f - cx * scale;
-            transY = vH / 2f - cy * scale;
-        } else {
-            // ── FIX: Increased default zoom (1.5x) so map isn't too small ──
-            scale  = Math.min(vW / svgW, vH / svgH) * 1.5f;
-            transX = (vW - svgW * scale) / 2f - svgParser.vbX * scale;
-            transY = (vH - svgH * scale) / 2f - svgParser.vbY * scale;
+            float transX = (vW - svgW * scale) / 2f;
+            float transY = (vH - svgH * scale) / 2f;
+
+            if (animate) {
+                animateToMatrix(scale, transX, transY);
+            } else {
+                matrix.reset();
+                matrix.postScale(scale, scale);
+                matrix.postTranslate(transX, transY);
+                clampMatrix();
+                binding.svgView.setImageMatrix(matrix);
+            }
+            return;
         }
 
-        minZoom = scale;
+        float padding = 16f;
+        RectF padded  = new RectF(fp);
+        padded.inset(-padding, -padding);
 
-        if (animate) {
-            animateToMatrix(scale, transX, transY);
-        } else {
+        float scale  = Math.min(vW / padded.width(), vH / padded.height());
+        minZoom      = scale;
+
+        float bL = (padded.left   - svgParser.vbX) * scale;
+        float bT = (padded.top    - svgParser.vbY) * scale;
+        float bW = padded.width()  * scale;
+        float bH = padded.height() * scale;
+
+        float transX = (vW - bW) / 2f - bL;
+        float transY = (vH - bH) / 2f - bT;
+
+        if (animate) animateToMatrix(scale, transX, transY);
+        else {
             matrix.reset();
             matrix.postScale(scale, scale);
             matrix.postTranslate(transX, transY);
@@ -532,10 +554,37 @@ public class NetworkFragment extends Fragment {
     //  SVG RENDERING
     // ══════════════════════════════════════════════════════════════════════
 
+    private void renderSvg(SVG svg, boolean applyDomChanges) {
+        try {
+            int rW = Math.max(1, (int) svgParser.vbW);
+            int rH = Math.max(1, (int) svgParser.vbH);
+            Picture         picture  = svg.renderToPicture(rW, rH);
+            PictureDrawable drawable = new PictureDrawable(picture);
+            binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+            binding.svgView.setImageDrawable(drawable);
+            binding.svgView.setVisibility(View.VISIBLE);
+            binding.svgPlaceholder.setVisibility(View.GONE);
+            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+
+            binding.svgView.post(() -> {
+                fitFloorPlanToView(false);
+                binding.svgView.invalidate();
+                if (applyDomChanges) reRenderSvg();
+                if (pendingFocusAreaId != null) {
+                    final String focusId = pendingFocusAreaId;
+                    pendingFocusAreaId = null;
+                    mainHandler.postDelayed(() -> zoomToArea(focusId), 400);
+                }
+            });
+        } catch (Exception e) {
+            Log.e(TAG, "Error rendering SVG", e);
+            showPlaceholder(true);
+        }
+    }
+
     private void reRenderSvg() {
         if (svgDocument == null) return;
-        if (pendingRender != null && !pendingRender.isDone())
-            pendingRender.cancel(true);
+        if (pendingRender != null && !pendingRender.isDone()) pendingRender.cancel(true);
 
         final float[] snap = new float[9];
         matrix.getValues(snap);
@@ -551,34 +600,16 @@ public class NetworkFragment extends Fragment {
                 int     rH      = Math.max(1, (int) svgParser.vbH);
                 Picture picture = svg.renderToPicture(rW, rH);
                 PictureDrawable drawable = new PictureDrawable(picture);
-
                 mainHandler.post(() -> {
                     if (binding == null) return;
-                    binding.svgView.setLayerType(View.LAYER_TYPE_SOFTWARE, null);
                     binding.svgView.setImageDrawable(drawable);
-                    binding.svgView.setVisibility(View.VISIBLE);
-                    binding.svgPlaceholder.setVisibility(View.GONE);
-                    if (!mAutoSetupInProgress)
-                        binding.progressBar.setVisibility(View.GONE);
-
-                    if (isMatrixIdentity(frozenMatrix)) {
-                        binding.svgView.post(() -> fitFloorPlanToView(false));
-                    } else {
-                        binding.svgView.setImageMatrix(frozenMatrix);
-                    }
+                    binding.svgView.setImageMatrix(frozenMatrix);
                     binding.svgView.invalidate();
                 });
             } catch (Exception e) {
                 Log.e(TAG, "reRenderSvg error", e);
             }
         });
-    }
-
-    private boolean isMatrixIdentity(Matrix m) {
-        float[] v = new float[9];
-        m.getValues(v);
-        return v[Matrix.MSCALE_X] == 0f && v[Matrix.MTRANS_X] == 0f
-                && v[Matrix.MTRANS_Y] == 0f;
     }
 
     private String documentToString(Document doc) {
@@ -600,10 +631,14 @@ public class NetworkFragment extends Fragment {
 
     private void showPlaceholder(boolean show) {
         if (binding == null) return;
-        binding.svgPlaceholder.setVisibility(show ? View.VISIBLE : View.GONE);
-        binding.svgView.setVisibility(show ? View.GONE  : View.VISIBLE);
-        if (show && !mAutoSetupInProgress)
-            binding.progressBar.setVisibility(View.GONE);
+        if (show) {
+            binding.svgPlaceholder.setVisibility(View.VISIBLE);
+            binding.svgView.setVisibility(View.GONE);
+            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+        } else {
+            binding.svgPlaceholder.setVisibility(View.GONE);
+            binding.svgView.setVisibility(View.VISIBLE);
+        }
     }
 
     private void showLoading(boolean show) {
@@ -613,8 +648,7 @@ public class NetworkFragment extends Fragment {
             binding.svgPlaceholder.setVisibility(View.GONE);
             binding.svgView.setVisibility(View.GONE);
         } else {
-            if (!mAutoSetupInProgress)
-                binding.progressBar.setVisibility(View.GONE);
+            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
         }
     }
 
@@ -628,20 +662,27 @@ public class NetworkFragment extends Fragment {
 
         scaleDetector = new ScaleGestureDetector(requireContext(),
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+
+                    // ── FIX: clamp factor before postScale to avoid drift ──
                     @Override
                     public boolean onScale(ScaleGestureDetector d) {
                         float cur    = getScale();
                         float factor = d.getScaleFactor();
-                        float next   = cur * factor;
+
+                        // Clamp factor so scale never exceeds min/max
+                        float next = cur * factor;
                         if (next < minZoom)  factor = minZoom  / cur;
                         if (next > MAX_ZOOM) factor = MAX_ZOOM / cur;
-                        matrix.postScale(factor, factor,
-                                d.getFocusX(), d.getFocusY());
+
+                        matrix.postScale(factor, factor, d.getFocusX(), d.getFocusY());
+
+                        // During active pinch: only clamp translation, NOT scale
                         clampTranslationOnly();
                         binding.svgView.setImageMatrix(matrix);
                         return true;
                     }
 
+                    // ── FIX: full clamp once gesture ends (imperceptible snap) ──
                     @Override
                     public void onScaleEnd(ScaleGestureDetector detector) {
                         clampMatrix();
@@ -654,27 +695,30 @@ public class NetworkFragment extends Fragment {
                     @Override
                     public boolean onDoubleTap(MotionEvent e) {
                         hasMoved = true;
-                        // ── FIX: Threshold for zoom-out toggle ──
-                        if (getScale() > minZoom * 1.15f) {
-                            fitFloorPlanToView(true);
+                        if (areaLockedId != null) {
+                            // If focused on an area, first double-tap exits to full map
+                            exitAreaZoom();
                         } else {
-                            // Zoom IN to tapped point
-                            // ── FIX: Use dynamic target scale relative to minZoom ──
-                            float targetScale = minZoom * DOUBLE_TAP_ZOOM;
-                            targetScale = Math.min(targetScale, MAX_ZOOM);
+                            float curScale = getScale();
+                            // If we are already zoomed in quite a bit, zoom out to full
+                            if (curScale > minZoom + 0.15f) {
+                                fitFloorPlanToView(true);
+                            } else {
+                                // If we are zoomed out, zoom in to the tapped point
+                                float targetScale = DOUBLE_TAP_ZOOM;
+                                // If DOUBLE_TAP_ZOOM is somehow smaller than minZoom, use a relative factor
+                                if (targetScale < minZoom * 1.5f) targetScale = minZoom * 3.0f;
 
-                            if (focusedAreaId != null) {
-                                RectF bounds = getBoundsForArea(focusedAreaId);
-                                if (bounds != null) {
-                                    zoomToAreaBounds(bounds);
-                                    return true;
-                                }
+                                // Target: keep the tapped point under the same screen coordinate
+                                float[] svgPt = touchToSvgCoords(e.getX(), e.getY());
+                                float targetTX = e.getX() - (svgPt[0] - svgParser.vbX) * targetScale;
+                                float targetTY = e.getY() - (svgPt[1] - svgParser.vbY) * targetScale;
+
+                                animateToMatrix(targetScale, targetTX, targetTY);
                             }
-                            animateZoomTo(targetScale, e.getX(), e.getY());
                         }
                         return true;
                     }
-
                     @Override
                     public void onLongPress(MotionEvent e) {
                         hasMoved = true;
@@ -684,6 +728,9 @@ public class NetworkFragment extends Fragment {
                     @Override
                     public boolean onFling(MotionEvent e1, MotionEvent e2,
                                            float vx, float vy) {
+                        // Suppress fling if the gesture involved 2+ fingers.
+                        // GestureDetector fires onFling from ACTION_UP even
+                        // after a pinch, causing a jerk when fingers lift.
                         if (wasMultiTouch) return false;
                         startFling(vx, vy);
                         return true;
@@ -693,6 +740,63 @@ public class NetworkFragment extends Fragment {
         binding.svgView.setOnTouchListener(this::handleTouch);
     }
 
+    private void handleSvgLongPress(float touchX, float touchY) {
+        if (svgDocument == null) return;
+        float[] c = touchToSvgCoords(touchX, touchY);
+
+        String hitIconId = findDeviceAt(c[0], c[1]);
+        if (hitIconId == null) return;
+        if (!isProvisioned(hitIconId)) return;
+
+        DeviceInfo device = deviceMap.get(hitIconId);
+        if (device == null) return;
+
+        // ── Haptic feedback ───────────────────────────────────────────────
+        binding.svgView.performHapticFeedback(
+                android.view.HapticFeedbackConstants.LONG_PRESS);
+
+        // ── Proxy connection check ────────────────────────────────────────
+        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
+                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+
+        if (!isConnected) {
+            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                    .setTitle("Not Connected")
+                    .setMessage("Please connect to a proxy node before resetting the device.")
+                    .setPositiveButton("OK", null)
+                    .show();
+            return;
+        }
+
+        // ── Reset dialog ──────────────────────────────────────────────────
+        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
+                .setTitle("Device Options")
+                .setMessage("Do you want to reset this device?")
+                .setPositiveButton("Reset Node", (dialog, which) ->
+                        openNodeConfigForReset(hitIconId, device))
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+    private void openNodeConfigForReset(String deviceId, DeviceInfo device) {
+        SharedPreferences prefs = requireContext()
+                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        Uri    svgUri       = mViewModel.getSvgUri().getValue();
+        String svgUriString = svgUri != null ? svgUri.toString() : "";
+        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
+
+        String displayName = extractPureDeviceName(deviceId);
+
+        Intent intent = new Intent(requireContext(), NodeConfigurationActivity.class);
+        intent.putExtra("EXTRA_SVG_DEVICE_ID",                       deviceId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+        intent.putExtra("svg_name",   svgName);
+        intent.putExtra("AUTO_RESET", true);
+        startActivity(intent);
+    }
+
     private boolean handleTouch(View v, MotionEvent event) {
         if (velocityTracker == null) velocityTracker = VelocityTracker.obtain();
         velocityTracker.addMovement(event);
@@ -700,40 +804,36 @@ public class NetworkFragment extends Fragment {
         scaleDetector.onTouchEvent(event);
 
         switch (event.getActionMasked()) {
-
             case MotionEvent.ACTION_DOWN:
-                cancelAnimators();
+                if (flingAnimator != null) flingAnimator.cancel();
+                if (zoomAnimator  != null) zoomAnimator.cancel();
                 scroller.forceFinished(true);
                 activePointerId = event.getPointerId(0);
-                lastTouchX      = event.getX();
-                lastTouchY      = event.getY();
-                isDragging      = true;
-                tapDownX        = event.getX();
-                tapDownY        = event.getY();
-                tapDownTime     = event.getEventTime();
-                hasMoved        = false;
-                wasMultiTouch   = false;
+                lastTouchX  = event.getX();
+                lastTouchY  = event.getY();
+                isDragging    = true;
+                tapDownX      = event.getX();
+                tapDownY      = event.getY();
+                tapDownTime   = event.getEventTime();
+                hasMoved      = false;
+                wasMultiTouch = false;   // fresh gesture — assume single finger
                 break;
 
             case MotionEvent.ACTION_POINTER_DOWN:
                 isDragging    = false;
                 hasMoved      = true;
-                wasMultiTouch = true;
+                wasMultiTouch = true;    // 2+ fingers → block fling on lift
                 break;
 
             case MotionEvent.ACTION_MOVE:
                 if (!scaleDetector.isInProgress()) {
                     int idx = event.findPointerIndex(activePointerId);
-                    if (idx == -1) {
-                        activePointerId = event.getPointerId(0);
-                        break;
-                    }
+                    if (idx == -1) { activePointerId = event.getPointerId(0); break; }
                     float dx  = event.getX(idx) - lastTouchX;
                     float dy  = event.getY(idx) - lastTouchY;
                     float tdx = event.getX(idx) - tapDownX;
                     float tdy = event.getY(idx) - tapDownY;
-                    if (Math.sqrt(tdx * tdx + tdy * tdy) > TAP_MOVE_SLOP)
-                        hasMoved = true;
+                    if (Math.sqrt(tdx * tdx + tdy * tdy) > TAP_MOVE_SLOP) hasMoved = true;
                     if (isDragging && (Math.abs(dx) > 0.5f || Math.abs(dy) > 0.5f)) {
                         matrix.postTranslate(dx, dy);
                         clampMatrix();
@@ -746,15 +846,27 @@ public class NetworkFragment extends Fragment {
 
             case MotionEvent.ACTION_UP:
                 if (!hasMoved && !scaleDetector.isInProgress()
-                        && (event.getEventTime() - tapDownTime) < TAP_MAX_DURATION) {
+                        && (event.getEventTime() - tapDownTime) < TAP_MAX_DURATION)
                     handleSvgTap(tapDownX, tapDownY);
+                activePointerId = MotionEvent.INVALID_POINTER_ID;
+                isDragging      = false;
+                hasMoved        = false;
+                wasMultiTouch   = false;  // reset for next gesture
+                if (velocityTracker != null) {
+                    velocityTracker.recycle();
+                    velocityTracker = null;
                 }
-                resetPointerState();
                 break;
 
             case MotionEvent.ACTION_CANCEL:
-                hasMoved = true;
-                resetPointerState();
+                activePointerId = MotionEvent.INVALID_POINTER_ID;
+                isDragging      = false;
+                hasMoved        = true;
+                wasMultiTouch   = false;  // reset for next gesture
+                if (velocityTracker != null) {
+                    velocityTracker.recycle();
+                    velocityTracker = null;
+                }
                 break;
 
             case MotionEvent.ACTION_POINTER_UP:
@@ -763,22 +875,12 @@ public class NetworkFragment extends Fragment {
                 if (pid == activePointerId) {
                     int ni = (pi == 0) ? 1 : 0;
                     activePointerId = event.getPointerId(ni);
-                    lastTouchX      = event.getX(ni);
-                    lastTouchY      = event.getY(ni);
+                    lastTouchX = event.getX(ni);
+                    lastTouchY = event.getY(ni);
                 }
                 break;
         }
         return true;
-    }
-
-    private void resetPointerState() {
-        activePointerId = MotionEvent.INVALID_POINTER_ID;
-        isDragging      = false;
-        wasMultiTouch   = false;
-        if (velocityTracker != null) {
-            velocityTracker.recycle();
-            velocityTracker = null;
-        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -787,87 +889,76 @@ public class NetworkFragment extends Fragment {
 
     private void handleSvgTap(float touchX, float touchY) {
         if (svgDocument == null) return;
-        float[] c    = touchToSvgCoords(touchX, touchY);
-        float   svgX = c[0];
-        float   svgY = c[1];
+        float[] c = touchToSvgCoords(touchX, touchY);
 
-        // 1. Device tap
-        String hitIconId = findDeviceAt(svgX, svgY);
+        // 1. Icon hit check
+        String hitIconId = findDeviceAt(c[0], c[1]);
         if (hitIconId != null) {
-            // Check if interaction should be restricted to focused area
-            if (focusedAreaId != null) {
+            if (currentFocusAreaId != null) {
                 DeviceInfo info = deviceMap.get(hitIconId);
-                if (info == null || !focusedAreaId.equals(info.areaId)) {
-                    Log.d(TAG, "handleSvgTap: Ignoring device tap outside focused area");
-                    return;
-                }
+                if (info == null || !currentFocusAreaId.equals(info.areaId)) return;
             }
             onDeviceTapped(hitIconId);
             return;
         }
 
-        // 2. Area tap
-        String hitAreaId = findAreaAt(svgX, svgY);
-        if (hitAreaId != null) {
-            // If already focused, ignore tapping another area (use back press to exit)
-            if (focusedAreaId != null) return;
-            focusOnArea(hitAreaId);
+        // 2. Relation device hit check
+        RelationHitResult hit = findRelationDeviceAt(c[0], c[1]);
+        if (hit != null) {
+            onRelationDeviceTapped(hit.iconId, hit.tappedDeviceId);
             return;
         }
 
-        // 3. Empty space tap
-        if (selectedDeviceId != null) {
-            deselectCurrentDevice();
-        }
+        deselectCurrentDevice();
     }
 
-    private String findAreaAt(float svgX, float svgY) {
-        for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
-            RectF bounds = entry.getValue();
-            if (bounds != null && bounds.contains(svgX, svgY)) {
-                Log.d(TAG, "findAreaAt: hit " + entry.getKey());
-                return entry.getKey();
+    private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
+        DeviceInfo device = deviceMap.get(iconId);
+        if (device == null) return;
+
+        SharedPreferences prefs = requireContext()
+                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        Uri    svgUri       = mViewModel.getSvgUri().getValue();
+        String svgUriString = svgUri != null ? svgUri.toString() : "";
+        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
+
+        String displayName = extractPureDeviceName(tappedDeviceId);
+
+        Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+        intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
+        intent.putExtra("svg_name", svgName);
+        startActivity(intent);
+    }
+
+    private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
+        for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
+            String      iconId    = entry.getKey();
+            Set<String> deviceIds = entry.getValue();
+
+            if (!isProvisioned(iconId)) continue;
+
+            for (String deviceId : deviceIds) {
+                Element deviceEl = svgParser.findElementById(
+                        svgDocument.getDocumentElement(), deviceId);
+                if (deviceEl == null) continue;
+
+                RectF bounds = svgParser.computeBounds(deviceEl);
+                if (bounds == null || bounds.isEmpty()) continue;
+
+                RectF expanded = new RectF(bounds);
+                expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+
+                if (expanded.contains(svgX, svgY)) {
+                    return new RelationHitResult(iconId, deviceId);
+                }
             }
         }
         return null;
-    }
-
-    private void handleSvgLongPress(float touchX, float touchY) {
-        if (svgDocument == null) return;
-        float[] c         = touchToSvgCoords(touchX, touchY);
-        String  hitIconId = findDeviceAt(c[0], c[1]);
-        if (hitIconId == null || !isProvisioned(hitIconId)) return;
-
-        DeviceInfo device = deviceMap.get(hitIconId);
-        if (device == null) return;
-
-        // Restriction: Only allow operations inside the focused area
-        if (focusedAreaId != null && !focusedAreaId.equals(device.areaId)) {
-            Log.d(TAG, "handleSvgLongPress: Ignoring long press outside focused area");
-            return;
-        }
-
-        binding.svgView.performHapticFeedback(
-                android.view.HapticFeedbackConstants.LONG_PRESS);
-
-        boolean isConnected = Boolean.TRUE.equals(
-                mViewModel.isConnectedToProxy().getValue());
-        if (!isConnected) {
-            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                    .setTitle("Not Connected")
-                    .setMessage("Please connect to a proxy node before resetting the device.")
-                    .setPositiveButton("OK", null)
-                    .show();
-            return;
-        }
-
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Device Options")
-                .setMessage("Do you want to reset this device?")
-                .setPositiveButton("Reset Node",
-                        (dialog, which) -> openNodeConfigForReset(hitIconId, device))
-                .setNegativeButton("Cancel", null)
-                .show();
     }
 
     private float[] touchToSvgCoords(float touchX, float touchY) {
@@ -889,10 +980,7 @@ public class NetworkFragment extends Fragment {
             expanded.inset(inset, inset);
             if (expanded.contains(svgX, svgY)) {
                 float area = bounds.width() * bounds.height();
-                if (area < smallestArea) {
-                    smallestArea = area;
-                    bestId = entry.getKey();
-                }
+                if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
             }
         }
         return bestId;
@@ -903,15 +991,16 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
 
     private void onDeviceTapped(String deviceId) {
+        DeviceInfo device = deviceMap.get(deviceId);
+
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
 
-        DeviceInfo device = deviceMap.get(deviceId);
         if (device != null && device.element != null) {
             colorManager.applyColorToIconGroup(
                     device.element,
                     isProvisioned(deviceId)
-                            ? SvgColorManager.COLOR_TRANSPARENT
+                            ? COLOR_TRANSPARENT
                             : SvgColorManager.COLOR_SELECTED);
         }
         reRenderSvg();
@@ -921,18 +1010,73 @@ public class NetworkFragment extends Fragment {
         Uri    svgUri       = mViewModel.getSvgUri().getValue();
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
-        String displayName  = extractPureDeviceName(deviceId);
 
-        Log.d(TAG, "Tapped: " + deviceId + " provisioned=" + isProvisioned(deviceId));
+        String      displayName    = extractPureDeviceName(deviceId);
+        Set<String> relatedDevices = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
+        String      relationDevName = relatedDevices.isEmpty()
+                ? null : relatedDevices.iterator().next();
+
+        Log.d(TAG, "isProvisioned check: deviceId=" + deviceId
+                + " result=" + isProvisioned(deviceId));
+
+        if (isProvisioned(deviceId)) {
+            if (device != null && device.elementId != null) {
+                try {
+                    int svgId = Integer.parseInt(device.elementId.trim());
+                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
+                } catch (NumberFormatException ignored) {}
+            }
+            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
+                    device != null ? device.elementId : null);
+            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
+                    device != null ? device.receiveId : null);
+            intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
+            intent.putExtra("svg_name", svgName);
+            startActivity(intent);
+            return;
+        }
+
+        if (device != null && device.elementId != null) {
+            try {
+                int svgId = Integer.parseInt(device.elementId.trim());
+                if (svgId >= 0) {
+                    ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
+                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved device=" + deviceId + " svgId=" + svgId);
+                }
+            } catch (NumberFormatException e) {
+                Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
+            }
+        }
 
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        if (device != null && device.areaId != null) {
-            intent.putExtra(DeviceDetailActivity.EXTRA_AREA_ID, device.areaId);
-        }
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
+                device != null ? device.elementId : null);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
+                device != null ? device.receiveId : null);
         startActivity(intent);
+    }
+
+    private String extractPureDeviceName(String fullDeviceId) {
+        if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
+        String name = fullDeviceId;
+        int ci = name.lastIndexOf(":");
+        if (ci != -1) name = name.substring(ci + 1).trim();
+        name = name.replaceAll("\\s*\\d+$", "")
+                .replaceAll("\\d+$", "")
+                .replaceAll("\\s+", " ")
+                .trim();
+        return name.isEmpty()
+                ? (fullDeviceId.contains(":")
+                   ? fullDeviceId.substring(fullDeviceId.indexOf(":") + 1).trim()
+                   : fullDeviceId)
+                : name;
     }
 
     private void deselectCurrentDevice() {
@@ -945,33 +1089,6 @@ public class NetworkFragment extends Fragment {
         selectedDeviceId = null;
     }
 
-    private void openNodeConfigForReset(String deviceId, DeviceInfo device) {
-        SharedPreferences prefs = requireContext()
-                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-        Uri    svgUri       = mViewModel.getSvgUri().getValue();
-        String svgUriString = svgUri != null ? svgUri.toString() : "";
-        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
-        String displayName  = extractPureDeviceName(deviceId);
-
-        Intent intent = new Intent(requireContext(), NodeConfigurationActivity.class);
-        intent.putExtra("EXTRA_SVG_DEVICE_ID",                       deviceId);
-        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        intent.putExtra("svg_name",   svgName);
-        intent.putExtra("AUTO_RESET", true);
-        startActivity(intent);
-    }
-
-    private String extractPureDeviceName(String fullDeviceId) {
-        if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
-        String name = fullDeviceId;
-        int ci = name.lastIndexOf(":");
-        if (ci != -1) name = name.substring(ci + 1).trim();
-        name = name.replaceAll("_", " ").trim();
-        if (name.isEmpty()) return fullDeviceId;
-        return name;
-    }
-
     // ══════════════════════════════════════════════════════════════════════
     //  ZOOM & PAN HELPERS
     // ══════════════════════════════════════════════════════════════════════
@@ -981,28 +1098,70 @@ public class NetworkFragment extends Fragment {
         return matrixValues[Matrix.MSCALE_X];
     }
 
+    /**
+     * Full clamp: enforces both scale floor/ceiling AND translation bounds.
+     * Call this at rest (gesture end, drag, fling). NOT during active pinch.
+     */
     private void clampMatrix() {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
-        float scale = Math.max(minZoom, Math.min(MAX_ZOOM, matrixValues[Matrix.MSCALE_X]));
+
+        float curScale = matrixValues[Matrix.MSCALE_X];
+
+        // ── FIX: Automatic zoom-back issue ──
+        // If an area is focused/locked but the user manually pinches out below the
+        // focus zoom level, we release the lock so it doesn't snap back.
+        if (areaLockedId != null && curScale < areaLockedMinZoom * 0.96f) {
+            areaLockedId       = null;
+            areaLockedMinZoom  = -1f;
+            currentFocusAreaId = null;
+            // Optionally restore colors immediately for visual feedback
+            colorManager.restoreAllAreas(
+                    svgParser.selectionLayerElements, svgParser.selectionLayerBounds);
+            refreshColors();
+            reRenderSvg();
+        }
+
+        float effectiveMin = (areaLockedMinZoom > 0) ? areaLockedMinZoom : minZoom;
+        float scale = Math.max(effectiveMin,
+                Math.min(MAX_ZOOM, curScale));
+
         matrixValues[Matrix.MSCALE_X] = scale;
         matrixValues[Matrix.MSCALE_Y] = scale;
         matrix.setValues(matrixValues);
+
         applyTranslationClamp(scale);
     }
 
+    /**
+     * Translation-only clamp: does NOT touch scale values.
+     * Use this during active pinch gesture to avoid per-frame jitter/hang.
+     *
+     * FIX: When no selection_layer boundary exists, use SVG viewBox dimensions
+     * (vbW/vbH) instead of drawable intrinsic size, so the boundary is correct
+     * regardless of whether the SVG has a selection_layer group.
+     */
     private void clampTranslationOnly() {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
-        applyTranslationClamp(matrixValues[Matrix.MSCALE_X]);
+        float scale = matrixValues[Matrix.MSCALE_X];
+        applyTranslationClamp(scale);
     }
 
+    /**
+     * Core translation-clamp logic shared by clampMatrix() and clampTranslationOnly().
+     * Extracts min/max TX/TY from either the area boundary or the full floor plan,
+     * then clamps matrixValues and writes them back.
+     */
     private void applyTranslationClamp(float scale) {
         if (binding == null || binding.svgView.getDrawable() == null) return;
-        matrix.getValues(matrixValues);
+
         float vW = binding.svgView.getWidth();
         float vH = binding.svgView.getHeight();
-        RectF boundary = getFloorPlanBounds();
+
+        RectF boundary = areaLockedId != null
+                ? svgParser.selectionLayerBounds.get(areaLockedId)
+                : getFloorPlanBounds();
 
         float minTX, maxTX, minTY, maxTY;
 
@@ -1014,25 +1173,29 @@ public class NetworkFragment extends Fragment {
             float bW = bR - bL;
             float bH = bB - bT;
 
-            // ── FIX: Strictly center if content is smaller than view ──
-            minTX = bW >= vW ? vW - bR : vW / 2f - (bL + bW / 2f);
-            maxTX = bW >= vW ? -bL      : minTX;
-            minTY = bH >= vH ? vH - bB : vH / 2f - (bT + bH / 2f);
-            maxTY = bH >= vH ? -bT      : minTY;
+            if (bW >= vW) { minTX = vW - bR; maxTX = -bL; }
+            else          { float cx = vW / 2f - (bL + bW / 2f); minTX = maxTX = cx; }
+
+            if (bH >= vH) { minTY = vH - bB; maxTY = -bT; }
+            else          { float cy = vH / 2f - (bT + bH / 2f); minTY = maxTY = cy; }
         } else {
-            float svgW = svgParser.vbW > 0 ? svgParser.vbW
+            float svgW = svgParser.vbW > 0
+                    ? svgParser.vbW
                     : binding.svgView.getDrawable().getIntrinsicWidth();
-            float svgH = svgParser.vbH > 0 ? svgParser.vbH
+            float svgH = svgParser.vbH > 0
+                    ? svgParser.vbH
                     : binding.svgView.getDrawable().getIntrinsicHeight();
+
             float dW = svgW * scale;
             float dH = svgH * scale;
 
-            minTX = dW < vW ? (vW - dW) / 2f : Math.min(0f, vW - dW);
-            maxTX = dW < vW ? (vW - dW) / 2f : 0f;
-            minTY = dH < vH ? (vH - dH) / 2f : Math.min(0f, vH - dH);
-            maxTY = dH < vH ? (vH - dH) / 2f : 0f;
+            minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0f, vW - dW);
+            maxTX = (dW < vW) ? (vW - dW) / 2f : 0f;
+            minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0f, vH - dH);
+            maxTY = (dH < vH) ? (vH - dH) / 2f : 0f;
         }
 
+        matrix.getValues(matrixValues);
         matrixValues[Matrix.MTRANS_X] = Math.max(minTX, Math.min(maxTX, matrixValues[Matrix.MTRANS_X]));
         matrixValues[Matrix.MTRANS_Y] = Math.max(minTY, Math.min(maxTY, matrixValues[Matrix.MTRANS_Y]));
         matrix.setValues(matrixValues);
@@ -1044,18 +1207,54 @@ public class NetworkFragment extends Fragment {
         float startTX    = matrixValues[Matrix.MTRANS_X];
         float startTY    = matrixValues[Matrix.MTRANS_Y];
 
+        // ── Pre-calculate clamped targets ──
+        float vW = binding.svgView.getWidth();
+        float vH = binding.svgView.getHeight();
+        RectF boundary = areaLockedId != null
+                ? svgParser.selectionLayerBounds.get(areaLockedId)
+                : getFloorPlanBounds();
+
+
+
+
+        final float fTX, fTY;
+        if (boundary != null) {
+            float bL = (boundary.left   - svgParser.vbX) * targetScale;
+            float bT = (boundary.top    - svgParser.vbY) * targetScale;
+            float bR = (boundary.right  - svgParser.vbX) * targetScale;
+            float bB = (boundary.bottom - svgParser.vbY) * targetScale;
+            float bW = bR - bL;
+            float bH = bB - bT;
+
+            if (bW >= vW) fTX = Math.max(vW - bR, Math.min(-bL, targetTX));
+            else          fTX = vW / 2f - (bL + bW / 2f);
+
+            if (bH >= vH) fTY = Math.max(vH - bB, Math.min(-bT, targetTY));
+            else          fTY = vH / 2f - (bT + bH / 2f);
+        } else {
+            float svgW = svgParser.vbW > 0 ? svgParser.vbW : 1200f;
+            float svgH = svgParser.vbH > 0 ? svgParser.vbH : 640f;
+            float dW = svgW * targetScale;
+            float dH = svgH * targetScale;
+            float minTX = (dW < vW) ? (vW - dW) / 2f : Math.min(0f, vW - dW);
+            float maxTX = (dW < vW) ? (vW - dW) / 2f : 0f;
+            float minTY = (dH < vH) ? (vH - dH) / 2f : Math.min(0f, vH - dH);
+            float maxTY = (dH < vH) ? (vH - dH) / 2f : 0f;
+            fTX = Math.max(minTX, Math.min(maxTX, targetTX));
+            fTY = Math.max(minTY, Math.min(maxTY, targetTY));
+        }
+
         ValueAnimator animator = ValueAnimator.ofFloat(0f, 1f);
         animator.setDuration(ANIMATION_DURATION);
-        animator.setInterpolator(new DecelerateInterpolator(2f));
+        animator.setInterpolator(new DecelerateInterpolator(2.2f));
         animator.addUpdateListener(anim -> {
             if (binding == null) return;
             float t = (float) anim.getAnimatedValue();
             matrixValues[Matrix.MSCALE_X] = startScale + (targetScale - startScale) * t;
             matrixValues[Matrix.MSCALE_Y] = startScale + (targetScale - startScale) * t;
-            matrixValues[Matrix.MTRANS_X] = startTX    + (targetTX    - startTX)    * t;
-            matrixValues[Matrix.MTRANS_Y] = startTY    + (targetTY    - startTY)    * t;
+            matrixValues[Matrix.MTRANS_X] = startTX    + (fTX    - startTX)    * t;
+            matrixValues[Matrix.MTRANS_Y] = startTY    + (fTY    - startTY)    * t;
             matrix.setValues(matrixValues);
-            clampMatrix();
             binding.svgView.setImageMatrix(matrix);
         });
         animator.start();
@@ -1084,24 +1283,25 @@ public class NetworkFragment extends Fragment {
         if (binding == null || binding.svgView.getDrawable() == null) return;
         matrix.getValues(matrixValues);
         float scale = matrixValues[Matrix.MSCALE_X];
-        float svgW  = svgParser.vbW > 0 ? svgParser.vbW
-                : binding.svgView.getDrawable().getIntrinsicWidth();
-        float svgH  = svgParser.vbH > 0 ? svgParser.vbH
-                : binding.svgView.getDrawable().getIntrinsicHeight();
+
+        // ── FIX: use viewBox dimensions here too ──
+        float svgW = svgParser.vbW > 0
+                ? svgParser.vbW : binding.svgView.getDrawable().getIntrinsicWidth();
+        float svgH = svgParser.vbH > 0
+                ? svgParser.vbH : binding.svgView.getDrawable().getIntrinsicHeight();
         float dW = svgW * scale;
         float dH = svgH * scale;
-        float vW = binding.svgView.getWidth();
-        float vH = binding.svgView.getHeight();
 
-        int startX = (int) matrixValues[Matrix.MTRANS_X];
-        int startY = (int) matrixValues[Matrix.MTRANS_Y];
-        int minX   = dW < vW ? (int) ((vW - dW) / 2f) : (int) (vW - dW);
-        int maxX   = dW < vW ? (int) ((vW - dW) / 2f) : 0;
-        int minY   = dH < vH ? (int) ((vH - dH) / 2f) : (int) (vH - dH);
-        int maxY   = dH < vH ? (int) ((vH - dH) / 2f) : 0;
+        float vW    = binding.svgView.getWidth();
+        float vH    = binding.svgView.getHeight();
+        int startX  = (int) matrixValues[Matrix.MTRANS_X];
+        int startY  = (int) matrixValues[Matrix.MTRANS_Y];
+        int minX    = (dW < vW) ? (int) ((vW - dW) / 2f) : (int) (vW - dW);
+        int maxX    = (dW < vW) ? (int) ((vW - dW) / 2f) : 0;
+        int minY    = (dH < vH) ? (int) ((vH - dH) / 2f) : (int) (vH - dH);
+        int maxY    = (dH < vH) ? (int) ((vH - dH) / 2f) : 0;
 
-        scroller.fling(startX, startY,
-                (int) velocityX, (int) velocityY,
+        scroller.fling(startX, startY, (int) velocityX, (int) velocityY,
                 minX, maxX, minY, maxY, 0, 0);
 
         if (flingAnimator != null) flingAnimator.cancel();
