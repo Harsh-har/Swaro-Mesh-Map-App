@@ -234,9 +234,16 @@ public class SvgParsers {
         selectionLayerElements.clear();
         if (document == null) return;
 
+        // Try direct "selection_layer" ID
         Element selLayer = findElementById(document.getDocumentElement(), "selection_layer");
+        
+        // Try fuzzy "selection" matches if not found
         if (selLayer == null) {
-            Log.w(TAG, "No <g id='selection_layer'> found in SVG");
+            selLayer = findElementFuzzy(document.getDocumentElement(), "selection");
+        }
+
+        if (selLayer == null) {
+            Log.w(TAG, "No <g id='selection_layer'> or similar found in SVG");
             return;
         }
 
@@ -254,6 +261,7 @@ public class SvgParsers {
             RectF bounds = null;
             if ("rect".equals(tag))         bounds = computeRectBounds(el);
             else if ("polygon".equals(tag)) bounds = computePolyBounds(el);
+            else if ("path".equals(tag))    bounds = computePathBounds(el);
 
             if (bounds != null && !bounds.isEmpty()) {
                 selectionLayerBounds.put(id, bounds);
@@ -261,6 +269,77 @@ public class SvgParsers {
             }
         }
         Log.d(TAG, "selection_layer parsed: " + selectionLayerBounds.size() + " areas");
+    }
+
+    public void remapSelectionBoundsToAreaIds() {
+        if (selectionLayerBounds.isEmpty() || areaMap.isEmpty()) return;
+        Map<String, RectF> remapped = new HashMap<>();
+        for (Map.Entry<String, RectF> entry : selectionLayerBounds.entrySet()) {
+            String selId = entry.getKey();
+            String normSel = normalize(selId);
+            String matchedAreaId = null;
+            for (String areaId : areaMap.keySet()) {
+                if (isFuzzyMatch(normalize(areaId), normSel)) {
+                    matchedAreaId = areaId;
+                    break;
+                }
+            }
+            if (matchedAreaId != null) {
+                remapped.put(matchedAreaId, entry.getValue());
+                Log.d(TAG, "Remapped selection bound '" + selId + "' to area '" + matchedAreaId + "'");
+            } else {
+                remapped.put(selId, entry.getValue());
+            }
+        }
+        selectionLayerBounds.putAll(remapped);
+    }
+
+    public Map<String, Element> parseUserLayer(Document document) {
+        Map<String, Element> userMap = new HashMap<>();
+        if (document == null) return userMap;
+        
+        // Find all groups whose ID starts with "User_Layer"
+        scanForUserLayerElements(document.getDocumentElement(), userMap);
+        return userMap;
+    }
+
+    private void scanForUserLayerElements(Element parent, Map<String, Element> userMap) {
+        String id = parent.getAttribute("id");
+        if (id != null && id.startsWith("User_Layer")) {
+            // This is a user layer group. Its children (like <path>) correspond to icons by ID.
+            NodeList children = parent.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                Node child = children.item(i);
+                if (child instanceof Element) {
+                    Element el = (Element) child;
+                    String childId = el.getAttribute("id");
+                    if (childId != null && !childId.isEmpty()) {
+                        userMap.put(childId, el);
+                    }
+                }
+            }
+        }
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                scanForUserLayerElements((Element) child, userMap);
+            }
+        }
+    }
+
+    private Element findElementFuzzy(Element root, String keyword) {
+        String id = root.getAttribute("id");
+        if (id != null && id.toLowerCase().contains(keyword.toLowerCase())) return root;
+        NodeList children = root.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                Element found = findElementFuzzy((Element) child, keyword);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     // ══════════════════════════════════════════════════════════════════════

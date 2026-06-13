@@ -29,6 +29,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
     public static final String EXTRA_DEVICE_ID         = "device_id";
     public static final String EXTRA_ELEMENT_ID        = "element_id";
     public static final String EXTRA_RECEIVE_ID = "receive_id";
+    public static final String EXTRA_AREA_ID = "area_id";
     public static final String EXTRA_DEVICE_NAME       = "device_name";
     public static final String EXTRA_AUTO_FILTER_DEVICE = "auto_filter_device";
     public static final String EXTRA_DEVICE_TYPE       = "device_type";
