@@ -9,18 +9,10 @@ import static no.nordicsemi.android.swaromapmesh.utils.Utils.MESSAGE_TIME_OUT;
 import static no.nordicsemi.android.swaromapmesh.utils.Utils.RESULT_KEY;
 
 import android.content.Intent;
-import android.media.AudioManager;
-import android.media.ToneGenerator;
-import android.os.Build;
 import android.os.Bundle;
-import android.os.VibrationEffect;
-import android.os.Vibrator;
-import android.speech.tts.TextToSpeech;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.util.Log;
-import android.view.HapticFeedbackConstants;
-import android.view.SoundEffectConstants;
 import android.view.View;
 import android.view.inputmethod.EditorInfo;
 import android.widget.Button;
@@ -886,17 +878,6 @@ public abstract class BaseModelConfigurationActivity extends BaseActivity implem
                             ex.getMessage() == null
                                     ? getString(R.string.unknwon_error) : ex.getMessage())
                     .show(getSupportFragmentManager(), null);
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-    }
-
-    protected void performSuccessFeedback(String message) {
-        if (mViewModel instanceof ModelConfigurationViewModel) {
-            ((ModelConfigurationViewModel) mViewModel).performSuccessFeedback(message);
         }
     }
 

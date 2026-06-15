@@ -23,8 +23,6 @@ import no.nordicsemi.android.swaromapmesh.transport.SceneGet;
 //import no.nordicsemi.android.node.swaromesh.GenericOnOffServerActivity;
 
 
-import no.nordicsemi.android.swaromapmesh.utils.FeedbackManager;
-
 ///**
 // * Generic View Model class for {@link ConfigurationServerActivity},{@link ConfigurationClientActivity},
 // * {@link GenericOnOffServerActivity}, {@link GenericLevelServerActivity}, {@link VendorModelActivity},
@@ -33,25 +31,9 @@ import no.nordicsemi.android.swaromapmesh.utils.FeedbackManager;
 @HiltViewModel
 public class ModelConfigurationViewModel extends BaseViewModel {
 
-    private final FeedbackManager mFeedbackManager;
-
     @Inject
-    ModelConfigurationViewModel(@NonNull final NrfMeshRepository nrfMeshRepository,
-                                @NonNull final FeedbackManager feedbackManager) {
+    ModelConfigurationViewModel(@NonNull final NrfMeshRepository nrfMeshRepository) {
         super(nrfMeshRepository);
-        this.mFeedbackManager = feedbackManager;
-    }
-
-    public void performSuccessFeedback(String message) {
-        mFeedbackManager.performSuccessFeedback(message);
-    }
-
-    public void performLongHapticWithBeep() {
-        mFeedbackManager.performLongHapticWithBeep();
-    }
-
-    public void performStrongDoubleVibration() {
-        mFeedbackManager.performStrongDoubleVibration();
     }
 
     @Override
