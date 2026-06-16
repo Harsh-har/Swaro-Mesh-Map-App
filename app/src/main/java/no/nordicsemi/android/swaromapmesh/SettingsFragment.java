@@ -260,31 +260,27 @@ public class SettingsFragment extends Fragment implements
         // 1. Reset mesh network
         mViewModel.resetMeshNetwork();
 
-        // 2. Clear ClientServerElementStore data
+        // 2. ── mesh_prefs completely wipe ─────────────────────────────────
         SharedPreferences meshPrefs = requireContext()
                 .getSharedPreferences("mesh_prefs", Context.MODE_PRIVATE);
+        meshPrefs.edit().clear().apply();
+        Log.d(TAG, "✅ mesh_prefs cleared");
 
-        // Get all provisioned keys and clear them
-        Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
-        for (String key : provisionedKeys) {
-            ClientServerElementStore.clearDevice(key);
-            Log.d(TAG, "Cleared device: " + key);
-        }
-
-
-        // 4. Clear SVG URI
+        // 3. ── app_prefs wipe ─────────────────────────────────────────────
         requireContext()
                 .getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-                .edit()
-                .remove("saved_svg_uri")
-                .apply();
+                .edit().clear().apply();
+        Log.d(TAG, "✅ app_prefs cleared");
+
+        // 4. ── ClientServerElementStore in-memory + prefs reset ───────────
+        ClientServerElementStore.clearAll();
+        Log.d(TAG, "✅ ClientServerElementStore cleared");
 
         // 5. Refresh ViewModel
         mViewModel.syncFromStore();
         mViewModel.forceSvgRefresh();
 
-        Log.d(TAG, "=== Network reset complete. Provisioned devices left: " +
-                ClientServerElementStore.getProvisionedKeys().size());
+        Log.d(TAG, "=== Network reset complete ===");
 
         // 6. Navigate to Home
         Intent intent = new Intent(requireContext(),

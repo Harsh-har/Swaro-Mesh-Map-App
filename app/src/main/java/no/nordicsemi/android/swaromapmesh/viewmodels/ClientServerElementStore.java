@@ -108,7 +108,7 @@ public final class ClientServerElementStore {
 
     public static String normalize(String key) {
         if (key == null) return "";
-        return key.trim().toLowerCase();
+        return key.trim().toLowerCase().replaceAll("\\s+", "_");
     }
 
     // =========================================================================
@@ -149,7 +149,15 @@ public final class ClientServerElementStore {
                 + " mac=" + (mac != null ? mac : "null")
                 + " receiveId=" + (receiveId != null ? receiveId : "null")); // ← add
     }
-
+    public static void clearAll() {
+        SharedPreferences prefs = getPrefs();
+        if (prefs == null) {
+            Log.e(TAG, "clearAll: not initialised");
+            return;
+        }
+        prefs.edit().clear().apply();
+        Log.d(TAG, "✅ clearAll: entire store wiped");
+    }
     // =========================================================================
     // SERVER — unicast address
     // =========================================================================

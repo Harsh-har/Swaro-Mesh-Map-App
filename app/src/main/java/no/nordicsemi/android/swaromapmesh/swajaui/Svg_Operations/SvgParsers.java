@@ -130,16 +130,44 @@ public class SvgParsers {
         }
     }
 
-    private void processDeviceElement(Element el, Map<String, DeviceInfo> devices, String areaId, Matrix parentMatrix) {
+    private void processDeviceElement(Element el, Map<String, DeviceInfo> devices,
+                                      String areaId, Matrix parentMatrix) {
         String id = el.getAttribute("id");
         if (id == null || id.isEmpty() || devices.containsKey(id)) return;
-        
-        RectF bounds = computeBounds(el, parentMatrix);
+
+        // ── FIX: Only use the RECT child bounds + parent transform ──
+        // computeBounds(el, parentMatrix) recurses into all children (paths, strips etc.)
+        // which gives huge wrong bounds. Instead find the direct <rect> and use only that.
+        RectF bounds = null;
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (!(child instanceof Element)) continue;
+            Element childEl = (Element) child;
+            if ("rect".equals(normalizeTag(childEl.getTagName()))) {
+                // Apply element's own transform on top of parent
+                String transformAttr = el.getAttribute("transform");
+                Matrix localMatrix = new Matrix(parentMatrix);
+                if (transformAttr != null && !transformAttr.isEmpty()) {
+                    localMatrix.postConcat(parseTransform(transformAttr));
+                }
+                bounds = computeRectBounds(childEl);
+                if (bounds != null && !bounds.isEmpty()) {
+                    localMatrix.mapRect(bounds);
+                }
+                break; // sirf pehla rect kafi hai
+            }
+        }
+
+        // Fallback: agar rect nahi mila toh purana method
+        if (bounds == null || bounds.isEmpty()) {
+            bounds = computeBounds(el, parentMatrix);
+        }
+
         if (bounds == null || bounds.isEmpty()) return;
 
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
-
         String receiveId = extractReceiveId(el);
 
         Log.d(TAG, "processDevice: id=" + id + " elementId=" + elementId + " bounds=" + bounds);
@@ -148,7 +176,6 @@ public class SvgParsers {
         info.receiveId = receiveId;
         devices.put(id, info);
     }
-
     private boolean hasDirectRectChild(Element el) {
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {

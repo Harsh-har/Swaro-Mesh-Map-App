@@ -345,7 +345,8 @@ public class SharedViewModel extends BaseViewModel
         if (storePrefs == null) return null;
 
         String targetSuffix   = "_" + svgElementId;
-        String normalizedArea = areaPrefix.toLowerCase().trim();
+        String normalizedArea = areaPrefix.toLowerCase().trim()
+                .replaceAll("\\s+", "_"); // ← ADD
         Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
 
         for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
@@ -356,16 +357,25 @@ public class SharedViewModel extends BaseViewModel
             String rest = k.substring("element_addr_".length());
             int lastUnderscore = rest.lastIndexOf("_");
             if (lastUnderscore == -1) continue;
-            String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+
+            // ── normalize storedName (space → underscore) ──────────────────
+            String storedName = rest.substring(0, lastUnderscore)
+                    .toLowerCase()
+                    .replaceAll("\\s+", "_"); // ← ADD
 
             if (!normalizedArea.isEmpty()) {
                 boolean areaMatch = false;
                 for (String provKey : provisioned) {
+                    // provKey already normalized via normalize() in store
                     String provArea = provKey.contains(":")
-                            ? provKey.split(":")[0].trim().toLowerCase() : "";
+                            ? provKey.split(":")[0].trim()
+                              .replaceAll("\\s+", "_") // ← ADD
+                            : "";
                     String provName = provKey.contains(":")
-                            ? provKey.split(":")[1].trim().toLowerCase()
-                            : provKey.toLowerCase();
+                            ? provKey.split(":")[1].trim()
+                              .replaceAll("\\s+", "_") // ← ADD
+                            : provKey.replaceAll("\\s+", "_"); // ← ADD
+
                     if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
                         areaMatch = true;
                         break;
@@ -376,13 +386,13 @@ public class SharedViewModel extends BaseViewModel
 
             Log.d(TAG, "findClientNameByElementId: area=" + areaPrefix
                     + " elementId=" + svgElementId + " → " + storedName);
-            return storedName;
+            return storedName; // ← returns "control_node" (underscore wala)
         }
+
         Log.w(TAG, "findClientNameByElementId: not found area=" + areaPrefix
                 + " elementId=" + svgElementId);
         return null;
     }
-
     /**
      * Finds the actual element address that has the Generic OnOff Server model (0x1000)
      * in the node that contains anyAddr.
@@ -416,7 +426,8 @@ public class SharedViewModel extends BaseViewModel
         SharedPreferences storePrefs = ClientServerElementStore.getPrefsPublic();
         if (storePrefs == null) return null;
 
-        String normalizedArea = areaPrefix.toLowerCase().trim();
+        String normalizedArea = areaPrefix.toLowerCase().trim()
+                .replaceAll("\\s+", "_"); // ← ADD
         Set<String> provisioned = ClientServerElementStore.getProvisionedKeys();
 
         for (Map.Entry<String, ?> e : storePrefs.getAll().entrySet()) {
@@ -426,14 +437,21 @@ public class SharedViewModel extends BaseViewModel
             String rest = k.substring("element_addr_".length());
             int lastUnderscore = rest.lastIndexOf("_");
             if (lastUnderscore == -1) continue;
-            String storedName = rest.substring(0, lastUnderscore).toLowerCase();
+
+            // ── normalize storedName ───────────────────────────────────────
+            String storedName = rest.substring(0, lastUnderscore)
+                    .toLowerCase()
+                    .replaceAll("\\s+", "_"); // ← ADD
 
             for (String provKey : provisioned) {
                 String provArea = provKey.contains(":")
-                        ? provKey.split(":")[0].trim().toLowerCase() : "";
+                        ? provKey.split(":")[0].trim()
+                          .replaceAll("\\s+", "_") // ← ADD
+                        : "";
                 String provName = provKey.contains(":")
-                        ? provKey.split(":")[1].trim().toLowerCase()
-                        : provKey.toLowerCase();
+                        ? provKey.split(":")[1].trim()
+                          .replaceAll("\\s+", "_") // ← ADD
+                        : provKey.replaceAll("\\s+", "_"); // ← ADD
 
                 if (provArea.equals(normalizedArea) && provName.equals(storedName)) {
                     Log.d(TAG, "findClientNameForArea: area=" + areaPrefix
@@ -815,10 +833,18 @@ public class SharedViewModel extends BaseViewModel
     }
 
     public void clearProvisionedDevices() {
-        for (String key : ClientServerElementStore.getProvisionedKeys()) {
-            ClientServerElementStore.clearDevice(key);
-        }
+        // Clear store
+        ClientServerElementStore.clearAll();
+
+        // Clear in-memory map
+        nodeToSvgMap.clear();
+
+        // Clear LiveData
         provisionedDeviceIds.setValue(new HashSet<>());
+
+        // Clear SVG URI
+        clearSvgUri();
+
         Log.d(TAG, "🧹 clearProvisionedDevices done");
     }
 
