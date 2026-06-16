@@ -299,7 +299,9 @@ public class SvgColorManager {
 
             // ✅ normalize id before lookup — case mismatch fix
             boolean provisioned = provisionedIds != null
-                    && provisionedIds.contains(id.trim().toLowerCase());
+                    && (provisionedIds.contains(id.trim().toLowerCase())
+                    || provisionedIds.contains(
+                    id.trim().toLowerCase().replaceAll("\\s+", "_")));
 
             if (provisioned) {
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);

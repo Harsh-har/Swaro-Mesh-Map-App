@@ -457,40 +457,35 @@ public class NodeConfigurationActivity extends BaseActivity implements
     private void clearDeviceFromStore(int unicastAddr) {
         if (unicastAddr == -1) return;
 
-        // Method 1: UUID → svgId (node may still be in SharedViewModel)
-        String svgId = mSharedViewModel.getSvgIdFromNode(
-                mViewModel.getSelectedMeshNode().getValue());
+        String svgId = mSvgDeviceId; // ← onNodeReset mein capture hua
 
-        // Method 2: unicast reverse lookup
-        if (svgId == null) {
+        if (svgId == null || svgId.isEmpty()) {
             svgId = ClientServerElementStore.getKeyByUnicastAddress(unicastAddr);
             if (svgId != null)
                 Log.d(TAG, "clearDeviceFromStore: svgId via unicast = " + svgId);
         }
 
-        // Method 3: provisioned set scan
-        if (svgId == null) {
+        if (svgId == null || svgId.isEmpty()) {
             for (String key : ClientServerElementStore.getProvisionedKeys()) {
                 if (ClientServerElementStore.getServerUnicastAddress(key) == unicastAddr) {
                     svgId = key;
+                    Log.d(TAG, "clearDeviceFromStore: svgId via scan = " + svgId);
                     break;
                 }
             }
-            if (svgId != null)
-                Log.d(TAG, "clearDeviceFromStore: svgId via scan = " + svgId);
         }
 
-        if (svgId != null) {
+        if (svgId != null && !svgId.isEmpty()) {
             ClientServerElementStore.clearDevice(svgId);
             Log.d(TAG, "✅ clearDeviceFromStore: clearDevice(" + svgId + ")");
         } else {
-            Log.e(TAG, "❌ clearDeviceFromStore: no store key found for unicast=0x"
+            Log.e(TAG, "❌ clearDeviceFromStore: no key found for unicast=0x"
                     + String.format("%04X", unicastAddr));
         }
 
+        mSharedViewModel.syncFromStore();
         mSharedViewModel.forceSvgRefresh();
     }
-
     // =========================================================================
     // Lifecycle
     // =========================================================================
@@ -602,17 +597,36 @@ public class NodeConfigurationActivity extends BaseActivity implements
 
     @Override
     public void onNodeReset() {
-        // ✅ Capture unicast BEFORE sending reset —
-        // node becomes null before ConfigNodeResetStatus arrives
         ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
         if (node != null) {
             mResetNodeUnicast = node.getUnicastAddress();
+
+            // ✅ SVG id abhi capture karo — baad mein node null ho jayega
+            if (mSvgDeviceId == null || mSvgDeviceId.isEmpty()) {
+                // UUID se try karo
+                mSvgDeviceId = mSharedViewModel.getSvgIdFromNode(node);
+            }
+            if (mSvgDeviceId == null || mSvgDeviceId.isEmpty()) {
+                // Unicast se try karo
+                mSvgDeviceId = ClientServerElementStore
+                        .getKeyByUnicastAddress(node.getUnicastAddress());
+            }
+            if (mSvgDeviceId == null || mSvgDeviceId.isEmpty()) {
+                // Full scan
+                for (String key : ClientServerElementStore.getProvisionedKeys()) {
+                    if (ClientServerElementStore.getServerUnicastAddress(key)
+                            == node.getUnicastAddress()) {
+                        mSvgDeviceId = key;
+                        break;
+                    }
+                }
+            }
             Log.d(TAG, "onNodeReset: captured unicast=0x"
-                    + String.format("%04X", mResetNodeUnicast));
+                    + String.format("%04X", mResetNodeUnicast)
+                    + " svgId=" + mSvgDeviceId);
         }
         sendMessage(new ConfigNodeReset());
     }
-
     @Override public void onConfigurationCompleted() {}
 
     @Override
