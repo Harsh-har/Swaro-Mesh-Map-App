@@ -66,7 +66,7 @@ public class NetworkFragment extends Fragment {
     private static final String TAG = "NetworkFragment";
 
     // ── Zoom constants ────────────────────────────────────────────────────
-    private static final float MAX_ZOOM           = 10f;
+    private static final float MAX_ZOOM           = 22f;
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
     private static final float TAP_TOLERANCE      = 8f;
     private static final long  ANIMATION_DURATION = 280L;
