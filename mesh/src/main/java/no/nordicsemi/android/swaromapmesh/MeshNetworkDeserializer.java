@@ -187,10 +187,11 @@ public final class MeshNetworkDeserializer implements JsonSerializer<MeshNetwork
 
             // Client element addresses
             final JsonObject clientAddrs = new JsonObject();
-            for (int i = 0; i < 40; i++) {
+            for (int i = 0; i <= 40; i++) {
                 int addr = prefs.getInt("element_addr_" + key + "_" + i, -1);
-                if (addr == -1) break;
-                clientAddrs.addProperty(String.valueOf(i), addr);
+                if (addr != -1) {
+                    clientAddrs.addProperty(String.valueOf(i), addr);
+                }
             }
             if (clientAddrs.size() > 0) entry.add("clientAddresses", clientAddrs);
 

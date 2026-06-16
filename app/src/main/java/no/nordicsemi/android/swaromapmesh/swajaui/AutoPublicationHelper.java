@@ -47,10 +47,10 @@ public class AutoPublicationHelper {
 
         Log.d(TAG, "═══════════════════════════════════════");
         Log.d(TAG, "Setting up bidirectional publication");
-        Log.d(TAG, String.format("Client Node: 0x%04X, Element[%d]",
-                clientNode.getUnicastAddress(), clientElementIndex));
-        Log.d(TAG, String.format("Server Node: 0x%04X, Element[%d]",
-                serverNode.getUnicastAddress(), serverElementIndex));
+        Log.d(TAG, String.format("Client Node: 0x%04X, Element[%d] (1-based)",
+                clientNode.getUnicastAddress(), clientElementIndex + 1));
+        Log.d(TAG, String.format("Server Node: 0x%04X, Element[%d] (1-based)",
+                serverNode.getUnicastAddress(), serverElementIndex + 1));
 
         // Get the actual element addresses
         int clientElementAddr = getElementAddress(clientNode, clientElementIndex);
