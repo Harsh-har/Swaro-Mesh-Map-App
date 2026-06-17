@@ -442,8 +442,12 @@ public class SvgParsers {
     public RectF parsePathBounds(String d) {
         if (d == null || d.isEmpty()) return null;
         float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
-        String[] tokens = d.split("(?=[a-df-z])|(?<=[a-df-z])|[,\\s]+");
+        // ── FIX: was [a-df-z] (lowercase only) — uppercase commands like M/Z/L/C/H/V
+        // were never recognized as token boundaries, corrupting bounds for any path
+        // that uses absolute commands (very common, e.g. "M...Z" subpaths).
+        String[] tokens = d.split("(?=[a-zA-Z])|(?<=[a-zA-Z])|[,\\s]+");
         float curX = 0, curY = 0;
+        float startX = 0, startY = 0;
         for (int i = 0; i < tokens.length; i++) {
             String t = tokens[i].trim();
             if (t.isEmpty()) continue;
@@ -451,24 +455,35 @@ public class SvgParsers {
             if (Character.isLetter(cmd)) {
                 List<Float> params = new ArrayList<>();
                 int j = i + 1;
-                while (j < tokens.length && !Character.isLetter(tokens[j].trim().charAt(0))) {
-                    try { params.add(Float.parseFloat(tokens[j].trim())); } catch (Exception ignored) {}
+                while (j < tokens.length) {
+                    String next = tokens[j].trim();
+                    if (next.isEmpty()) { j++; continue; }
+                    if (Character.isLetter(next.charAt(0))) break;
+                    try { params.add(Float.parseFloat(next)); } catch (Exception ignored) {}
                     j++;
                 }
                 i = j - 1;
-                // Simple point extraction for bounding box
+
+                char lower = Character.toLowerCase(cmd);
+                boolean relative = Character.isLowerCase(cmd);
+
+                if (lower == 'z') {
+                    curX = startX; curY = startY;
+                    continue;
+                }
+                // Simple point extraction (pairs), good enough for bounding box purposes
                 for (int k = 0; k < params.size() - 1; k += 2) {
                     float px = params.get(k), py = params.get(k + 1);
-                    if (Character.isLowerCase(cmd)) { px += curX; py += curY; }
+                    if (relative) { px += curX; py += curY; }
                     minX = Math.min(minX, px); minY = Math.min(minY, py);
                     maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
                     curX = px; curY = py;
                 }
+                if (lower == 'm') { startX = curX; startY = curY; }
             }
         }
         return (minX == Float.MAX_VALUE) ? null : new RectF(minX, minY, maxX, maxY);
     }
-
     public RectF parsePointsBounds(String pts) {
         if (pts == null || pts.isEmpty()) return null;
         float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;

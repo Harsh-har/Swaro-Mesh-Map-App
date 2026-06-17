@@ -68,7 +68,7 @@ public class NetworkFragment extends Fragment {
     // ── Zoom constants ────────────────────────────────────────────────────
     private static final float MAX_ZOOM           = 22f;
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
-    private static final float TAP_TOLERANCE      = 8f;
+    private static final float TAP_TOLERANCE      = 2f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
     private static final float TAP_MOVE_SLOP      = 10f;
@@ -359,6 +359,68 @@ public class NetworkFragment extends Fragment {
         });
     }
 
+    private void debugDrawTolerance() {
+        if (svgDocument == null) return;
+        try {
+            Element root = svgDocument.getDocumentElement();
+            Node devicesGroup = svgParser.findElementById(root, "Devices");
+
+            Element debugGroup = svgDocument.createElement("g");
+            debugGroup.setAttribute("id", "debug_tolerance_layer");
+
+            // 1. Icons in deviceMap
+            for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+                DeviceInfo info = entry.getValue();
+                if (info.bounds == null) continue;
+
+                RectF expanded = new RectF(info.bounds);
+                // Significantly reduced expansion for icons: small icons to 2f, others to 0f
+                float inset = (info.bounds.width() < 20 || info.bounds.height() < 20)
+                        ? -2f : 0f;
+                expanded.inset(inset, inset);
+
+//                addDebugRect(debugGroup, expanded, "#FFEB3B"); // Yellow
+            }
+
+            // 2. Relation devices
+            for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
+                for (String relId : entry.getValue()) {
+                    Element el = svgParser.findElementById(root, relId);
+                    if (el == null) continue;
+                    RectF bounds = svgParser.computeBounds(el);
+                    if (bounds == null || bounds.isEmpty()) continue;
+
+                    RectF expanded = new RectF(bounds);
+                    // Slightly reduced expansion for relations from 6f to 4f
+                    expanded.inset(-4f, -4f);
+//                    addDebugRect(debugGroup, expanded, "#E040FB"); // Purple
+                }
+            }
+
+            if (devicesGroup != null) {
+                root.insertBefore(debugGroup, devicesGroup);
+            } else {
+                root.appendChild(debugGroup);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error drawing debug tolerance", e);
+        }
+    }
+
+    private void addDebugRect(Element parent, RectF rect, String color) {
+        Element r = svgDocument.createElement("rect");
+        r.setAttribute("x", String.valueOf(rect.left));
+        r.setAttribute("y", String.valueOf(rect.top));
+        r.setAttribute("width", String.valueOf(rect.width()));
+        r.setAttribute("height", String.valueOf(rect.height()));
+        r.setAttribute("fill", "none"); // Remove fill to avoid "collaboration" mess
+        r.setAttribute("stroke", color);
+        r.setAttribute("stroke-width", "0.5");
+        r.setAttribute("stroke-dasharray", "2,1"); // Dashed line for better visibility
+        r.setAttribute("pointer-events", "none");
+        parent.appendChild(r);
+    }
+
     private void onSvgLoaded(SVG svg, Document document,
                              Map<String, DeviceInfo>  devices,
                              Map<String, Set<String>> relations) {
@@ -370,6 +432,7 @@ public class NetworkFragment extends Fragment {
         iconToDeviceRelations.putAll(relations);
 
         colorManager.init(document, svgParser, deviceMap);
+        debugDrawTolerance(); // Show tolerance areas for debugging
         refreshColors();
         renderSvg(svg, true);
         showLoading(false);
@@ -931,7 +994,8 @@ public class NetworkFragment extends Fragment {
                 if (bounds == null || bounds.isEmpty()) continue;
 
                 RectF expanded = new RectF(bounds);
-                expanded.inset(-TAP_TOLERANCE, -TAP_TOLERANCE);
+                // Matches slightly reduced relation tolerance: 4f
+                expanded.inset(-4f, -4f);
 
                 if (expanded.contains(svgX, svgY)) {
                     return new RelationHitResult(iconId, deviceId);
@@ -955,8 +1019,9 @@ public class NetworkFragment extends Fragment {
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             RectF bounds   = entry.getValue().bounds;
             RectF expanded = new RectF(bounds);
-            float inset    = (bounds.width() < 20 || bounds.height() < 20)
-                    ? -Math.max(TAP_TOLERANCE, 15f) : -TAP_TOLERANCE;
+            // Significantly reduced icon tolerance: small icons 2f, others 0f
+            float inset = (bounds.width() < 20 || bounds.height() < 20)
+                    ? -2f : 0f;
             expanded.inset(inset, inset);
             if (expanded.contains(svgX, svgY)) {
                 float area = bounds.width() * bounds.height();

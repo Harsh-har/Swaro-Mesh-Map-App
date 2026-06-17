@@ -22,6 +22,8 @@ public class SvgColorManager {
     public static final String COLOR_DEVICE_ACTIVE = "#ffbb00";
     public static final String COLOR_TRANSPARENT   = "transparent";
 
+    private final Map<Integer, Boolean> devicesOriginalFillInStyle = new HashMap<>();
+
     // ── Area dim overlay styles ───────────────────────────────────────────
     private static final String STYLE_AREA_DEFAULT =
             "fill:none;stroke:white;stroke-miterlimit:10;stroke-width:3px;";
@@ -132,20 +134,53 @@ public class SvgColorManager {
     }
 
     private void snapshotFillsRecursive(Element el) {
+        int key = System.identityHashCode(el);
         String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty())
-            devicesOriginalFillMap.put(System.identityHashCode(el), fill);
-        String style = el.getAttribute("style");
-        if (style != null && style.contains("fill"))
-            devicesOriginalFillMap.put(System.identityHashCode(el),
-                    extractFillFromStyle(style));
+        if (fill != null && !fill.isEmpty()) {
+            devicesOriginalFillMap.put(key, fill);
+            devicesOriginalFillInStyle.put(key, false);
+        } else {
+            String style = el.getAttribute("style");
+            if (style != null && style.contains("fill")) {
+                String fillFromStyle = extractFillFromStyle(style);
+                if (!fillFromStyle.equals(COLOR_TRANSPARENT)) {
+                    devicesOriginalFillMap.put(key, fillFromStyle);
+                    devicesOriginalFillInStyle.put(key, true);
+                }
+            }
+        }
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element) snapshotFillsRecursive((Element) child);
         }
     }
-
+    /**
+     * Restores an element (and its descendants) in the Devices group to their
+     * originally-snapshotted fill, instead of forcing a hardcoded color.
+     */
+    private void restoreOriginalFillRecursive(Element el) {
+        int key = System.identityHashCode(el);
+        String origFill = devicesOriginalFillMap.get(key);
+        if (origFill != null) {
+            Boolean inStyle = devicesOriginalFillInStyle.get(key);
+            if (Boolean.TRUE.equals(inStyle)) {
+                String style = el.getAttribute("style");
+                if (style != null && style.contains("fill:")) {
+                    el.setAttribute("style", style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + origFill));
+                } else {
+                    el.setAttribute("fill", origFill);
+                }
+            } else {
+                el.setAttribute("fill", origFill);
+            }
+        }
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) restoreOriginalFillRecursive((Element) child);
+        }
+    }
     private String extractFillFromStyle(String style) {
         if (style == null) return COLOR_TRANSPARENT;
         for (String part : style.split(";")) {
@@ -167,6 +202,25 @@ public class SvgColorManager {
      *      <rect style="fill:#ffae42; stroke:#000;"/> → updates fill inside style
      */
     public void applyColorToIconGroup(Element iconGroup, String color) {
+        if (COLOR_TRANSPARENT.equals(color)) {
+            // ── FIX: hide the ENTIRE icon group (background + glyph), not just the rect ──
+            if (!iconGroup.hasAttribute("data-orig-icon-style")) {
+                String orig = iconGroup.getAttribute("style");
+                iconGroup.setAttribute("data-orig-icon-style",
+                        (orig != null && !orig.isEmpty()) ? orig : "__visible__");
+            }
+            iconGroup.setAttribute("style", "display:none;");
+            return;
+        }
+
+        // ── Non-hide case (e.g. COLOR_SELECTED): behave as before, only touch the rect ──
+        if (iconGroup.hasAttribute("data-orig-icon-style")) {
+            String saved = iconGroup.getAttribute("data-orig-icon-style");
+            if ("__visible__".equals(saved)) iconGroup.removeAttribute("style");
+            else iconGroup.setAttribute("style", saved);
+            iconGroup.removeAttribute("data-orig-icon-style");
+        }
+
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
@@ -179,33 +233,35 @@ public class SvgColorManager {
             boolean useStyle   = Boolean.TRUE.equals(inStyle);
 
             if (useStyle) {
-                // ── Update fill inside style attribute ────────────────────
                 String style = childEl.getAttribute("style");
                 if (style != null && style.contains("fill:")) {
-                    // Replace existing fill:xxx inside style
-                    String newStyle = style.replaceAll(
-                            "fill\\s*:\\s*[^;]+", "fill:" + color);
+                    String newStyle = style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + color);
                     childEl.setAttribute("style", newStyle);
                 } else {
-                    // style exists but no fill yet — append it
                     String newStyle = (style != null && !style.isEmpty())
                             ? style + ";fill:" + color
                             : "fill:" + color;
                     childEl.setAttribute("style", newStyle);
                 }
             } else {
-                // ── Set fill attribute directly ───────────────────────────
                 childEl.setAttribute("fill", color);
             }
             return;
         }
     }
-
     /**
      * ✅ FIX: Restores the fill of an icon group's <rect> to its snapshotted value.
      * Handles BOTH fill attribute AND fill inside style attribute.
      */
     public void restoreIconGroupColor(Element iconGroup) {
+        // ── FIX: undo the group-level display:none first ──
+        if (iconGroup.hasAttribute("data-orig-icon-style")) {
+            String saved = iconGroup.getAttribute("data-orig-icon-style");
+            if ("__visible__".equals(saved)) iconGroup.removeAttribute("style");
+            else iconGroup.setAttribute("style", saved);
+            iconGroup.removeAttribute("data-orig-icon-style");
+        }
+
         NodeList children = iconGroup.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
@@ -217,27 +273,22 @@ public class SvgColorManager {
             String  origFill = originalIconFillMap.get(key);
             Boolean inStyle  = originalIconFillInStyle.get(key);
 
-            if (origFill == null) return; // nothing snapshotted
+            if (origFill == null) return;
 
             if (Boolean.TRUE.equals(inStyle)) {
-                // ── Restore fill inside style attribute ───────────────────
                 String style = childEl.getAttribute("style");
                 if (style != null && style.contains("fill:")) {
-                    String restored = style.replaceAll(
-                            "fill\\s*:\\s*[^;]+", "fill:" + origFill);
+                    String restored = style.replaceAll("fill\\s*:\\s*[^;]+", "fill:" + origFill);
                     childEl.setAttribute("style", restored);
                 } else {
-                    // Fallback: set fill attr directly
                     childEl.setAttribute("fill", origFill);
                 }
             } else {
-                // ── Restore fill attribute directly ───────────────────────
                 childEl.setAttribute("fill", origFill);
             }
             return;
         }
     }
-
     // ══════════════════════════════════════════════════════════════════════
     //  DEVICE GROUP (physical Devices layer)
     // ══════════════════════════════════════════════════════════════════════
@@ -246,13 +297,12 @@ public class SvgColorManager {
         if (svgDocument == null) return;
         Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
         if (dg == null) return;
-        applyColorToAllElements(dg, COLOR_TRANSPARENT);
+        applyColorToAllElements(dg, COLOR_TRANSPARENT);   // sab hide first
         for (String deviceId : activeDeviceIds) {
             Element deviceEl = parser.findElementById(dg, deviceId);
-            if (deviceEl != null) applyColorToAllElements(deviceEl, COLOR_DEVICE_ACTIVE);
+            if (deviceEl != null) restoreOriginalFillRecursive(deviceEl);
         }
     }
-
     /** Hides all elements in the Devices layer. */
     public void hideAllPhysicalDevices() {
         if (svgDocument == null) return;

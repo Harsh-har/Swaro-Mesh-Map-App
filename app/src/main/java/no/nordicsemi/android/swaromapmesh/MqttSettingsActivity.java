@@ -147,6 +147,7 @@ public class MqttSettingsActivity extends AppCompatActivity {
             case "ex": return "4";
             case "b":  return "70";
             case "r":  return "1";
+            case "ac": return "20";
             default:   return "1";
         }
     }
