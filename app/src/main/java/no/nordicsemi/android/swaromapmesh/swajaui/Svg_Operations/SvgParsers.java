@@ -115,7 +115,8 @@ public class SvgParsers {
             currentMatrix.postConcat(parseTransform(transformAttr));
         }
 
-        if (!id.isEmpty() && hasDirectRectChild(el) && !hasDirectGChild(el)) {
+        if (!id.isEmpty() && !hasDirectGChild(el)) {
+            // Include leaf groups with IDs (e.g., 'st' devices) even if they lack a direct rect child
             processDeviceElement(el, devices, areaId, parentMatrix);
             return;
         }
@@ -176,15 +177,6 @@ public class SvgParsers {
         info.receiveId = receiveId;
         devices.put(id, info);
     }
-    private boolean hasDirectRectChild(Element el) {
-        NodeList children = el.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node c = children.item(i);
-            if (c instanceof Element && "rect".equals(normalizeTag(((Element) c).getTagName()))) return true;
-        }
-        return false;
-    }
-
     private boolean hasDirectGChild(Element el) {
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {

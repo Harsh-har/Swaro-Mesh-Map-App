@@ -203,9 +203,9 @@ public class AreaListActivity extends AppCompatActivity {
     }
 
     private String getIconFileName(String label) {
-        if (label == null) return "Corridor.svg";
+        if (label == null) return "master.svg";
         String lower = label.toLowerCase(Locale.ROOT);
-        if (lower.contains("casting"))                            return "Powder room.svg";
+        if (lower.contains("guestbedroom"))                            return "master.svg";
         if (lower.contains("vacuum") || lower.contains("casting"))   return "Casting.svg";
         if (lower.contains("engineering"))                           return "Engineering.svg";
         if (lower.contains("recreational"))                          return "Recreation.svg";
@@ -220,7 +220,7 @@ public class AreaListActivity extends AppCompatActivity {
         if (lower.contains("bedroom"))                               return "Bedroom.svg";
         if (lower.contains("lounge"))                                return "Lounge.svg";
         if (lower.contains("smt") || lower.contains("surface"))     return "Production.svg";
-        return "Corridor.svg";
+        return "master.svg";
     }
 
     // ══════════════════════════════════════════════════════════════════════

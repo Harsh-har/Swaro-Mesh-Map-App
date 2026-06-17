@@ -300,8 +300,17 @@ public class SvgColorManager {
         applyColorToAllElements(dg, COLOR_TRANSPARENT);   // sab hide first
         for (String deviceId : activeDeviceIds) {
             Element deviceEl = parser.findElementById(dg, deviceId);
-            if (deviceEl != null) restoreOriginalFillRecursive(deviceEl);
+            if (deviceEl != null) {
+                restoreIconGroupColor(deviceEl); // Remove display:none if it was hidden as an icon
+                restoreOriginalFillRecursive(deviceEl);
+            }
         }
+    }
+    /** Shows all elements in the Devices layer. */
+    public void showAllPhysicalDevices() {
+        if (svgDocument == null) return;
+        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+        if (dg != null) restoreOriginalFillRecursive(dg);
     }
     /** Hides all elements in the Devices layer. */
     public void hideAllPhysicalDevices() {
@@ -341,7 +350,7 @@ public class SvgColorManager {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
 
-            // Area filter: hide icons outside the focused area
+            // ✅ Area filter: hide icons outside the focused area
             if (areaFilterId != null && !areaFilterId.equals(info.areaId)) {
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
                 continue;
@@ -350,10 +359,11 @@ public class SvgColorManager {
             // ✅ normalize id before lookup — case mismatch fix
             boolean provisioned = provisionedIds != null
                     && (provisionedIds.contains(id.trim().toLowerCase())
-                    || provisionedIds.contains(
-                    id.trim().toLowerCase().replaceAll("\\s+", "_")));
+                    || (info.elementId != null && provisionedIds.contains(info.elementId.trim().toLowerCase()))
+                    || provisionedIds.contains(id.trim().toLowerCase().replaceAll("\\s+", "_")));
 
             if (provisioned) {
+                // ✅ Hide icon and add its related physical devices to show list
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
                 Set<String> related = iconToDeviceRelations.get(id);
                 if (related != null) devicesToShow.addAll(related);
@@ -364,8 +374,12 @@ public class SvgColorManager {
             }
         }
 
-        if (devicesToShow.isEmpty()) hideAllPhysicalDevices();
-        else showOnlyPhysicalDevices(devicesToShow);
+        // ✅ Show original physical devices for provisioned icons
+        if (devicesToShow.isEmpty()) {
+            hideAllPhysicalDevices();
+        } else {
+            showOnlyPhysicalDevices(devicesToShow);
+        }
     }
     // ══════════════════════════════════════════════════════════════════════
     //  AREA DIM LOGIC

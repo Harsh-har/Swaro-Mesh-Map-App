@@ -368,33 +368,9 @@ public class NetworkFragment extends Fragment {
             Element debugGroup = svgDocument.createElement("g");
             debugGroup.setAttribute("id", "debug_tolerance_layer");
 
-            // 1. Icons in deviceMap
-            for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-                DeviceInfo info = entry.getValue();
-                if (info.bounds == null) continue;
-
-                RectF expanded = new RectF(info.bounds);
-                // Significantly reduced expansion for icons: small icons to 2f, others to 0f
-                float inset = (info.bounds.width() < 20 || info.bounds.height() < 20)
-                        ? -2f : 0f;
-                expanded.inset(inset, inset);
-
-//                addDebugRect(debugGroup, expanded, "#FFEB3B"); // Yellow
-            }
-
-            // 2. Relation devices
-            for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
-                for (String relId : entry.getValue()) {
-                    Element el = svgParser.findElementById(root, relId);
-                    if (el == null) continue;
-                    RectF bounds = svgParser.computeBounds(el);
-                    if (bounds == null || bounds.isEmpty()) continue;
-
-                    RectF expanded = new RectF(bounds);
-                    // Slightly reduced expansion for relations from 6f to 4f
-                    expanded.inset(-4f, -4f);
-//                    addDebugRect(debugGroup, expanded, "#E040FB"); // Purple
-                }
+            // Accurate shapes for ALL physical devices in "Devices" group (Purple)
+            if (devicesGroup instanceof Element) {
+                addPhysicalDevicesToDebug((Element) devicesGroup, debugGroup);
             }
 
             if (devicesGroup != null) {
@@ -404,6 +380,56 @@ public class NetworkFragment extends Fragment {
             }
         } catch (Exception e) {
             Log.e(TAG, "Error drawing debug tolerance", e);
+        }
+    }
+
+    private void addPhysicalDevicesToDebug(Element parent, Element debugGroup) {
+        NodeList children = parent.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (!(node instanceof Element)) continue;
+            Element el = (Element) node;
+
+            String id = el.getAttribute("id");
+            String tag = el.getTagName().toLowerCase().replace("svg:", "");
+
+            // If it's a leaf group or a direct drawable element with an ID, add it
+            if (!id.isEmpty() && (!"g".equals(tag) || !hasDirectGChild(el))) {
+                Element clone = (Element) el.cloneNode(true);
+                clone.setAttribute("pointer-events", "none");
+                applyDebugAppearance(clone, "#E040FB"); // Purple for physical devices
+                debugGroup.appendChild(clone);
+            } else if ("g".equals(tag)) {
+                // Keep searching for leaves
+                addPhysicalDevicesToDebug(el, debugGroup);
+            }
+        }
+    }
+
+    private boolean hasDirectGChild(Element el) {
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node c = children.item(i);
+            if (c instanceof Element && "g".equals(((Element) c).getTagName().toLowerCase().replace("svg:", ""))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void applyDebugAppearance(Element el, String color) {
+        el.removeAttribute("style");
+        el.removeAttribute("display");
+        el.setAttribute("fill", "none");
+        el.setAttribute("stroke", color);
+        el.setAttribute("stroke-width", "0.2"); // Even thinner for accurate shape
+        el.setAttribute("stroke-dasharray", "1,1");
+
+        NodeList children = el.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            if (children.item(i) instanceof Element) {
+                applyDebugAppearance((Element) children.item(i), color);
+            }
         }
     }
 
@@ -432,7 +458,7 @@ public class NetworkFragment extends Fragment {
         iconToDeviceRelations.putAll(relations);
 
         colorManager.init(document, svgParser, deviceMap);
-        debugDrawTolerance(); // Show tolerance areas for debugging
+        // debugDrawTolerance(); // Show tolerance areas for debugging
         refreshColors();
         renderSvg(svg, true);
         showLoading(false);
