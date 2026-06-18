@@ -48,17 +48,17 @@ public class MqttSettingsActivity extends AppCompatActivity {
         SharedPreferences p = getSharedPreferences(PREFS_MQTT, Context.MODE_PRIVATE);
 
         String host = p.getString(KEY_BROKER_HOST, "");
-        int port = p.getInt(KEY_BROKER_PORT, 1883);
+        int port = p.getInt(KEY_BROKER_PORT, 1884);
         String username = p.getString(KEY_USERNAME, "");
         String password = p.getString(KEY_PASSWORD, "");
 
         // Check if settings are empty (first time run)
         if (TextUtils.isEmpty(host)) {
             // Set default values
-            host = "192.168.1.200";
-            port = 1883;
+            host = "192.168.1.79";
+            port = 1884;
             username = "Swajahome";
-            password = "12345678";
+            password = "Swaro@123";
 
             // Save defaults immediately to SharedPreferences
             SharedPreferences.Editor e = p.edit();
@@ -98,7 +98,7 @@ public class MqttSettingsActivity extends AppCompatActivity {
             hasError = true;
         }
 
-        int port = 1883;
+        int port = 1884;
         if (TextUtils.isEmpty(portS)) {
             tilBrokerPort.setError("Required");
             if (!hasError) { etBrokerPort.requestFocus(); hasError = true; }
