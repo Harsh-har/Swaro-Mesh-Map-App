@@ -96,9 +96,7 @@ public class AreaListActivity extends AppCompatActivity {
 
         boolean hasMultiFloor = false;
         for (String key : areaMap.keySet()) {
-            if (key.contains("Floor") || key.equals("Ground_Floor") ||
-                    key.equals("First_Floor") || key.equals("Terrace_Floor") ||
-                    key.endsWith("_Floor")) {
+            if (isFloorName(key)) {
                 hasMultiFloor = true;
                 break;
             }
@@ -107,10 +105,13 @@ public class AreaListActivity extends AppCompatActivity {
         if (hasMultiFloor) {
             for (Map.Entry<String, List<String>> entry : areaMap.entrySet()) {
                 String       floorId = entry.getKey();
+                if (!isFloorName(floorId)) continue;
+
                 List<String> areas   = entry.getValue();
                 items.add(new ListItem(formatName(floorId), true, null, null));
                 for (String areaId : areas) {
-                    items.add(new ListItem(formatName(areaId), false, areaId, new ArrayList<>()));
+                    List<String> deviceIds = areaMap.get(areaId);
+                    items.add(new ListItem(formatName(areaId), false, areaId, deviceIds));
                 }
             }
         } else {
@@ -155,27 +156,7 @@ public class AreaListActivity extends AppCompatActivity {
 
     private boolean isDeviceProvisioned(String svgDeviceId) {
         if (svgDeviceId == null || svgDeviceId.isEmpty()) return false;
-
-        Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
-        if (provisionedKeys == null || provisionedKeys.isEmpty()) return false;
-
-        // 1. Direct exact match
-        if (provisionedKeys.contains(svgDeviceId)) {
-            Log.d(TAG, "  [✅ DIRECT] " + svgDeviceId);
-            return true;
-        }
-
-        // 2. Case-insensitive direct match
-        String svgLower = svgDeviceId.toLowerCase(Locale.ROOT);
-        for (String key : provisionedKeys) {
-            if (key.toLowerCase(Locale.ROOT).equals(svgLower)) {
-                Log.d(TAG, "  [✅ CASE] " + svgDeviceId + " → " + key);
-                return true;
-            }
-        }
-
-        Log.d(TAG, "  [❌ NO MATCH] " + svgDeviceId);
-        return false;
+        return ClientServerElementStore.isProvisioned(svgDeviceId);
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -226,6 +207,13 @@ public class AreaListActivity extends AppCompatActivity {
     // ══════════════════════════════════════════════════════════════════════
     //  HELPERS
     // ══════════════════════════════════════════════════════════════════════
+
+    private boolean isFloorName(String name) {
+        if (name == null) return false;
+        return name.contains("Floor") || name.equals("Ground_Floor") ||
+                name.equals("First_Floor") || name.equals("Terrace_Floor") ||
+                name.endsWith("_Floor");
+    }
 
     private String formatName(String id) {
         if (id == null) return "";

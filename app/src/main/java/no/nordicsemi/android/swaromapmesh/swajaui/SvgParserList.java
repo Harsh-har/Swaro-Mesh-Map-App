@@ -126,10 +126,28 @@ public class SvgParserList {
                 // Find Icons group inside this floor
                 Element iconsGroup = findElementById(childEl, "Icons");
                 if (iconsGroup != null) {
-                    List<String> areas = extractAreasFromIconsGroup(iconsGroup);
-                    if (!areas.isEmpty()) {
-                        result.put(floorId, areas);
-                        android.util.Log.d(TAG, "Floor '" + floorId + "' has " + areas.size() + " areas");
+                    List<String> areaNames = new ArrayList<>();
+                    NodeList areaNodes = iconsGroup.getChildNodes();
+                    for (int j = 0; j < areaNodes.getLength(); j++) {
+                        Node aNode = areaNodes.item(j);
+                        if (aNode instanceof Element) {
+                            Element aEl = (Element) aNode;
+                            String aId = aEl.getAttribute("id");
+                            if (aId != null && !aId.isEmpty() && !"Relation".equals(aId)) {
+                                areaNames.add(aId);
+                                // Extract device IDs for this specific area
+                                List<String> deviceIds = extractDeviceIdsFromGroup(aEl);
+                                if (deviceIds.isEmpty() && hasDeviceRect(aEl)) {
+                                    deviceIds.add(aId);
+                                }
+                                result.put(aId, deviceIds);
+                            }
+                        }
+                    }
+
+                    if (!areaNames.isEmpty()) {
+                        result.put(floorId, areaNames);
+                        android.util.Log.d(TAG, "Floor '" + floorId + "' has " + areaNames.size() + " areas");
                     }
                 }
             }
@@ -194,32 +212,6 @@ public class SvgParserList {
         if (result.isEmpty()) {
             parseAreasFromRoot(root, result);
         }
-    }
-
-    /**
-     * Extract area IDs from Icons group (each child <g> is an area)
-     */
-    private static List<String> extractAreasFromIconsGroup(Element iconsGroup) {
-        List<String> areas = new ArrayList<>();
-
-        NodeList children = iconsGroup.getChildNodes();
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (!(child instanceof Element)) continue;
-
-            Element el = (Element) child;
-            String tag = el.getTagName().toLowerCase();
-            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-
-            if ("g".equals(tag)) {
-                String id = el.getAttribute("id");
-                if (id != null && !id.isEmpty() && !id.equals("Relation")) {
-                    areas.add(id);
-                }
-            }
-        }
-
-        return areas;
     }
 
     /**

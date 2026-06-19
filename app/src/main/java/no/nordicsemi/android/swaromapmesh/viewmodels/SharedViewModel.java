@@ -36,6 +36,7 @@ import no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationStatus
 import no.nordicsemi.android.swaromapmesh.transport.Element;
 import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.utils.FeedbackManager;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
 @HiltViewModel
@@ -63,6 +64,7 @@ public class SharedViewModel extends BaseViewModel
 
     // ── Repositories ───────────────────────────────────────────────────────
     private final ScannerRepository      mScannerRepository;
+    private final FeedbackManager        mFeedbackManager;
     private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 
     // ── LiveData ───────────────────────────────────────────────────────────
@@ -98,11 +100,13 @@ public class SharedViewModel extends BaseViewModel
     SharedViewModel(
             @NonNull final NrfMeshRepository nrfMeshRepository,
             @NonNull final ScannerRepository scannerRepository,
+            @NonNull final FeedbackManager feedbackManager,
             @ApplicationContext @NonNull final Context context
     ) {
         super(nrfMeshRepository);
 
         mContext = context;
+        mFeedbackManager = feedbackManager;
         ClientServerElementStore.init(context);
 
         mScannerRepository = scannerRepository;
@@ -732,12 +736,14 @@ public class SharedViewModel extends BaseViewModel
                 mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         meshPrefs.edit().remove("pub_inflight_" + key).apply();
 
-        // Mark setup as complete in store if this was C→S
+        // For S→C, we use serverAddr as elementAddress and clientAddr as publishAddress
         if ("C→S".equals(attempt.label)) {
             AutoPublicationHelper.markPublicationSetupComplete(meshPrefs, attempt.elementAddress, attempt.publishAddress);
+            mFeedbackManager.performStrongDoubleVibration();
         } else if ("S→C".equals(attempt.label)) {
             // For S→C, we use serverAddr as elementAddress and clientAddr as publishAddress
             AutoPublicationHelper.markPublicationSetupComplete(meshPrefs, attempt.publishAddress, attempt.elementAddress);
+            mFeedbackManager.performStrongDoubleVibration();
         }
     }
 
