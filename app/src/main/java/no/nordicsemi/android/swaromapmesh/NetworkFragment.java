@@ -66,7 +66,7 @@ public class NetworkFragment extends Fragment {
     private static final String TAG = "NetworkFragment";
 
     // ── Zoom constants ────────────────────────────────────────────────────
-    private static final float MAX_ZOOM           = 26f;
+    private static final float MAX_ZOOM           = 30f;
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
     private static final float TAP_TOLERANCE      = 2f;
     private static final long  ANIMATION_DURATION = 280L;
@@ -284,7 +284,7 @@ public class NetworkFragment extends Fragment {
         loadExecutor.execute(() -> {
             try {
                 String[] assets = requireContext().getAssets().list("");
-                boolean  found  = false;
+                boolean found = false;
                 if (assets != null)
                     for (String a : assets)
                         if (a.equals(assetFileName)) { found = true; break; }
@@ -458,7 +458,7 @@ public class NetworkFragment extends Fragment {
         iconToDeviceRelations.putAll(relations);
 
         colorManager.init(document, svgParser, deviceMap);
-         debugDrawTolerance(); // Show tolerance areas for debugging
+       //  debugDrawTolerance(); // Show tolerance areas for debugging
         refreshColors();
         renderSvg(svg, true);
         showLoading(false);
@@ -991,44 +991,108 @@ public class NetworkFragment extends Fragment {
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String displayName = extractPureDeviceName(tappedDeviceId);
+        String displayName = extractPureDeviceName(iconId);
 
-        Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
-        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
-        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
-        intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
-        intent.putExtra("svg_name", svgName);
-        startActivity(intent);
+        if (isProvisioned(iconId)) {
+            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+            intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
+            intent.putExtra("svg_name", svgName);
+            startActivity(intent);
+        } else {
+            Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+            startActivity(intent);
+        }
     }
 
     private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
+        String bestIconId    = null;
+        String bestDeviceId  = null;
+        float  smallestArea  = Float.MAX_VALUE;
+        float  minDistSq     = Float.MAX_VALUE;
+
+        // Pass 1: Exact hits (no expansion)
         for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
             String      iconId    = entry.getKey();
-            Set<String> deviceIds = entry.getValue();
+            // Allow tapping relation devices even if not provisioned yet to help user find them
+            // if (!isProvisioned(iconId)) continue;
 
-            if (!isProvisioned(iconId)) continue;
-
-            for (String deviceId : deviceIds) {
-                Element deviceEl = svgParser.findElementById(
-                        svgDocument.getDocumentElement(), deviceId);
+            for (String deviceId : entry.getValue()) {
+                Element deviceEl = svgParser.findElementById(svgDocument.getDocumentElement(), deviceId);
                 if (deviceEl == null) continue;
 
                 RectF bounds = svgParser.computeBounds(deviceEl);
                 if (bounds == null || bounds.isEmpty()) continue;
 
-                RectF expanded = new RectF(bounds);
-                // Matches slightly reduced relation tolerance: 4f
-                expanded.inset(-4f, -4f);
+                // Relaxed limits for strip nodes (guest_st_, office_st_, etc.)
+                boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
+                float limit = isStrip ? 200f : 15f;
+                if (bounds.width() > limit || bounds.height() > limit) continue;
 
-                if (expanded.contains(svgX, svgY)) {
-                    return new RelationHitResult(iconId, deviceId);
+                if (svgParser.contains(deviceEl, svgX, svgY)) {
+                    float area = bounds.width() * bounds.height();
+                    float dx = svgX - bounds.centerX();
+                    float dy = svgY - bounds.centerY();
+                    float distSq = dx * dx + dy * dy;
+
+                    if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                        smallestArea = area;
+                        minDistSq    = distSq;
+                        bestIconId   = iconId;
+                        bestDeviceId = deviceId;
+                    }
                 }
             }
         }
-        return null;
+        if (bestIconId != null) return new RelationHitResult(bestIconId, bestDeviceId);
+
+        // Pass 2: Expanded hits (tolerance)
+        smallestArea = Float.MAX_VALUE;
+        minDistSq    = Float.MAX_VALUE;
+        for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
+            String      iconId    = entry.getKey();
+            // if (!isProvisioned(iconId)) continue;
+
+            for (String deviceId : entry.getValue()) {
+                Element deviceEl = svgParser.findElementById(svgDocument.getDocumentElement(), deviceId);
+                if (deviceEl == null) continue;
+
+                RectF bounds = svgParser.computeBounds(deviceEl);
+                if (bounds == null || bounds.isEmpty()) continue;
+
+                boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
+                float limit = isStrip ? 200f : 15f;
+                if (bounds.width() > limit || bounds.height() > limit) continue;
+
+                // Added tolerance for easier tapping, especially for thin strips
+                float tolerance = isStrip ? 2.5f : 1.5f;
+
+                if (svgParser.contains(deviceEl, svgX, svgY, tolerance)) {
+                    float area = bounds.width() * bounds.height();
+                    float dx = svgX - bounds.centerX();
+                    float dy = svgY - bounds.centerY();
+                    float distSq = dx * dx + dy * dy;
+
+                    if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                        smallestArea = area;
+                        minDistSq    = distSq;
+                        bestIconId   = iconId;
+                        bestDeviceId = deviceId;
+                    }
+                }
+            }
+        }
+
+        return (bestIconId != null) ? new RelationHitResult(bestIconId, bestDeviceId) : null;
     }
 
     private float[] touchToSvgCoords(float touchX, float touchY) {
@@ -1042,16 +1106,56 @@ public class NetworkFragment extends Fragment {
     private String findDeviceAt(float svgX, float svgY) {
         String bestId       = null;
         float  smallestArea = Float.MAX_VALUE;
+        float  minDistSq    = Float.MAX_VALUE;
+
+        // Pass 1: Exact hits (no expansion)
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-            RectF bounds   = entry.getValue().bounds;
-            RectF expanded = new RectF(bounds);
-            // Significantly reduced icon tolerance: small icons 2f, others 0f
-            float inset = (bounds.width() < 20 || bounds.height() < 20)
-                    ? -2f : 0f;
-            expanded.inset(inset, inset);
-            if (expanded.contains(svgX, svgY)) {
+            String id = entry.getKey();
+            RectF bounds = entry.getValue().bounds;
+            // Relaxed limits for strip nodes
+            boolean isStrip = id.toLowerCase().contains("st_") || id.toLowerCase().contains("strip");
+            float limit = isStrip ? 200f : 25f;
+
+            if (bounds.width() > limit || bounds.height() > limit) continue;
+            if (svgParser.contains(entry.getValue().element, svgX, svgY)) {
                 float area = bounds.width() * bounds.height();
-                if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
+                float dx = svgX - bounds.centerX();
+                float dy = svgY - bounds.centerY();
+                float distSq = dx * dx + dy * dy;
+
+                if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                    smallestArea = area;
+                    minDistSq    = distSq;
+                    bestId       = entry.getKey();
+                }
+            }
+        }
+        if (bestId != null) return bestId;
+
+        // Pass 2: Expanded hits (tolerance)
+        smallestArea = Float.MAX_VALUE;
+        minDistSq    = Float.MAX_VALUE;
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String id     = entry.getKey();
+            RectF  bounds = entry.getValue().bounds;
+            boolean isStrip = id.toLowerCase().contains("st_") || id.toLowerCase().contains("strip");
+            float limit = isStrip ? 200f : 25f;
+
+            if (bounds.width() > limit || bounds.height() > limit) continue;
+            RectF expanded = new RectF(bounds);
+            // Increased tolerance for better precision/ease of tap
+            float inset = isStrip ? -3.0f : ((bounds.width() < 20 || bounds.height() < 20) ? -1.5f : 0f);
+            if (svgParser.contains(entry.getValue().element, svgX, svgY, -inset)) {
+                float area = bounds.width() * bounds.height();
+                float dx = svgX - bounds.centerX();
+                float dy = svgY - bounds.centerY();
+                float distSq = dx * dx + dy * dy;
+
+                if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                    smallestArea = area;
+                    minDistSq    = distSq;
+                    bestId       = entry.getKey();
+                }
             }
         }
         return bestId;

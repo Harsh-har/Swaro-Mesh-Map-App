@@ -136,27 +136,32 @@ public class SvgParsers {
         String id = el.getAttribute("id");
         if (id == null || id.isEmpty() || devices.containsKey(id)) return;
 
-        // ── FIX: Only use the RECT child bounds + parent transform ──
-        // computeBounds(el, parentMatrix) recurses into all children (paths, strips etc.)
-        // which gives huge wrong bounds. Instead find the direct <rect> and use only that.
+        // ── Optimized Rect Finder ────────────────────────────────────────
+        // Find all rects and pick the smallest one (likely the hit-box)
         RectF bounds = null;
+        float smallestRectArea = Float.MAX_VALUE;
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
             Element childEl = (Element) child;
             if ("rect".equals(normalizeTag(childEl.getTagName()))) {
-                // Apply element's own transform on top of parent
-                String transformAttr = el.getAttribute("transform");
-                Matrix localMatrix = new Matrix(parentMatrix);
-                if (transformAttr != null && !transformAttr.isEmpty()) {
-                    localMatrix.postConcat(parseTransform(transformAttr));
+                RectF r = computeRectBounds(childEl);
+                if (r != null && !r.isEmpty()) {
+                    float a = r.width() * r.height();
+                    if (a < smallestRectArea) {
+                        smallestRectArea = a;
+                        bounds = r;
+
+                        // Apply element's own transform
+                        String transformAttr = el.getAttribute("transform");
+                        Matrix localMatrix = new Matrix(parentMatrix);
+                        if (transformAttr != null && !transformAttr.isEmpty()) {
+                            localMatrix.postConcat(parseTransform(transformAttr));
+                        }
+                        localMatrix.mapRect(bounds);
+                    }
                 }
-                bounds = computeRectBounds(childEl);
-                if (bounds != null && !bounds.isEmpty()) {
-                    localMatrix.mapRect(bounds);
-                }
-                break; // sirf pehla rect kafi hai
             }
         }
 
@@ -434,22 +439,25 @@ public class SvgParsers {
     public RectF parsePathBounds(String d) {
         if (d == null || d.isEmpty()) return null;
         float minX = Float.MAX_VALUE, minY = Float.MAX_VALUE, maxX = -Float.MAX_VALUE, maxY = -Float.MAX_VALUE;
-        // ── FIX: was [a-df-z] (lowercase only) — uppercase commands like M/Z/L/C/H/V
-        // were never recognized as token boundaries, corrupting bounds for any path
-        // that uses absolute commands (very common, e.g. "M...Z" subpaths).
-        String[] tokens = d.split("(?=[a-zA-Z])|(?<=[a-zA-Z])|[,\\s]+");
+
+        // ── Better Tokenization ──────────────────────────────────────────
+        // This handles commands (M, L, etc.) and numbers like -10.5-20.3 (no separator)
+        // or scientific notation 1.2e-3.
+        List<String> tokens = new ArrayList<>();
+        Matcher tm = Pattern.compile("[a-zA-Z]|[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?").matcher(d);
+        while (tm.find()) tokens.add(tm.group());
+
         float curX = 0, curY = 0;
         float startX = 0, startY = 0;
-        for (int i = 0; i < tokens.length; i++) {
-            String t = tokens[i].trim();
-            if (t.isEmpty()) continue;
+
+        for (int i = 0; i < tokens.size(); i++) {
+            String t = tokens.get(i);
             char cmd = t.charAt(0);
             if (Character.isLetter(cmd)) {
                 List<Float> params = new ArrayList<>();
                 int j = i + 1;
-                while (j < tokens.length) {
-                    String next = tokens[j].trim();
-                    if (next.isEmpty()) { j++; continue; }
+                while (j < tokens.size()) {
+                    String next = tokens.get(j);
                     if (Character.isLetter(next.charAt(0))) break;
                     try { params.add(Float.parseFloat(next)); } catch (Exception ignored) {}
                     j++;
@@ -461,17 +469,56 @@ public class SvgParsers {
 
                 if (lower == 'z') {
                     curX = startX; curY = startY;
-                    continue;
+                } else if (lower == 'h') {
+                    for (float p : params) {
+                        curX = relative ? curX + p : p;
+                        minX = Math.min(minX, curX); minY = Math.min(minY, curY);
+                        maxX = Math.max(maxX, curX); maxY = Math.max(maxY, curY);
+                    }
+                } else if (lower == 'v') {
+                    for (float p : params) {
+                        curY = relative ? curY + p : p;
+                        minX = Math.min(minX, curX); minY = Math.min(minY, curY);
+                        maxX = Math.max(maxX, curX); maxY = Math.max(maxY, curY);
+                    }
+                } else if (lower == 'm' || lower == 'l' || lower == 't') {
+                    for (int k = 0; k < params.size() - 1; k += 2) {
+                        float px = params.get(k), py = params.get(k + 1);
+                        if (relative) { px += curX; py += curY; }
+                        minX = Math.min(minX, px); minY = Math.min(minY, py);
+                        maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+                        curX = px; curY = py;
+                        if (k == 0 && lower == 'm') { startX = curX; startY = curY; }
+                    }
+                } else if (lower == 'c') {
+                    for (int k = 0; k < params.size() - 5; k += 6) {
+                        for (int pIdx = 0; pIdx < 6; pIdx += 2) {
+                            float px = params.get(k+pIdx), py = params.get(k+pIdx+1);
+                            if (relative) { px += curX; py += curY; }
+                            minX = Math.min(minX, px); minY = Math.min(minY, py);
+                            maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+                            if (pIdx == 4) { curX = px; curY = py; }
+                        }
+                    }
+                } else if (lower == 's' || lower == 'q') {
+                    for (int k = 0; k < params.size() - 3; k += 4) {
+                        for (int pIdx = 0; pIdx < 4; pIdx += 2) {
+                            float px = params.get(k+pIdx), py = params.get(k+pIdx+1);
+                            if (relative) { px += curX; py += curY; }
+                            minX = Math.min(minX, px); minY = Math.min(minY, py);
+                            maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+                            if (pIdx == 2) { curX = px; curY = py; }
+                        }
+                    }
+                } else if (lower == 'a') {
+                    for (int k = 0; k < params.size() - 6; k += 7) {
+                        float px = params.get(k+5), py = params.get(k+6);
+                        if (relative) { px += curX; py += curY; }
+                        minX = Math.min(minX, px); minY = Math.min(minY, py);
+                        maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
+                        curX = px; curY = py;
+                    }
                 }
-                // Simple point extraction (pairs), good enough for bounding box purposes
-                for (int k = 0; k < params.size() - 1; k += 2) {
-                    float px = params.get(k), py = params.get(k + 1);
-                    if (relative) { px += curX; py += curY; }
-                    minX = Math.min(minX, px); minY = Math.min(minY, py);
-                    maxX = Math.max(maxX, px); maxY = Math.max(maxY, py);
-                    curX = px; curY = py;
-                }
-                if (lower == 'm') { startX = curX; startY = curY; }
             }
         }
         return (minX == Float.MAX_VALUE) ? null : new RectF(minX, minY, maxX, maxY);
@@ -489,6 +536,168 @@ public class SvgParsers {
             } catch (Exception ignored) {}
         }
         return (minX == Float.MAX_VALUE) ? null : new RectF(minX, minY, maxX, maxY);
+    }
+
+    public boolean contains(Element el, float x, float y) {
+        return contains(el, x, y, 0f);
+    }
+
+    public boolean contains(Element el, float x, float y, float expansion) {
+        Matrix m = getCumulativeTransform(el);
+        Matrix inv = new Matrix();
+        if (!m.invert(inv)) return false;
+
+        float[] pts = {x, y};
+        inv.mapPoints(pts);
+        float lx = pts[0], ly = pts[1];
+
+        String tag = normalizeTag(el.getTagName());
+        if ("g".equals(tag)) {
+            NodeList children = el.getChildNodes();
+            for (int i = 0; i < children.getLength(); i++) {
+                Node child = children.item(i);
+                if (child instanceof Element) {
+                    if (contains((Element) child, x, y, expansion)) return true;
+                }
+            }
+            return false;
+        }
+
+        float tol = Math.max(0.5f, expansion);
+
+        switch (tag) {
+            case "rect":
+                RectF rb = computeRectBounds(el);
+                if (rb == null) return false;
+                rb.inset(-tol, -tol);
+                return rb.contains(lx, ly);
+            case "circle":
+                float cx = fa(el, "cx"), cy = fa(el, "cy"), r = fa(el, "r");
+                return distSq(lx, ly, cx, cy) <= (r + tol) * (r + tol);
+            case "ellipse":
+                RectF eb = computeEllipseBounds(el);
+                if (eb == null) return false;
+                eb.inset(-tol, -tol);
+                return eb.contains(lx, ly);
+            case "line":
+                return isPointNearSegment(lx, ly, fa(el, "x1"), fa(el, "y1"), fa(el, "x2"), fa(el, "y2"), tol);
+            case "polyline":
+            case "polygon":
+                return isPointInPoly(el.getAttribute("points"), lx, ly, tol, "polygon".equals(tag));
+            case "path":
+                return isPointInPath(el.getAttribute("d"), lx, ly, tol);
+        }
+        return false;
+    }
+
+    private boolean isPointNearSegment(float px, float py, float x1, float y1, float x2, float y2, float tol) {
+        float dx = x2 - x1, dy = y2 - y1;
+        float l2 = dx * dx + dy * dy;
+        if (l2 == 0) return distSq(px, py, x1, y1) <= tol * tol;
+        float t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / l2));
+        return distSq(px, py, x1 + t * dx, y1 + t * dy) <= tol * tol;
+    }
+
+    private float distSq(float x1, float y1, float x2, float y2) {
+        return (x1 - x2) * (x1 - x2) + (y1 - y2) * (y1 - y2);
+    }
+
+    private boolean isPointInPoly(String points, float px, float py, float tol, boolean closed) {
+        if (points == null || points.isEmpty()) return false;
+        String[] parts = points.trim().split("[\\s,]+");
+        if (parts.length < 4) return false;
+
+        float firstX = 0, firstY = 0, prevX = 0, prevY = 0;
+        int crosses = 0;
+
+        for (int i = 0; i < parts.length - 1; i += 2) {
+            try {
+                float curX = Float.parseFloat(parts[i]);
+                float curY = Float.parseFloat(parts[i+1]);
+                if (i == 0) { firstX = prevX = curX; firstY = prevY = curY; }
+                else {
+                    if (isPointNearSegment(px, py, prevX, prevY, curX, curY, tol)) return true;
+                    if (closed && ((prevY > py) != (curY > py)) && (px < (curX - prevX) * (py - prevY) / (curY - prevY) + prevX)) crosses++;
+                    prevX = curX; prevY = curY;
+                }
+            } catch (Exception ignored) {}
+        }
+        if (closed) {
+            if (isPointNearSegment(px, py, prevX, prevY, firstX, firstY, tol)) return true;
+            if (((prevY > py) != (firstY > py)) && (px < (firstX - prevX) * (py - prevY) / (firstY - prevY) + prevX)) crosses++;
+            return (crosses % 2 != 0);
+        }
+        return false;
+    }
+
+    private boolean isPointInPath(String d, float px, float py, float tol) {
+        if (d == null || d.isEmpty()) return false;
+        List<String> tokens = new ArrayList<>();
+        Matcher tm = Pattern.compile("[a-zA-Z]|[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?").matcher(d);
+        while (tm.find()) tokens.add(tm.group());
+
+        float curX = 0, curY = 0, startX = 0, startY = 0;
+        int crosses = 0;
+
+        for (int i = 0; i < tokens.size(); i++) {
+            String t = tokens.get(i);
+            char cmd = t.charAt(0);
+            if (Character.isLetter(cmd)) {
+                List<Float> params = new ArrayList<>();
+                int j = i + 1;
+                while (j < tokens.size() && !Character.isLetter(tokens.get(j).charAt(0))) {
+                    try { params.add(Float.parseFloat(tokens.get(j))); } catch (Exception ignored) {}
+                    j++;
+                }
+                i = j - 1;
+                char lower = Character.toLowerCase(cmd);
+                boolean rel = Character.isLowerCase(cmd);
+
+                if (lower == 'm' && params.size() >= 2) {
+                    curX = rel ? curX + params.get(0) : params.get(0);
+                    curY = rel ? curY + params.get(1) : params.get(1);
+                    startX = curX; startY = curY;
+                    for (int k = 2; k < params.size() - 1; k += 2) {
+                        float nx = rel ? curX + params.get(k) : params.get(k);
+                        float ny = rel ? curY + params.get(k+1) : params.get(k+1);
+                        if (isPointNearSegment(px, py, curX, curY, nx, ny, tol)) return true;
+                        if (((curY > py) != (ny > py)) && (px < (nx - curX) * (py - curY) / (ny - curY) + curX)) crosses++;
+                        curX = nx; curY = ny;
+                    }
+                } else if ((lower == 'l' || lower == 't') && params.size() >= 2) {
+                    for (int k = 0; k < params.size() - 1; k += 2) {
+                        float nx = rel ? curX + params.get(k) : params.get(k);
+                        float ny = rel ? curY + params.get(k+1) : params.get(k+1);
+                        if (isPointNearSegment(px, py, curX, curY, nx, ny, tol)) return true;
+                        if (((curY > py) != (ny > py)) && (px < (nx - curX) * (py - curY) / (ny - curY) + curX)) crosses++;
+                        curX = nx; curY = ny;
+                    }
+                } else if (lower == 'h') {
+                    for (float p : params) {
+                        float nx = rel ? curX + p : p;
+                        if (isPointNearSegment(px, py, curX, curY, nx, curY, tol)) return true;
+                        curX = nx;
+                    }
+                } else if (lower == 'v') {
+                    for (float p : params) {
+                        float ny = rel ? curY + p : p;
+                        if (isPointNearSegment(px, py, curX, curY, curX, ny, tol)) return true;
+                        if (((curY > py) != (ny > py)) && (px < (curX - curX) * (py - curY) / (ny - curY) + curX)) crosses++;
+                        curY = ny;
+                    }
+                } else if (lower == 'z') {
+                    if (isPointNearSegment(px, py, curX, curY, startX, startY, tol)) return true;
+                    if (((curY > py) != (startY > py)) && (px < (startX - curX) * (py - curY) / (startY - curY) + curX)) crosses++;
+                    curX = startX; curY = startY;
+                } else if (params.size() >= 2) {
+                    float nx = rel ? curX + params.get(params.size()-2) : params.get(params.size()-2);
+                    float ny = rel ? curY + params.get(params.size()-1) : params.get(params.size()-1);
+                    if (isPointNearSegment(px, py, curX, curY, nx, ny, tol * 2)) return true;
+                    curX = nx; curY = ny;
+                }
+            }
+        }
+        return (crosses % 2 != 0);
     }
 
     private Matrix getCumulativeTransform(Element element) {
