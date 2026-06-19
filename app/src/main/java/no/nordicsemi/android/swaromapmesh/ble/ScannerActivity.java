@@ -77,8 +77,6 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private Runnable mAutoConnectRunnable;
     private long     mScanStartTime;
 
-    private boolean mAutoClickEnabled = false;
-
     // ✅ Member variable — survives across all launcher callbacks
     private String mSvgDeviceId = null;
     private String mReceiveId   = null;
@@ -292,13 +290,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         mSharedViewModel.getSelectedDevice().observe(this, device -> {
             mCurrentDeviceFilter = (device != null
                     && !device.equals("All Device")) ? device : "";
-            mAutoClickEnabled    = device != null
-                    && !device.equals("All Device")
-                    && !device.isEmpty();
-            Log.d(TAG, "Device filter: '" + mCurrentDeviceFilter
-                    + "' autoClick=" + mAutoClickEnabled);
+            Log.d(TAG, "Device filter: '" + mCurrentDeviceFilter + "'");
             applyFilterToAdapter();
-            if (mAutoClickEnabled) tryAutoClickTargetDevice();
         });
 
         mSharedViewModel.getSignalThreshold().observe(this, threshold -> {
@@ -311,51 +304,15 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
         mViewModel.getScannerRepository().getScannerResults().observe(this, scannerLiveData -> {
             applyFilterToAdapter();
-            if (mAutoClickEnabled) tryAutoClickTargetDevice();
         });
     }
 
-    // -----------------------------------------------------------------------
-    // Auto-click
-    // -----------------------------------------------------------------------
-
-    private void tryAutoClickTargetDevice() {
-        if (!mAutoClickEnabled) return;
-        if (mReconnectLaunched || mProxyConnected) return;
-        if (mCurrentDeviceFilter == null || mCurrentDeviceFilter.isEmpty()) return;
-
-        ScannerLiveData results =
-                mViewModel.getScannerRepository().getScannerResults();
-        if (results == null || results.getDevices() == null) return;
-
-        for (ExtendedBluetoothDevice device : results.getDevices()) {
-            String name = device.getName();
-            if (name != null
-                    && name.toLowerCase().contains(mCurrentDeviceFilter.toLowerCase())) {
-
-                // ✅ RSSI filter check — threshold se kam ho toh skip karo
-                if (mCurrentSignalFilter != DevicesAdapter.SIGNAL_DEFAULT
-                        && device.getRssi() < mCurrentSignalFilter) {
-                    Log.d(TAG, "Auto-click skipped — RSSI=" + device.getRssi()
-                            + " below threshold=" + mCurrentSignalFilter);
-                    continue; //skip
-                }
-
-                Log.i(TAG, "Auto-click: " + name + " [" + device.getAddress() + "]");
-                mAutoClickEnabled = false;
-                onItemClick(device);
-                return;
-            }
-        }
-        Log.d(TAG, "Auto-click: '" + mCurrentDeviceFilter + "' not found yet...");
-    }
     // -----------------------------------------------------------------------
     // Filter
     // -----------------------------------------------------------------------
 
     private void applyFilterToAdapter() {
-        if (!mScanWithProxyService || mSilentConnect
-                || mShouldAutoConnectAfterProvisioning) return;
+        if (mSilentConnect || mShouldAutoConnectAfterProvisioning) return;
         if (adapter == null) return;
         adapter.applyFilters(mCurrentDeviceFilter, mCurrentSignalFilter);
         if (!mSilentConnect && !mShouldAutoConnectAfterProvisioning) {
@@ -760,12 +717,15 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         binding.recyclerViewBleDevices.setVisibility(View.VISIBLE);
         binding.connectivityProgressContainer.setVisibility(View.GONE);
         binding.stateScanning.setVisibility(View.VISIBLE);
+        
         targetProxyMac                      = null;
         mShouldAutoConnectAfterProvisioning = false;
         mReconnectLaunched                  = false;
+        mSilentConnect                      = false; // ✅ Reset silent connect when showing scanner UI
+        
         stopAutoConnectLoop();
         if (adapter != null) {
-            adapter.applyFilters(mCurrentDeviceFilter, mCurrentSignalFilter);
+            applyFilterToAdapter();
         }
     }
 

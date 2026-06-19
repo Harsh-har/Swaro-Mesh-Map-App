@@ -1117,10 +1117,8 @@ public class SharedViewModel extends BaseViewModel
     }
 
     public void setSignalThreshold(int threshold) {
-        int sanitized = (threshold == DevicesAdapter.SIGNAL_100)
-                ? DevicesAdapter.SIGNAL_100 : DevicesAdapter.SIGNAL_DEFAULT;
-        signalThreshold.setValue(sanitized);
-        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, sanitized).apply();
+        signalThreshold.setValue(threshold);
+        prefs.edit().putInt(KEY_SIGNAL_THRESHOLD, threshold).apply();
     }
 
     public void clearSignalThreshold() {

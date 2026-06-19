@@ -23,7 +23,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     // RSSI thresholds
     public static final int SIGNAL_DEFAULT    = Integer.MIN_VALUE; // no filter
-    public static final int SIGNAL_VERY_CLOSE = -45;  // ~0.5 meter
+    public static final int SIGNAL_VERY_CLOSE = -50;  // ~0.5 meter (adjusted from -45)
     public static final int SIGNAL_100        = -55;  // ~1 meter
     public static final int SIGNAL_50         = -70;  // ~2-3 meter
     public static final int SIGNAL_20         = -85;  // ~5 meter
