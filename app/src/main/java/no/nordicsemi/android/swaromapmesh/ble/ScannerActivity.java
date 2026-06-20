@@ -717,12 +717,12 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         binding.recyclerViewBleDevices.setVisibility(View.VISIBLE);
         binding.connectivityProgressContainer.setVisibility(View.GONE);
         binding.stateScanning.setVisibility(View.VISIBLE);
-        
+
         targetProxyMac                      = null;
         mShouldAutoConnectAfterProvisioning = false;
         mReconnectLaunched                  = false;
         mSilentConnect                      = false; // ✅ Reset silent connect when showing scanner UI
-        
+
         stopAutoConnectLoop();
         if (adapter != null) {
             applyFilterToAdapter();

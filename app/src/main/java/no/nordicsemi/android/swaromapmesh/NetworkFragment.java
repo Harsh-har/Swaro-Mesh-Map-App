@@ -66,8 +66,10 @@ public class NetworkFragment extends Fragment {
     private static final String TAG = "NetworkFragment";
 
     // ── Zoom constants ────────────────────────────────────────────────────
-    private static final float MAX_ZOOM           = 30f;
+    private static final float MAX_ZOOM           = 25f;
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
+    private static final float TOUCH_TOLERANCE_PX = 20f;  // comfortable fingertip radius, in screen px
+    private static final float MIN_SVG_TOLERANCE  = 0.3f; // floor so high zoom doesn't make tap impossibly precise
     private static final float TAP_TOLERANCE      = 2f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
@@ -458,7 +460,7 @@ public class NetworkFragment extends Fragment {
         iconToDeviceRelations.putAll(relations);
 
         colorManager.init(document, svgParser, deviceMap);
-       //  debugDrawTolerance(); // Show tolerance areas for debugging
+        //  debugDrawTolerance(); // Show tolerance areas for debugging
         refreshColors();
         renderSvg(svg, true);
         showLoading(false);
@@ -586,9 +588,14 @@ public class NetworkFragment extends Fragment {
             float svgH  = svgParser.vbH > 0 ? svgParser.vbH : binding.svgView.getDrawable().getIntrinsicHeight();
             float scale = Math.min(vW / svgW, vH / svgH);
             minZoom = scale;
-            // Centre the viewBox content (account for vbX/vbY offset)
-            float transX = (vW - svgW * scale) / 2f - svgParser.vbX * scale;
-            float transY = (vH - svgH * scale) / 2f - svgParser.vbY * scale;
+
+            // FIX: The drawable already represents the viewBox, so its (0,0) is (vbX, vbY).
+            // We only need to center the drawable within the view.
+            float transX = (vW - svgW * scale) / 2f;
+            float transY = (vH - svgH * scale) / 2f;
+
+            Log.d(TAG, "fitFloorPlanToView (NoBounds): vSize=" + vW + "x" + vH + " svgSize=" + svgW + "x" + svgH + " vb=" + svgParser.vbX + "," + svgParser.vbY + " scale=" + scale + " trans=" + transX + "," + transY);
+
             if (animate) {
                 animateToMatrix(scale, transX, transY);
             } else {
@@ -960,6 +967,8 @@ public class NetworkFragment extends Fragment {
         if (svgDocument == null) return;
         float[] c = touchToSvgCoords(touchX, touchY);
 
+        Log.d(TAG, "TAP-EVENT: touch=(" + touchX + "," + touchY + ") -> svg=(" + c[0] + "," + c[1] + ") scale=" + getScale() + " areaLocked=" + areaLockedId);
+
         // 1. Icon hit check
         String hitIconId = findDeviceAt(c[0], c[1]);
         if (hitIconId != null) {
@@ -980,7 +989,6 @@ public class NetworkFragment extends Fragment {
 
         deselectCurrentDevice();
     }
-
     private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
         DeviceInfo device = deviceMap.get(iconId);
         if (device == null) return;
@@ -1033,7 +1041,6 @@ public class NetworkFragment extends Fragment {
                 RectF bounds = svgParser.computeBounds(deviceEl);
                 if (bounds == null || bounds.isEmpty()) continue;
 
-                // Relaxed limits for strip nodes (guest_st_, office_st_, etc.)
                 boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
                 float limit = isStrip ? 200f : 15f;
                 if (bounds.width() > limit || bounds.height() > limit) continue;
@@ -1044,7 +1051,7 @@ public class NetworkFragment extends Fragment {
                     float dy = svgY - bounds.centerY();
                     float distSq = dx * dx + dy * dy;
 
-                    if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                    if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
                         smallestArea = area;
                         minDistSq    = distSq;
                         bestIconId   = iconId;
@@ -1055,7 +1062,8 @@ public class NetworkFragment extends Fragment {
         }
         if (bestIconId != null) return new RelationHitResult(bestIconId, bestDeviceId);
 
-        // Pass 2: Expanded hits (tolerance)
+        // Pass 2: Expanded hits — same scale-aware tolerance as findDeviceAt()
+        float currentScale = getScale();
         smallestArea = Float.MAX_VALUE;
         minDistSq    = Float.MAX_VALUE;
         for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
@@ -1073,8 +1081,8 @@ public class NetworkFragment extends Fragment {
                 float limit = isStrip ? 200f : 15f;
                 if (bounds.width() > limit || bounds.height() > limit) continue;
 
-                // Added tolerance for easier tapping, especially for thin strips
-                float tolerance = isStrip ? 2.5f : 1.5f;
+                float screenTolPx = isStrip ? TOUCH_TOLERANCE_PX * 1.4f : TOUCH_TOLERANCE_PX;
+                float tolerance = Math.max(MIN_SVG_TOLERANCE, screenTolPx / currentScale);
 
                 if (svgParser.contains(deviceEl, svgX, svgY, tolerance)) {
                     float area = bounds.width() * bounds.height();
@@ -1082,7 +1090,7 @@ public class NetworkFragment extends Fragment {
                     float dy = svgY - bounds.centerY();
                     float distSq = dx * dx + dy * dy;
 
-                    if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                    if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
                         smallestArea = area;
                         minDistSq    = distSq;
                         bestIconId   = iconId;
@@ -1093,14 +1101,15 @@ public class NetworkFragment extends Fragment {
         }
 
         return (bestIconId != null) ? new RelationHitResult(bestIconId, bestDeviceId) : null;
-    }
-
-    private float[] touchToSvgCoords(float touchX, float touchY) {
+    }    private float[] touchToSvgCoords(float touchX, float touchY) {
         Matrix inverse = new Matrix();
         if (!matrix.invert(inverse)) return new float[]{touchX, touchY};
         float[] pt = {touchX, touchY};
         inverse.mapPoints(pt);
-        return new float[]{svgParser.vbX + pt[0], svgParser.vbY + pt[1]};
+        float finalX = svgParser.vbX + pt[0];
+        float finalY = svgParser.vbY + pt[1];
+        Log.v(TAG, "touchToSvgCoords: ptInDrawable=(" + pt[0] + "," + pt[1] + ") vb=(" + svgParser.vbX + "," + svgParser.vbY + ") -> finalSvg=(" + finalX + "," + finalY + ")");
+        return new float[]{finalX, finalY};
     }
 
     private String findDeviceAt(float svgX, float svgY) {
@@ -1108,59 +1117,74 @@ public class NetworkFragment extends Fragment {
         float  smallestArea = Float.MAX_VALUE;
         float  minDistSq    = Float.MAX_VALUE;
 
-        // Pass 1: Exact hits (no expansion)
+        Log.d(TAG, "findDeviceAt: searching at (" + svgX + "," + svgY + ")");
+
+        // Pass 1: Exact hits on icon bounds
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String id = entry.getKey();
             RectF bounds = entry.getValue().bounds;
-            // Relaxed limits for strip nodes
-            boolean isStrip = id.toLowerCase().contains("st_") || id.toLowerCase().contains("strip");
-            float limit = isStrip ? 200f : 25f;
 
-            if (bounds.width() > limit || bounds.height() > limit) continue;
+            // 1. First check if point is within the bounding box of the icon
+            // We use a small buffer (0.5 units) to account for floating point errors
+            if (svgX < bounds.left - 0.5f || svgX > bounds.right + 0.5f ||
+                    svgY < bounds.top - 0.5f || svgY > bounds.bottom + 0.5f) {
+                continue;
+            }
+
+            // 2. Then check the actual shape (paths/circles/etc) for precision
             if (svgParser.contains(entry.getValue().element, svgX, svgY)) {
                 float area = bounds.width() * bounds.height();
                 float dx = svgX - bounds.centerX();
                 float dy = svgY - bounds.centerY();
                 float distSq = dx * dx + dy * dy;
 
-                if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
                     smallestArea = area;
                     minDistSq    = distSq;
-                    bestId       = entry.getKey();
+                    bestId       = id;
+                    Log.d(TAG, "MATCH-Pass1: " + id + " dist=" + Math.sqrt(distSq));
                 }
             }
         }
         if (bestId != null) return bestId;
 
-        // Pass 2: Expanded hits (tolerance)
+        // Pass 2: Expanded hits (Tolerance based)
+        float currentScale = getScale();
         smallestArea = Float.MAX_VALUE;
         minDistSq    = Float.MAX_VALUE;
+
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String id     = entry.getKey();
             RectF  bounds = entry.getValue().bounds;
             boolean isStrip = id.toLowerCase().contains("st_") || id.toLowerCase().contains("strip");
-            float limit = isStrip ? 200f : 25f;
 
-            if (bounds.width() > limit || bounds.height() > limit) continue;
-            RectF expanded = new RectF(bounds);
-            // Increased tolerance for better precision/ease of tap
-            float inset = isStrip ? -3.0f : ((bounds.width() < 20 || bounds.height() < 20) ? -1.5f : 0f);
-            if (svgParser.contains(entry.getValue().element, svgX, svgY, -inset)) {
+            float screenTolPx = isStrip ? TOUCH_TOLERANCE_PX * 1.5f : TOUCH_TOLERANCE_PX;
+            float tol = Math.max(MIN_SVG_TOLERANCE, screenTolPx / currentScale);
+
+            // Check against expanded bounding box
+            if (svgX < bounds.left - tol || svgX > bounds.right + tol ||
+                    svgY < bounds.top - tol || svgY > bounds.bottom + tol) {
+                continue;
+            }
+
+            // Precise check with tolerance
+            if (svgParser.contains(entry.getValue().element, svgX, svgY, tol)) {
                 float area = bounds.width() * bounds.height();
                 float dx = svgX - bounds.centerX();
                 float dy = svgY - bounds.centerY();
                 float distSq = dx * dx + dy * dy;
 
-                if (area < smallestArea || (Math.abs(area - smallestArea) < 0.1f && distSq < minDistSq)) {
+                if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
                     smallestArea = area;
                     minDistSq    = distSq;
-                    bestId       = entry.getKey();
+                    bestId       = id;
+                    Log.d(TAG, "MATCH-Pass2: " + id + " dist=" + Math.sqrt(distSq) + " tol=" + tol);
                 }
             }
         }
+        if (bestId != null) Log.d(TAG, "findDeviceAt Winner: " + bestId);
         return bestId;
     }
-
     // ══════════════════════════════════════════════════════════════════════
     //  DEVICE TAP
     // ══════════════════════════════════════════════════════════════════════

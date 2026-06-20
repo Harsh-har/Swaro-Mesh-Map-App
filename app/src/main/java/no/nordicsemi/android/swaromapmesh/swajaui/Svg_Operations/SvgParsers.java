@@ -52,6 +52,7 @@ public class SvgParsers {
                     vbY = Float.parseFloat(parts[1]);
                     vbW = Float.parseFloat(parts[2]);
                     vbH = Float.parseFloat(parts[3]);
+                    Log.d(TAG, "Parsed viewBox: " + vbX + " " + vbY + " " + vbW + " " + vbH);
                 } catch (NumberFormatException e) {
                     Log.e(TAG, "Invalid viewBox: " + vb, e);
                 }
@@ -170,13 +171,16 @@ public class SvgParsers {
             bounds = computeBounds(el, parentMatrix);
         }
 
-        if (bounds == null || bounds.isEmpty()) return;
+        if (bounds == null || bounds.isEmpty()) {
+            Log.v(TAG, "processDeviceElement: Skipping " + id + " - no bounds found");
+            return;
+        }
 
         String elementId = extractElementId(el);
         if (elementId == null) elementId = id;
         String receiveId = extractReceiveId(el);
 
-        Log.d(TAG, "processDevice: id=" + id + " elementId=" + elementId + " bounds=" + bounds);
+        Log.d(TAG, "Parsed Device: id=" + id + " elementId=" + elementId + " bounds=" + bounds + " area=" + areaId);
 
         DeviceInfo info = new DeviceInfo(id, el, bounds, elementId, areaId);
         info.receiveId = receiveId;
@@ -371,7 +375,19 @@ public class SvgParsers {
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (child instanceof Element) {
-                RectF b = computeBounds((Element) child, currentMatrix);
+                Element childEl = (Element) child;
+
+                // Skip large transparent background rects that bloat device bounds
+                if ("rect".equals(normalizeTag(childEl.getTagName()))) {
+                    float w = fa(childEl, "width");
+                    float h = fa(childEl, "height");
+                    String fill = childEl.getAttribute("fill");
+                    if ((w > 100 || h > 100) && ("none".equals(fill) || "transparent".equals(fill))) {
+                        continue;
+                    }
+                }
+
+                RectF b = computeBounds(childEl, currentMatrix);
                 if (b != null && !b.isEmpty()) {
                     if (union == null) union = new RectF(b);
                     else union.union(b);
@@ -632,74 +648,193 @@ public class SvgParsers {
 
     private boolean isPointInPath(String d, float px, float py, float tol) {
         if (d == null || d.isEmpty()) return false;
-        List<String> tokens = new ArrayList<>();
-        Matcher tm = Pattern.compile("[a-zA-Z]|[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?").matcher(d);
-        while (tm.find()) tokens.add(tm.group());
 
-        float curX = 0, curY = 0, startX = 0, startY = 0;
+        // Curves (C/S/Q/A) ko line segments mein todo, taaki ray-casting
+        // (inside test) aur near-segment (tolerance) dono sahi se kaam karein.
+        // Pehle wala code curve segments ko crossing count mein add hi nahi
+        // karta tha, jisse far-away points bhi galat "inside" detect ho jaate the.
+        List<float[]> segments = flattenPathToSegments(d);
+        if (segments.isEmpty()) return false;
+
         int crosses = 0;
-
-        for (int i = 0; i < tokens.size(); i++) {
-            String t = tokens.get(i);
-            char cmd = t.charAt(0);
-            if (Character.isLetter(cmd)) {
-                List<Float> params = new ArrayList<>();
-                int j = i + 1;
-                while (j < tokens.size() && !Character.isLetter(tokens.get(j).charAt(0))) {
-                    try { params.add(Float.parseFloat(tokens.get(j))); } catch (Exception ignored) {}
-                    j++;
-                }
-                i = j - 1;
-                char lower = Character.toLowerCase(cmd);
-                boolean rel = Character.isLowerCase(cmd);
-
-                if (lower == 'm' && params.size() >= 2) {
-                    curX = rel ? curX + params.get(0) : params.get(0);
-                    curY = rel ? curY + params.get(1) : params.get(1);
-                    startX = curX; startY = curY;
-                    for (int k = 2; k < params.size() - 1; k += 2) {
-                        float nx = rel ? curX + params.get(k) : params.get(k);
-                        float ny = rel ? curY + params.get(k+1) : params.get(k+1);
-                        if (isPointNearSegment(px, py, curX, curY, nx, ny, tol)) return true;
-                        if (((curY > py) != (ny > py)) && (px < (nx - curX) * (py - curY) / (ny - curY) + curX)) crosses++;
-                        curX = nx; curY = ny;
-                    }
-                } else if ((lower == 'l' || lower == 't') && params.size() >= 2) {
-                    for (int k = 0; k < params.size() - 1; k += 2) {
-                        float nx = rel ? curX + params.get(k) : params.get(k);
-                        float ny = rel ? curY + params.get(k+1) : params.get(k+1);
-                        if (isPointNearSegment(px, py, curX, curY, nx, ny, tol)) return true;
-                        if (((curY > py) != (ny > py)) && (px < (nx - curX) * (py - curY) / (ny - curY) + curX)) crosses++;
-                        curX = nx; curY = ny;
-                    }
-                } else if (lower == 'h') {
-                    for (float p : params) {
-                        float nx = rel ? curX + p : p;
-                        if (isPointNearSegment(px, py, curX, curY, nx, curY, tol)) return true;
-                        curX = nx;
-                    }
-                } else if (lower == 'v') {
-                    for (float p : params) {
-                        float ny = rel ? curY + p : p;
-                        if (isPointNearSegment(px, py, curX, curY, curX, ny, tol)) return true;
-                        if (((curY > py) != (ny > py)) && (px < (curX - curX) * (py - curY) / (ny - curY) + curX)) crosses++;
-                        curY = ny;
-                    }
-                } else if (lower == 'z') {
-                    if (isPointNearSegment(px, py, curX, curY, startX, startY, tol)) return true;
-                    if (((curY > py) != (startY > py)) && (px < (startX - curX) * (py - curY) / (startY - curY) + curX)) crosses++;
-                    curX = startX; curY = startY;
-                } else if (params.size() >= 2) {
-                    float nx = rel ? curX + params.get(params.size()-2) : params.get(params.size()-2);
-                    float ny = rel ? curY + params.get(params.size()-1) : params.get(params.size()-1);
-                    if (isPointNearSegment(px, py, curX, curY, nx, ny, tol * 2)) return true;
-                    curX = nx; curY = ny;
-                }
+        for (float[] seg : segments) {
+            float x1 = seg[0], y1 = seg[1], x2 = seg[2], y2 = seg[3];
+            if (isPointNearSegment(px, py, x1, y1, x2, y2, tol)) return true;
+            if (((y1 > py) != (y2 > py)) &&
+                    (px < (x2 - x1) * (py - y1) / (y2 - y1) + x1)) {
+                crosses++;
             }
         }
         return (crosses % 2 != 0);
     }
 
+    /**
+     * Path 'd' string ko walk karke har segment — curves/arcs samet — ko
+     * straight line segments mein flatten karta hai, taaki hit-testing
+     * accurate rahe.
+     */
+    private List<float[]> flattenPathToSegments(String d) {
+        List<float[]> segments = new ArrayList<>();
+        List<String> tokens = new ArrayList<>();
+        Matcher tm = Pattern.compile("[a-zA-Z]|[-+]?(?:\\d*\\.\\d+|\\d+\\.?)(?:[eE][-+]?\\d+)?").matcher(d);
+        while (tm.find()) tokens.add(tm.group());
+
+        float curX = 0, curY = 0, startX = 0, startY = 0;
+        float prevCtrlX = 0, prevCtrlY = 0;
+        char  prevCmd = 0;
+
+        for (int i = 0; i < tokens.size(); i++) {
+            String t = tokens.get(i);
+            char cmd = t.charAt(0);
+            if (!Character.isLetter(cmd)) continue;
+
+            List<Float> params = new ArrayList<>();
+            int j = i + 1;
+            while (j < tokens.size() && !Character.isLetter(tokens.get(j).charAt(0))) {
+                try { params.add(Float.parseFloat(tokens.get(j))); } catch (Exception ignored) {}
+                j++;
+            }
+            i = j - 1;
+
+            char lower = Character.toLowerCase(cmd);
+            boolean rel = Character.isLowerCase(cmd);
+            char thisCmd = lower;
+
+            switch (lower) {
+                case 'm': {
+                    for (int k = 0; k < params.size() - 1; k += 2) {
+                        float nx = rel ? curX + params.get(k) : params.get(k);
+                        float ny = rel ? curY + params.get(k + 1) : params.get(k + 1);
+                        if (k > 0) segments.add(new float[]{curX, curY, nx, ny});
+                        curX = nx; curY = ny;
+                        if (k == 0) { startX = curX; startY = curY; }
+                    }
+                    break;
+                }
+                case 'l': {
+                    for (int k = 0; k < params.size() - 1; k += 2) {
+                        float nx = rel ? curX + params.get(k) : params.get(k);
+                        float ny = rel ? curY + params.get(k + 1) : params.get(k + 1);
+                        segments.add(new float[]{curX, curY, nx, ny});
+                        curX = nx; curY = ny;
+                    }
+                    break;
+                }
+                case 'h': {
+                    for (float p : params) {
+                        float nx = rel ? curX + p : p;
+                        segments.add(new float[]{curX, curY, nx, curY});
+                        curX = nx;
+                    }
+                    break;
+                }
+                case 'v': {
+                    for (float p : params) {
+                        float ny = rel ? curY + p : p;
+                        segments.add(new float[]{curX, curY, curX, ny});
+                        curY = ny;
+                    }
+                    break;
+                }
+                case 'c': {
+                    for (int k = 0; k + 5 < params.size(); k += 6) {
+                        float x1 = params.get(k),     y1 = params.get(k + 1);
+                        float x2 = params.get(k + 2), y2 = params.get(k + 3);
+                        float ex = params.get(k + 4), ey = params.get(k + 5);
+                        if (rel) { x1 += curX; y1 += curY; x2 += curX; y2 += curY; ex += curX; ey += curY; }
+                        flattenCubic(segments, curX, curY, x1, y1, x2, y2, ex, ey);
+                        prevCtrlX = x2; prevCtrlY = y2;
+                        curX = ex; curY = ey;
+                    }
+                    break;
+                }
+                case 's': {
+                    for (int k = 0; k + 3 < params.size(); k += 4) {
+                        float x2 = params.get(k),     y2 = params.get(k + 1);
+                        float ex = params.get(k + 2), ey = params.get(k + 3);
+                        if (rel) { x2 += curX; y2 += curY; ex += curX; ey += curY; }
+                        float x1, y1;
+                        if (prevCmd == 'c' || prevCmd == 's') { x1 = 2 * curX - prevCtrlX; y1 = 2 * curY - prevCtrlY; }
+                        else { x1 = curX; y1 = curY; }
+                        flattenCubic(segments, curX, curY, x1, y1, x2, y2, ex, ey);
+                        prevCtrlX = x2; prevCtrlY = y2;
+                        curX = ex; curY = ey;
+                    }
+                    break;
+                }
+                case 'q': {
+                    for (int k = 0; k + 3 < params.size(); k += 4) {
+                        float x1 = params.get(k),     y1 = params.get(k + 1);
+                        float ex = params.get(k + 2), ey = params.get(k + 3);
+                        if (rel) { x1 += curX; y1 += curY; ex += curX; ey += curY; }
+                        flattenQuadratic(segments, curX, curY, x1, y1, ex, ey);
+                        prevCtrlX = x1; prevCtrlY = y1;
+                        curX = ex; curY = ey;
+                    }
+                    break;
+                }
+                case 't': {
+                    for (int k = 0; k + 1 < params.size(); k += 2) {
+                        float ex = params.get(k), ey = params.get(k + 1);
+                        if (rel) { ex += curX; ey += curY; }
+                        float x1, y1;
+                        if (prevCmd == 'q' || prevCmd == 't') { x1 = 2 * curX - prevCtrlX; y1 = 2 * curY - prevCtrlY; }
+                        else { x1 = curX; y1 = curY; }
+                        flattenQuadratic(segments, curX, curY, x1, y1, ex, ey);
+                        prevCtrlX = x1; prevCtrlY = y1;
+                        curX = ex; curY = ey;
+                    }
+                    break;
+                }
+                case 'a': {
+                    for (int k = 0; k + 6 < params.size(); k += 7) {
+                        float ex = params.get(k + 5), ey = params.get(k + 6);
+                        if (rel) { ex += curX; ey += curY; }
+                        // Arc ko straight line se approximate kiya (icon glyphs mein rare hai)
+                        segments.add(new float[]{curX, curY, ex, ey});
+                        curX = ex; curY = ey;
+                    }
+                    break;
+                }
+                case 'z': {
+                    segments.add(new float[]{curX, curY, startX, startY});
+                    curX = startX; curY = startY;
+                    break;
+                }
+            }
+            prevCmd = thisCmd;
+        }
+        return segments;
+    }
+
+    private void flattenCubic(List<float[]> out, float x0, float y0,
+                              float x1, float y1, float x2, float y2,
+                              float x3, float y3) {
+        int steps = 10;
+        float px = x0, py = y0;
+        for (int s = 1; s <= steps; s++) {
+            float t = s / (float) steps;
+            float mt = 1 - t;
+            float x = mt*mt*mt*x0 + 3*mt*mt*t*x1 + 3*mt*t*t*x2 + t*t*t*x3;
+            float y = mt*mt*mt*y0 + 3*mt*mt*t*y1 + 3*mt*t*t*y2 + t*t*t*y3;
+            out.add(new float[]{px, py, x, y});
+            px = x; py = y;
+        }
+    }
+
+    private void flattenQuadratic(List<float[]> out, float x0, float y0,
+                                  float x1, float y1, float x2, float y2) {
+        int steps = 8;
+        float px = x0, py = y0;
+        for (int s = 1; s <= steps; s++) {
+            float t = s / (float) steps;
+            float mt = 1 - t;
+            float x = mt*mt*x0 + 2*mt*t*x1 + t*t*x2;
+            float y = mt*mt*y0 + 2*mt*t*y1 + t*t*y2;
+            out.add(new float[]{px, py, x, y});
+            px = x; py = y;
+        }
+    }
     private Matrix getCumulativeTransform(Element element) {
         Matrix m = new Matrix();
         if (element == null) return m;
