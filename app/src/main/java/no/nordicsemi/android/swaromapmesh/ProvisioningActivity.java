@@ -235,6 +235,14 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 return;
             }
 
+            // Check if identification previously failed
+            final ProvisionerProgress progress = mViewModel.getNrfMeshRepository().getProvisioningState().getProvisionerProgress();
+            if (progress != null && progress.getState() == ProvisionerStates.PROVISIONING_FAILED) {
+                mViewModel.displaySnackBar(this, binding.coordinator, "Identification session failed. Please re-identify the device.", Snackbar.LENGTH_LONG);
+                mViewModel.getNrfMeshRepository().identifyNode(mDevice);
+                return;
+            }
+
             try {
                 if (node.getMacAddress() == null || node.getMacAddress().isEmpty()) {
                     node.setMacAddress(mDevice.getAddress());

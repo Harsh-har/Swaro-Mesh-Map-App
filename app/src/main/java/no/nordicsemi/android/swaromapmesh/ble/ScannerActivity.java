@@ -81,6 +81,8 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
     private String mSvgDeviceId = null;
     private String mReceiveId   = null;
 
+    private ExtendedBluetoothDevice mIdentifyingDevice = null;
+
     // -----------------------------------------------------------------------
     // Activity Result Launchers
     // -----------------------------------------------------------------------
@@ -305,6 +307,42 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
         mViewModel.getScannerRepository().getScannerResults().observe(this, scannerLiveData -> {
             applyFilterToAdapter();
         });
+
+        mViewModel.isDeviceReady().observe(this, unused -> {
+            Log.d(TAG, "Device ready, mIdentifyingDevice=" + (mIdentifyingDevice != null ? mIdentifyingDevice.getAddress() : "null"));
+            if (mIdentifyingDevice != null) {
+                mViewModel.getMeshRepository().identifyNode(mIdentifyingDevice);
+                android.widget.Toast.makeText(this, "Identifying device...", android.widget.Toast.LENGTH_SHORT).show();
+                mIdentifyingDevice = null;
+                
+                // Hide progress after a short delay so the user sees it's done
+                new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    binding.connectivityProgressContainer.setVisibility(View.GONE);
+                    binding.recyclerViewBleDevices.setAlpha(1.0f);
+                    binding.recyclerViewBleDevices.setEnabled(true);
+                }, 1000);
+            }
+        });
+
+        mViewModel.isConnected().observe(this, connected -> {
+            Log.d(TAG, "Connection state changed: connected=" + connected + ", mIdentifyingDevice=" + (mIdentifyingDevice != null ? mIdentifyingDevice.getAddress() : "null"));
+            if (!connected && mIdentifyingDevice != null) {
+                final ExtendedBluetoothDevice device = mIdentifyingDevice;
+                Log.d(TAG, "Disconnected, now connecting to: " + device.getAddress());
+                
+                binding.connectionState.setText("Buffering... Resetting session");
+                
+                // Increased delay to 1200ms to ensure the device resets its provisioning state
+                new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    // Check again if mIdentifyingDevice is still what we expect
+                    if (mIdentifyingDevice != null && mIdentifyingDevice.getAddress().equals(device.getAddress())) {
+                        Log.d(TAG, "Reconnecting now...");
+                        binding.connectionState.setText("Connecting to identify...");
+                        mViewModel.connect(getApplicationContext(), mIdentifyingDevice, false);
+                    }
+                }, 1200);
+            }
+        });
     }
 
     // -----------------------------------------------------------------------
@@ -375,8 +413,18 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
 
     @Override
     public void onItemClick(final ExtendedBluetoothDevice device) {
-        if (mViewModel.getBleMeshManager().isConnected())
-            mViewModel.disconnect();
+        // Clear identify state if user decides to provision
+        mIdentifyingDevice = null;
+        binding.connectivityProgressContainer.setVisibility(View.GONE);
+        binding.recyclerViewBleDevices.setAlpha(1.0f);
+        binding.recyclerViewBleDevices.setEnabled(true);
+
+        if (mViewModel.getBleMeshManager().isConnected()) {
+            final android.bluetooth.BluetoothDevice connectedDevice = mViewModel.getBleMeshManager().getBluetoothDevice();
+            if (connectedDevice != null && !connectedDevice.getAddress().equals(device.getAddress())) {
+                mViewModel.disconnect();
+            }
+        }
 
         if (mScanWithProxyService) {
             final Intent intent = new Intent(this, ProvisioningActivity.class);
@@ -395,6 +443,51 @@ public class ScannerActivity extends AppCompatActivity implements DevicesAdapter
             intent.putExtra(Utils.EXTRA_SILENT_CONNECT, false);
             reconnect.launch(intent);
         }
+    }
+
+    @Override
+    public void onIdentifyClick(final ExtendedBluetoothDevice device) {
+        Log.d(TAG, "onIdentifyClick: " + device.getAddress());
+
+        // Show progress UI and dim the list
+        binding.connectivityProgressContainer.setVisibility(View.VISIBLE);
+        binding.connectionState.setText("Preparing identification...");
+        binding.recyclerViewBleDevices.setAlpha(0.5f);
+        binding.recyclerViewBleDevices.setEnabled(false);
+
+        // If we are already trying to identify THIS device, or connected to it
+        if (mViewModel.getBleMeshManager().isConnected()) {
+            final android.bluetooth.BluetoothDevice connectedDevice = mViewModel.getBleMeshManager().getBluetoothDevice();
+            if (connectedDevice != null && connectedDevice.getAddress().equals(device.getAddress())) {
+                Log.d(TAG, "Already connected to this device, forcing disconnect for fresh session...");
+            } else {
+                Log.d(TAG, "Connected to a different device, disconnecting...");
+            }
+            mIdentifyingDevice = device;
+            mViewModel.disconnect();
+            binding.connectionState.setText("Resetting session...");
+            return;
+        }
+
+        mIdentifyingDevice = device;
+        
+        // Add 1.5s buffering delay before first connect as requested
+        binding.connectionState.setText("Buffering...");
+        new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            binding.connectionState.setText("Connecting to identify...");
+            mViewModel.connect(getApplicationContext(), device, false);
+        }, 1500);
+        
+        // Safety timeout: if we don't connect within 15 seconds, clear the flag and UI
+        new Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+            if (mIdentifyingDevice != null && mIdentifyingDevice.getAddress().equals(device.getAddress())) {
+                mIdentifyingDevice = null;
+                binding.connectivityProgressContainer.setVisibility(View.GONE);
+                binding.recyclerViewBleDevices.setAlpha(1.0f);
+                binding.recyclerViewBleDevices.setEnabled(true);
+                Log.w(TAG, "Identify connection timeout.");
+            }
+        }, 15000);
     }
 
     // -----------------------------------------------------------------------

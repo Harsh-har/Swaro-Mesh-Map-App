@@ -146,7 +146,6 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
                 : name);
 
         holder.deviceAddress.setText(device.getAddress() + " (" + rssi + " dBm)");
-        holder.rssi.setImageLevel(getSignalLevel(rssi));
     }
 
     @Override
@@ -162,23 +161,23 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     // CLICK
     // -------------------------------------------------------------------------
 
-    @FunctionalInterface
     public interface OnItemClickListener {
         void onItemClick(final ExtendedBluetoothDevice device);
+        default void onIdentifyClick(final ExtendedBluetoothDevice device) {}
     }
 
     final class ViewHolder extends RecyclerView.ViewHolder {
 
-        TextView  deviceAddress;
-        TextView  deviceName;
-        ImageView rssi;
+        TextView                                  deviceAddress;
+        TextView                                  deviceName;
+        com.google.android.material.button.MaterialButton actionIdentify;
 
         private ViewHolder(@NonNull DeviceItemBinding binding) {
             super(binding.getRoot());
 
-            deviceAddress = binding.deviceAddress;
-            deviceName    = binding.deviceName;
-            rssi          = binding.rssi;
+            deviceAddress  = binding.deviceAddress;
+            deviceName     = binding.deviceName;
+            actionIdentify = binding.actionIdentify;
 
             binding.deviceContainer.setOnClickListener(v -> {
                 if (mOnItemClickListener != null) {
@@ -186,6 +185,16 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
                     if (pos != RecyclerView.NO_POSITION
                             && pos < mDisplayedDevices.size()) {
                         mOnItemClickListener.onItemClick(mDisplayedDevices.get(pos));
+                    }
+                }
+            });
+
+            actionIdentify.setOnClickListener(v -> {
+                if (mOnItemClickListener != null) {
+                    int pos = getBindingAdapterPosition();
+                    if (pos != RecyclerView.NO_POSITION
+                            && pos < mDisplayedDevices.size()) {
+                        mOnItemClickListener.onIdentifyClick(mDisplayedDevices.get(pos));
                     }
                 }
             });

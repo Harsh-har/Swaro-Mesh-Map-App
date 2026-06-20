@@ -91,7 +91,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private static final String TAG      = NrfMeshRepository.class.getSimpleName();
     private static final String TAG_BIND = "AUTO_BIND";
 
-    private static final int ATTENTION_TIMER = 5;
+    private static final int ATTENTION_TIMER = 255;
 
     private static final long BIND_TIMEOUT_MS = 4_000;
 
@@ -112,8 +112,8 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     // ── Connection state ──────────────────────────────────────────────────────
     private final MutableLiveData<Boolean> mIsConnectedToProxy = new MutableLiveData<>();
-    private       MutableLiveData<Boolean> mIsConnected;
-    private final MutableLiveData<Void>   mOnDeviceReady   = new MutableLiveData<>();
+    private final MutableLiveData<Boolean> mIsConnected        = new SingleLiveEvent<>();
+    private final MutableLiveData<Void>    mOnDeviceReady      = new MutableLiveData<>();
     private final MutableLiveData<String> mConnectionState = new MutableLiveData<>();
 
     private final SingleLiveEvent<Boolean>               mIsReconnecting              = new SingleLiveEvent<>();
@@ -239,15 +239,15 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     boolean isAppKeyAddCompleted()            { return mIsAppKeyAddCompleted; }
     boolean isNetworkRetransmitSetCompleted() { return mIsNetworkRetransmitSetCompleted; }
 
-    final MeshNetworkLiveData getMeshNetworkLiveData()  { return mMeshNetworkLiveData; }
-    LiveData<List<ProvisionedMeshNode>> getNodes()      { return mProvisionedNodes; }
-    LiveData<String>  getNetworkLoadState()             { return mNetworkImportState; }
-    ProvisioningStatusLiveData getProvisioningState()   { return mProvisioningStateLiveData; }
-    LiveData<TransactionStatus> getTransactionStatus()  { return mTransactionStatus; }
-    MeshManagerApi getMeshManagerApi()                  { return mMeshManagerApi; }
-    BleMeshManager getBleMeshManager()                  { return mBleMeshManager; }
-    LiveData<MeshMessage> getMeshMessageLiveData()      { return mMeshMessageLiveData; }
-    LiveData<Group>   getSelectedGroup()                { return mSelectedGroupLiveData; }
+    public final MeshNetworkLiveData getMeshNetworkLiveData()  { return mMeshNetworkLiveData; }
+    public LiveData<List<ProvisionedMeshNode>> getNodes()      { return mProvisionedNodes; }
+    public LiveData<String>  getNetworkLoadState()             { return mNetworkImportState; }
+    public ProvisioningStatusLiveData getProvisioningState()   { return mProvisioningStateLiveData; }
+    public LiveData<TransactionStatus> getTransactionStatus()  { return mTransactionStatus; }
+    public MeshManagerApi getMeshManagerApi()                  { return mMeshManagerApi; }
+    public BleMeshManager getBleMeshManager()                  { return mBleMeshManager; }
+    public LiveData<MeshMessage> getMeshMessageLiveData()      { return mMeshMessageLiveData; }
+    public LiveData<Group>   getSelectedGroup()                { return mSelectedGroupLiveData; }
     LiveData<UnprovisionedMeshNode> getUnprovisionedMeshNode() { return mUnprovisionedMeshNodeLiveData; }
     LiveData<Integer> getConnectedProxyAddress()        { return mConnectedProxyAddress; }
     LiveData<ProvisionedMeshNode> getSelectedMeshNode() { return mExtendedMeshNode; }
@@ -331,19 +331,13 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
         final LogSession logSession = Logger.newSession(context, null,
                 device.getAddress(), device.getName());
         mBleMeshManager.setLogger(logSession);
-        initIsConnectedLiveData(connectToNetwork);
         mConnectionState.postValue("Connecting…");
         mBleMeshManager.connect(device.getDevice()).retry(3, 200).enqueue();
     }
 
     private void connectToProxy(@NonNull final ExtendedBluetoothDevice device) {
-        initIsConnectedLiveData(true);
         mConnectionState.postValue("Connecting…");
         mBleMeshManager.connect(device.getDevice()).retry(3, 200).enqueue();
-    }
-
-    private void initIsConnectedLiveData(final boolean connectToNetwork) {
-        mIsConnected = connectToNetwork ? new SingleLiveEvent<>() : new MutableLiveData<>();
     }
 
     void disconnect() {
@@ -362,6 +356,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     }
 
     public void identifyNode(@NonNull final ExtendedBluetoothDevice device) {
+        clearProvisioningLiveData(); // ✅ Reset state before identifying
         final UnprovisionedBeacon beacon = (UnprovisionedBeacon) device.getBeacon();
         if (beacon != null) {
             mMeshManagerApi.identifyNode(beacon.getUuid(), ATTENTION_TIMER);
