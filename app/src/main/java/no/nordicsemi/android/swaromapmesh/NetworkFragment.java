@@ -78,7 +78,6 @@ public class NetworkFragment extends Fragment {
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
     private static final float TOUCH_TOLERANCE_PX = 20f;  // comfortable fingertip radius, in screen px
     private static final float MIN_SVG_TOLERANCE  = 0.3f; // floor so high zoom doesn't make tap impossibly precise
-    private static final float TAP_TOLERANCE      = 2f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
     private static final float TAP_MOVE_SLOP      = 10f;
@@ -268,15 +267,33 @@ public class NetworkFragment extends Fragment {
                 .setView(layout)
                 .setPositiveButton("Save", (dialog, which) -> {
                     String name = nameInput.getText().toString().trim();
-                    String eid = elementIdInput.getText().toString().trim();
-                    String rid = receiveIdInput.getText().toString().trim();
+                    String eid  = elementIdInput.getText().toString().trim();
+                    String rid  = receiveIdInput.getText().toString().trim();
 
                     if (name.isEmpty() || eid.isEmpty()) {
-                        Toast.makeText(requireContext(), "Name and Element ID are required", Toast.LENGTH_SHORT).show();
+                        Toast.makeText(requireContext(),
+                                "Name and Element ID are required", Toast.LENGTH_SHORT).show();
                         return;
                     }
 
-                    // Convert screen position of draggableIcon center to SVG coordinates
+                    // ── Conflict check ────────────────────────────────────────────────
+                    String conflict = checkDeviceConflict(eid, name);
+                    if (conflict != null) {
+                        new MaterialAlertDialogBuilder(requireContext())
+                                .setTitle("⚠ ID Already Reserved")
+                                .setMessage(conflict
+                                        + "\n\nPlease use a different Element ID or device name.")
+                                .setPositiveButton("Change ID", (d2, w2) -> {
+                                    // Re-open the dialog so user can fix it
+                                    showDeviceInfoDialog();
+                                })
+                                .setNegativeButton("Cancel Add", (d2, w2) -> exitAddDeviceMode())
+                                .setCancelable(false)
+                                .show();
+                        return;
+                    }
+
+                    // ── All clear, proceed ────────────────────────────────────────────
                     float centerX = binding.draggableIcon.getX() + binding.draggableIcon.getWidth() / 2f;
                     float centerY = binding.draggableIcon.getY() + binding.draggableIcon.getHeight() / 2f;
                     float[] svgCoords = touchToSvgCoords(centerX, centerY);
@@ -288,6 +305,30 @@ public class NetworkFragment extends Fragment {
                 .show();
     }
 
+    @Nullable
+    private String checkDeviceConflict(String elementId, String deviceName) {
+        String normName = deviceName.trim().toLowerCase().replace(" ", "_");
+
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String     existingKey = entry.getKey();
+            DeviceInfo existing    = entry.getValue();
+            String     areaSuffix  = existing.areaId != null
+                    ? " (area: " + existing.areaId + ")" : "";  // extracted once
+
+            if (existing.elementId != null
+                    && !existing.elementId.trim().isEmpty()
+                    && existing.elementId.trim().equals(elementId.trim())) {
+                return "Element ID \"" + elementId + "\" is already used by:\n"
+                        + extractPureDeviceName(existingKey) + areaSuffix;
+            }
+
+            if (extractPureDeviceName(existingKey).trim().equalsIgnoreCase(deviceName.trim())) {
+                return "Device name \"" + deviceName + "\" is already used by:\n"
+                        + existingKey + areaSuffix;
+            }
+        }
+        return null;
+    }
     private void addNewDeviceToSvg(String category, String name, String eid, String rid, float x, float y) {
         if (svgDocument == null) return;
 
@@ -1156,7 +1197,8 @@ public class NetworkFragment extends Fragment {
 
         List<String> options = new java.util.ArrayList<>();
         if (isProvisioned) options.add("Reset Node");
-        if (isManual) options.add("Delete from Map");
+        options.add("Edit Device");           // available for ALL devices
+        if (!isProvisioned) options.add("Delete from Map");
         options.add("Cancel");
 
         if (options.size() <= 1) return; // Only Cancel
@@ -1173,6 +1215,8 @@ public class NetworkFragment extends Fragment {
                             return;
                         }
                         openNodeConfigForReset(hitIconId, device);
+                    } else if ("Edit Device".equals(choice)) {
+                        showEditDeviceDialog(hitIconId, device);
                     } else if ("Delete from Map".equals(choice)) {
                         if (isProvisioned) {
                             Toast.makeText(requireContext(), "Cannot delete provisioned device", Toast.LENGTH_SHORT).show();
@@ -1182,6 +1226,169 @@ public class NetworkFragment extends Fragment {
                     }
                 })
                 .show();
+    }
+
+    // ══════════════════════════════════════════════════════════════════════
+//  EDIT DEVICE
+// ══════════════════════════════════════════════════════════════════════
+
+    private void showEditDeviceDialog(String iconId, DeviceInfo device) {
+        LinearLayout layout = new LinearLayout(requireContext());
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(40, 20, 40, 20);
+
+        // ── Device Name ───────────────────────────────────────────────────
+        final EditText nameInput = new EditText(requireContext());
+        nameInput.setHint("Device Name");
+        String currentName = extractPureDeviceName(iconId);
+        nameInput.setText(currentName);
+        layout.addView(nameInput);
+
+        // ── Element ID ────────────────────────────────────────────────────
+        final EditText elementIdInput = new EditText(requireContext());
+        elementIdInput.setHint("Element ID (Integer)");
+        elementIdInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        if (device.elementId != null) elementIdInput.setText(device.elementId.trim());
+        layout.addView(elementIdInput);
+
+        // ── Receive ID ────────────────────────────────────────────────────
+        final EditText receiveIdInput = new EditText(requireContext());
+        receiveIdInput.setHint("Receive ID (Integer)");
+        if (device.receiveId != null) receiveIdInput.setText(device.receiveId.trim());
+        layout.addView(receiveIdInput);
+
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("Edit Device: " + currentName)
+                .setView(layout)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String newName = nameInput.getText().toString().trim();
+                    String newEid  = elementIdInput.getText().toString().trim();
+                    String newRid  = receiveIdInput.getText().toString().trim();
+
+                    if (newName.isEmpty() || newEid.isEmpty()) {
+                        Toast.makeText(requireContext(),
+                                "Name and Element ID are required", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    // ── Conflict check (skip self) ────────────────────────
+                    String conflict = checkDeviceConflictExcluding(newEid, newName, iconId);
+                    if (conflict != null) {
+                        new MaterialAlertDialogBuilder(requireContext())
+                                .setTitle("ID Already Reserved")
+                                .setMessage(conflict + "\n\nPlease use a different Element ID.")
+                                .setPositiveButton("Fix", (d2, w2) -> showEditDeviceDialog(iconId, device))
+                                .setNegativeButton("Cancel", null)
+                                .setCancelable(false)
+                                .show();
+                        return;
+                    }
+
+                    applyDeviceEdits(iconId, device, newName, newEid, newRid);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    /**
+     * Same as checkDeviceConflict but skips the device being edited (self-check).
+     */
+    @Nullable
+    private String checkDeviceConflictExcluding(String elementId, String deviceName,
+                                                String excludeIconId) {
+        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+            String     existingKey = entry.getKey();
+            DeviceInfo existing    = entry.getValue();
+
+            if (existingKey.equals(excludeIconId)) continue; // skip self
+
+            String areaSuffix = existing.areaId != null
+                    ? " (area: " + existing.areaId + ")" : "";
+
+            if (existing.elementId != null
+                    && !existing.elementId.trim().isEmpty()
+                    && existing.elementId.trim().equals(elementId.trim())) {
+                return "Element ID \"" + elementId + "\" is already used by:\n"
+                        + extractPureDeviceName(existingKey) + areaSuffix;
+            }
+
+            if (extractPureDeviceName(existingKey).trim().equalsIgnoreCase(deviceName.trim())) {
+                return "Device name \"" + deviceName + "\" is already used by:\n"
+                        + existingKey + areaSuffix;
+            }
+        }
+        return null;
+    }
+    private void applyDeviceEdits(String iconId, DeviceInfo device,
+                                  String newName, String newEid, String newRid) {
+        if (svgDocument == null) return;
+        try {
+            Element iconEl = device.element;
+
+            // ── 1. Update elementId in <metadata><elementId> ──────────────
+            NodeList allChildren = iconEl.getElementsByTagName("*");
+            boolean eidUpdated = false, ridUpdated = false;
+            for (int i = 0; i < allChildren.getLength(); i++) {
+                Node n = allChildren.item(i);
+                if (!(n instanceof Element)) continue;
+                Element el = (Element) n;
+                String tag = el.getTagName().toLowerCase().replace("svg:", "");
+                if ("elementid".equals(tag)) {
+                    el.setTextContent(newEid);
+                    eidUpdated = true;
+                } else if ("reciveid".equals(tag) || "receiveid".equals(tag)) {
+                    el.setTextContent(newRid);
+                    ridUpdated = true;
+                }
+            }
+
+            // ── If <metadata> tags didn't exist, create them ──────────────
+            if (!eidUpdated || (!ridUpdated && !newRid.isEmpty())) {
+                Element metadata = null;
+                NodeList metaList = iconEl.getElementsByTagName("metadata");
+                if (metaList.getLength() > 0) {
+                    metadata = (Element) metaList.item(0);
+                } else {
+                    metadata = svgDocument.createElement("metadata");
+                    iconEl.insertBefore(metadata, iconEl.getFirstChild());
+                }
+                if (!eidUpdated) {
+                    Element eidNode = svgDocument.createElement("elementId");
+                    eidNode.setTextContent(newEid);
+                    metadata.appendChild(eidNode);
+                }
+                if (!ridUpdated && !newRid.isEmpty()) {
+                    Element ridNode = svgDocument.createElement("reciveId");
+                    ridNode.setTextContent(newRid);
+                    metadata.appendChild(ridNode);
+                }
+            }
+
+            // ── 2. The in-memory deviceMap is fully rebuilt below via
+            //    svgParser.extractDevices(), so no direct field assignment needed.
+            //    (DeviceInfo fields are final — updated implicitly via re-parse.)
+
+            // ── 3. Save & refresh ─────────────────────────────────────────
+            saveSvgToInternal();
+
+            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
+            deviceMap.clear();
+            deviceMap.putAll(newDevices);
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+            iconToDeviceRelations.clear();
+            iconToDeviceRelations.putAll(newRelations);
+
+            colorManager.init(svgDocument, svgParser, deviceMap);
+            refreshColors();
+            reRenderSvg();
+
+            Toast.makeText(requireContext(),
+                    "Device updated: EID=" + newEid, Toast.LENGTH_SHORT).show();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error editing device", e);
+            Toast.makeText(requireContext(), "Failed to update device", Toast.LENGTH_SHORT).show();
+        }
     }
 
     private void deleteDeviceFromSvg(String iconId) {
@@ -1600,7 +1807,8 @@ public class NetworkFragment extends Fragment {
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
         String      displayName    = extractPureDeviceName(deviceId);
-        Set<String> relatedDevices = iconToDeviceRelations.getOrDefault(deviceId, new HashSet<>());
+        Set<String> relatedDevices = iconToDeviceRelations.containsKey(deviceId)
+                ? iconToDeviceRelations.get(deviceId) : new HashSet<>();
         String      relationDevName = relatedDevices.isEmpty()
                 ? null : relatedDevices.iterator().next();
 
@@ -1818,6 +2026,8 @@ public class NetworkFragment extends Fragment {
         });
         zoomAnimator.start();
     }
+    // ══════════════════════════════════════════════════════════════════════
+
 
     private void startFling(float velocityX, float velocityY) {
         if (binding == null || binding.svgView.getDrawable() == null) return;
