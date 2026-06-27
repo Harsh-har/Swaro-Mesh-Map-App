@@ -158,6 +158,15 @@ public class TestProvisionActivity extends AppCompatActivity {
         // ── Show Address input & Save button only for LC Node devices ─────
         android.view.View layoutAddress = findViewById(R.id.layout_address);
         boolean isLcNode = isLcNodeDevice(deviceId);
+
+        // ── Auto-fill address for LC Node if not already set ──────────────
+        if (savedAddress.isEmpty() && isLcNode && relationDeviceName != null) {
+            String autoAddress = extractAddressFromRelation(relationDeviceName);
+            if (autoAddress != null) {
+                etAddress.setText(autoAddress);
+            }
+        }
+
         layoutAddress.setVisibility(isLcNode
                 ? android.view.View.VISIBLE : android.view.View.GONE);
         btnSaveAddress.setVisibility(isLcNode
@@ -630,6 +639,23 @@ public class TestProvisionActivity extends AppCompatActivity {
     private String extractPureNameNoNumber(String fullId) {
         String base = extractBaseName(fullId);
         return base.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+    }
+
+    /**
+     * Extracts the address from relationDeviceName if it follows the pattern [area]_s_[elementId]_[address]_[total]
+     * Returns the address as a string, or null if not found.
+     */
+    private String extractAddressFromRelation(String relName) {
+        if (relName == null) return null;
+        String[] parts = relName.split("_");
+        // Expected pattern: [area]_s_[elementId]_[address]_[total]
+        // The address is the 2nd value after "s" (which is index i+2 if parts[i] is "s")
+        for (int i = 0; i < parts.length - 2; i++) {
+            if (parts[i].equalsIgnoreCase("s")) {
+                return parts[i + 2];
+            }
+        }
+        return null;
     }
 
     @Override

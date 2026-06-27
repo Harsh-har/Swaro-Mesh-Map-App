@@ -36,6 +36,13 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
+import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import android.widget.EditText;
+import android.widget.LinearLayout;
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -47,6 +54,7 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.regex.Pattern;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
@@ -133,6 +141,10 @@ public class NetworkFragment extends Fragment {
     // When true, fling is suppressed so pinch-lift never jerks the map.
     private boolean wasMultiTouch = false;
 
+    private boolean mIsAddDeviceMode = false;
+    private String mSelectedCategory = "Control Node";
+    private float mNewDeviceX, mNewDeviceY;
+
     // ══════════════════════════════════════════════════════════════════════
     //  LIFECYCLE
     // ══════════════════════════════════════════════════════════════════════
@@ -145,9 +157,287 @@ public class NetworkFragment extends Fragment {
         binding    = FragmentNetworkBinding.inflate(inflater, container, false);
         mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
         setupZoomAndPan();
+        setupAddDeviceLogic();
         observeViewModel();
-        loadSvgFromAssets("lalitesh.svg");
+        loadInitialSvg();
         return binding.getRoot();
+    }
+
+    private void loadInitialSvg() {
+        File internalSvg = new File(requireContext().getFilesDir(), "modified_map.svg");
+        if (internalSvg.exists()) {
+            loadSvgFromUri(Uri.fromFile(internalSvg));
+        } else {
+            loadSvgFromAssets("lalitesh.svg");
+        }
+    }
+
+    private void setupAddDeviceLogic() {
+        binding.fabAddDevice.setOnClickListener(v -> showCategorySelectionDialog());
+        binding.btnCancelAdd.setOnClickListener(v -> exitAddDeviceMode());
+        binding.btnSaveDevice.setOnClickListener(v -> showDeviceInfoDialog());
+
+        binding.draggableIcon.setOnTouchListener((v, event) -> {
+            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+                v.setX(event.getRawX() - v.getWidth() / 2f);
+                v.setY(event.getRawY() - v.getHeight() / 2f);
+            } else if (event.getAction() == MotionEvent.ACTION_UP) {
+                v.performClick();
+            }
+            return true;
+        });
+    }
+
+    private void showCategorySelectionDialog() {
+        String[] categories = {"Control Node", "Strip Node", "LC Node", "AC Node", "Relay Node", "Fan Node", "Switch Plate", "Manual Entry..."};
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("Select Device Category")
+                .setItems(categories, (dialog, which) -> {
+                    if (which == categories.length - 1) {
+                        showManualCategoryDialog();
+                    } else {
+                        mSelectedCategory = categories[which];
+                        enterAddDeviceMode();
+                    }
+                })
+                .show();
+    }
+
+    private void showManualCategoryDialog() {
+        final EditText input = new EditText(requireContext());
+        input.setHint("Category Name ");
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("Enter Category")
+                .setView(input)
+                .setPositiveButton("OK", (dialog, which) -> {
+                    String cat = input.getText().toString().trim();
+                    if (!cat.isEmpty()) {
+                        mSelectedCategory = cat;
+                        enterAddDeviceMode();
+                    }
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void enterAddDeviceMode() {
+        mIsAddDeviceMode = true;
+        binding.addDeviceToolbar.setVisibility(View.VISIBLE);
+        binding.draggableIcon.setVisibility(View.VISIBLE);
+        binding.fabAddDevice.setVisibility(View.GONE);
+
+        // Center the icon after layout pass
+        binding.draggableIcon.post(() -> {
+            if (binding == null) return;
+            float viewWidth = binding.container.getWidth();
+            float viewHeight = binding.container.getHeight();
+            if (viewWidth > 0 && viewHeight > 0) {
+                binding.draggableIcon.setX(viewWidth / 2f - binding.draggableIcon.getWidth() / 2f);
+                binding.draggableIcon.setY(viewHeight / 2f - binding.draggableIcon.getHeight() / 2f);
+            }
+        });
+    }
+
+    private void exitAddDeviceMode() {
+        mIsAddDeviceMode = false;
+        binding.addDeviceToolbar.setVisibility(View.GONE);
+        binding.draggableIcon.setVisibility(View.GONE);
+        binding.fabAddDevice.setVisibility(View.VISIBLE);
+    }
+
+    private void showDeviceInfoDialog() {
+        LinearLayout layout = new LinearLayout(requireContext());
+        layout.setOrientation(LinearLayout.VERTICAL);
+        layout.setPadding(40, 20, 40, 20);
+
+        final EditText nameInput = new EditText(requireContext());
+        nameInput.setHint("Device Name ()");
+        layout.addView(nameInput);
+
+        final EditText elementIdInput = new EditText(requireContext());
+        elementIdInput.setHint("Element ID (Integer)");
+        elementIdInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+        layout.addView(elementIdInput);
+
+        final EditText receiveIdInput = new EditText(requireContext());
+        receiveIdInput.setHint("Receive ID (Integer)");
+        layout.addView(receiveIdInput);
+
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("Enter Device Info")
+                .setView(layout)
+                .setPositiveButton("Save", (dialog, which) -> {
+                    String name = nameInput.getText().toString().trim();
+                    String eid = elementIdInput.getText().toString().trim();
+                    String rid = receiveIdInput.getText().toString().trim();
+
+                    if (name.isEmpty() || eid.isEmpty()) {
+                        Toast.makeText(requireContext(), "Name and Element ID are required", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+
+                    // Convert screen position of draggableIcon center to SVG coordinates
+                    float centerX = binding.draggableIcon.getX() + binding.draggableIcon.getWidth() / 2f;
+                    float centerY = binding.draggableIcon.getY() + binding.draggableIcon.getHeight() / 2f;
+                    float[] svgCoords = touchToSvgCoords(centerX, centerY);
+
+                    addNewDeviceToSvg(mSelectedCategory, name, eid, rid, svgCoords[0], svgCoords[1]);
+                    exitAddDeviceMode();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void addNewDeviceToSvg(String category, String name, String eid, String rid, float x, float y) {
+        if (svgDocument == null) return;
+
+        try {
+            Element root = svgDocument.getDocumentElement();
+
+            // 1. Determine the correct Area ID
+            String areaId = currentFocusAreaId;
+            if (areaId == null) {
+                // Try to find area by spatial check if not focused
+                for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+                    if (entry.getValue().contains(x, y)) {
+                        areaId = entry.getKey();
+                        break;
+                    }
+                }
+            }
+            if (areaId == null) areaId = "AddedDevices";
+
+            // 2. Generate unique Device ID
+            String deviceId = "manual_" + name.replace(" ", "_").replace(":", "_") + "_" + System.currentTimeMillis();
+            String fullId = deviceId + ":" + category;
+
+            // 3. Add to Icons group
+            Element iconsGroup = svgParser.findElementById(root, "Icons");
+            if (iconsGroup == null) {
+                iconsGroup = svgDocument.createElement("g");
+                iconsGroup.setAttribute("id", "Icons");
+                root.appendChild(iconsGroup);
+            }
+
+            // Find or create the area-specific group inside Icons
+            Element areaGroup = svgParser.findElementById(iconsGroup, areaId);
+            if (areaGroup == null) {
+                areaGroup = svgParser.findElementFuzzy(iconsGroup, areaId);
+            }
+            if (areaGroup == null) {
+                areaGroup = svgDocument.createElement("g");
+                areaGroup.setAttribute("id", areaId);
+                iconsGroup.appendChild(areaGroup);
+            }
+
+            Element iconEl = svgDocument.createElement("g");
+            iconEl.setAttribute("id", deviceId + ":" + category);
+            iconEl.setAttribute("data-manual", "true");
+            iconEl.setAttribute("data-manual-added", "true"); // Backup attribute
+            iconEl.setAttribute("transform", "translate(" + (x - svgParser.vbX) + " " + (y - svgParser.vbY) + ")");
+
+            Element metadata = svgDocument.createElement("metadata");
+            Element eidNode = svgDocument.createElement("elementId");
+            eidNode.setTextContent(eid);
+            metadata.appendChild(eidNode);
+            if (!rid.isEmpty()) {
+                Element ridNode = svgDocument.createElement("reciveId");
+                ridNode.setTextContent(rid);
+                metadata.appendChild(ridNode);
+            }
+            iconEl.appendChild(metadata);
+
+            // Simple visual for icon: a square
+            Element rect = svgDocument.createElement("rect");
+            rect.setAttribute("width", "10");
+            rect.setAttribute("height", "10");
+            rect.setAttribute("x", "-5");
+            rect.setAttribute("y", "-5");
+            rect.setAttribute("fill", "#ffae42");
+            rect.setAttribute("stroke", "#000");
+            rect.setAttribute("stroke-width", "0.5");
+            iconEl.appendChild(rect);
+
+            areaGroup.appendChild(iconEl);
+
+            // 4. Add to Devices group
+            Element devicesGroup = svgParser.findElementById(root, "Devices");
+            if (devicesGroup == null) {
+                devicesGroup = svgDocument.createElement("g");
+                devicesGroup.setAttribute("id", "Devices");
+                root.appendChild(devicesGroup);
+            }
+
+            Element devAreaGroup = svgParser.findElementById(devicesGroup, areaId);
+            if (devAreaGroup == null) {
+                NodeList devChildren = devicesGroup.getChildNodes();
+                for (int i = 0; i < devChildren.getLength(); i++) {
+                    if (devChildren.item(i) instanceof Element) {
+                        devAreaGroup = (Element) devChildren.item(i);
+                        break;
+                    }
+                }
+            }
+            if (devAreaGroup == null) {
+                devAreaGroup = svgDocument.createElement("g");
+                devAreaGroup.setAttribute("id", areaId + "_Dev");
+                devicesGroup.appendChild(devAreaGroup);
+            }
+
+            String physicalId = deviceId + "_phys";
+            Element physEl = svgDocument.createElement("circle");
+            physEl.setAttribute("id", physicalId);
+            physEl.setAttribute("cx", String.valueOf(x));
+            physEl.setAttribute("cy", String.valueOf(y));
+            physEl.setAttribute("r", "3");
+            physEl.setAttribute("style", "fill:#b3b3b3;");
+            devAreaGroup.appendChild(physEl);
+
+            // 5. Add to Relation
+            Element relationGroup = svgParser.findElementById(root, "Relation");
+            if (relationGroup == null) {
+                relationGroup = svgDocument.createElement("g");
+                relationGroup.setAttribute("id", "Relation");
+                root.appendChild(relationGroup);
+            }
+            String currentRelations = relationGroup.getTextContent();
+            String newRelation = "\n        (" + deviceId + ":" + category + " | " + physicalId + ")";
+            relationGroup.setTextContent(currentRelations + newRelation);
+
+            // 6. Save to Internal Storage
+            saveSvgToInternal();
+
+            // 7. Update local state and re-render
+            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
+            deviceMap.clear();
+            deviceMap.putAll(newDevices);
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+            iconToDeviceRelations.clear();
+            iconToDeviceRelations.putAll(newRelations);
+
+            colorManager.init(svgDocument, svgParser, deviceMap);
+            refreshColors();
+            reRenderSvg();
+
+            Toast.makeText(requireContext(), "Device added to " + areaId, Toast.LENGTH_SHORT).show();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error adding new device", e);
+            Toast.makeText(requireContext(), "Failed to add device", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private void saveSvgToInternal() {
+        try {
+            File file = new File(requireContext().getFilesDir(), "modified_map.svg");
+            OutputStream os = new FileOutputStream(file);
+            Transformer t = TransformerFactory.newInstance().newTransformer();
+            t.transform(new DOMSource(svgDocument), new StreamResult(os));
+            os.close();
+            Log.d(TAG, "SVG saved to " + file.getAbsolutePath());
+        } catch (Exception e) {
+            Log.e(TAG, "Error saving SVG", e);
+        }
     }
 
     private void observeViewModel() {
@@ -474,10 +764,27 @@ public class NetworkFragment extends Fragment {
         colorManager.refreshAllColors(
                 deviceMap,
                 getProvisionedSet(),
+                getAddressedSet(),
                 selectedDeviceId,
                 iconToDeviceRelations,
                 currentFocusAreaId
         );
+    }
+
+    private Set<String> getAddressedSet() {
+        Set<String> addressed = new HashSet<>();
+        SharedPreferences prefs = requireContext().getSharedPreferences("device_address_prefs", Context.MODE_PRIVATE);
+        Map<String, ?> all = prefs.getAll();
+        for (String key : all.keySet()) {
+            if (key.startsWith("address_")) {
+                String val = String.valueOf(all.get(key));
+                if (val != null && !val.isEmpty()) {
+                    // key is "address_device_id", we need "device_id"
+                    addressed.add(key.substring("address_".length()));
+                }
+            }
+        }
+        return addressed;
     }
 
     // ══════════════════════════════════════════════════════════════════════
@@ -655,7 +962,10 @@ public class NetworkFragment extends Fragment {
             binding.svgView.setImageDrawable(drawable);
             binding.svgView.setVisibility(View.VISIBLE);
             binding.svgPlaceholder.setVisibility(View.GONE);
-            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+            if (!mAutoSetupInProgress) {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.fabAddDevice.setVisibility(View.VISIBLE);
+            }
 
             binding.svgView.post(() -> {
                 fitFloorPlanToView(false);
@@ -725,7 +1035,10 @@ public class NetworkFragment extends Fragment {
         if (show) {
             binding.svgPlaceholder.setVisibility(View.VISIBLE);
             binding.svgView.setVisibility(View.GONE);
-            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+            if (!mAutoSetupInProgress) {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.fabAddDevice.setVisibility(View.VISIBLE);
+            }
         } else {
             binding.svgPlaceholder.setVisibility(View.GONE);
             binding.svgView.setVisibility(View.VISIBLE);
@@ -739,7 +1052,10 @@ public class NetworkFragment extends Fragment {
             binding.svgPlaceholder.setVisibility(View.GONE);
             binding.svgView.setVisibility(View.GONE);
         } else {
-            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+            if (!mAutoSetupInProgress) {
+                binding.progressBar.setVisibility(View.GONE);
+                binding.fabAddDevice.setVisibility(View.VISIBLE);
+            }
         }
     }
 
@@ -822,36 +1138,107 @@ public class NetworkFragment extends Fragment {
 
         String hitIconId = findDeviceAt(c[0], c[1]);
         if (hitIconId == null) return;
-        if (!isProvisioned(hitIconId)) return;
 
         DeviceInfo device = deviceMap.get(hitIconId);
         if (device == null) return;
+
+        boolean isProvisioned = isProvisioned(hitIconId);
+        boolean isManual = device.element.hasAttribute("data-manual")
+                || device.element.hasAttribute("data-manual-added")
+                || hitIconId.startsWith("manual_")
+                || hitIconId.contains("new_device");
+
+        Log.d(TAG, "handleSvgLongPress: id=" + hitIconId + " isManual=" + isManual + " isProvisioned=" + isProvisioned);
 
         // ── Haptic feedback ───────────────────────────────────────────────
         binding.svgView.performHapticFeedback(
                 android.view.HapticFeedbackConstants.LONG_PRESS);
 
-        // ── Proxy connection check ────────────────────────────────────────
-        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
-                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+        List<String> options = new java.util.ArrayList<>();
+        if (isProvisioned) options.add("Reset Node");
+        if (isManual) options.add("Delete from Map");
+        options.add("Cancel");
 
-        if (!isConnected) {
-            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                    .setTitle("Not Connected")
-                    .setMessage("Please connect to a proxy node before resetting the device.")
-                    .setPositiveButton("OK", null)
-                    .show();
-            return;
-        }
+        if (options.size() <= 1) return; // Only Cancel
 
-        // ── Reset dialog ──────────────────────────────────────────────────
-        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-                .setTitle("Device Options")
-                .setMessage("Do you want to reset this device?")
-                .setPositiveButton("Reset Node", (dialog, which) ->
-                        openNodeConfigForReset(hitIconId, device))
-                .setNegativeButton("Cancel", null)
+        new MaterialAlertDialogBuilder(requireContext())
+                .setTitle(extractPureDeviceName(hitIconId))
+                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+                    String choice = options.get(which);
+                    if ("Reset Node".equals(choice)) {
+                        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
+                                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+                        if (!isConnected) {
+                            Toast.makeText(requireContext(), "Connect to proxy first", Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        openNodeConfigForReset(hitIconId, device);
+                    } else if ("Delete from Map".equals(choice)) {
+                        if (isProvisioned) {
+                            Toast.makeText(requireContext(), "Cannot delete provisioned device", Toast.LENGTH_SHORT).show();
+                        } else {
+                            deleteDeviceFromSvg(hitIconId);
+                        }
+                    }
+                })
                 .show();
+    }
+
+    private void deleteDeviceFromSvg(String iconId) {
+        if (svgDocument == null) return;
+        try {
+            Element root = svgDocument.getDocumentElement();
+
+            // 1. Find and remove Icon
+            DeviceInfo info = deviceMap.get(iconId);
+            if (info != null && info.element != null) {
+                Node parent = info.element.getParentNode();
+                if (parent != null) parent.removeChild(info.element);
+            }
+
+            // 2. Find and remove Physical Device
+            Set<String> physicalIds = iconToDeviceRelations.get(iconId);
+            if (physicalIds != null) {
+                Element devGroup = svgParser.findElementById(root, "Devices");
+                for (String pid : physicalIds) {
+                    Element pEl = svgParser.findElementById(devGroup, pid);
+                    if (pEl != null) {
+                        Node pParent = pEl.getParentNode();
+                        if (pParent != null) pParent.removeChild(pEl);
+                    }
+                }
+            }
+
+            // 3. Update Relation group
+            Element relationGroup = svgParser.findElementById(root, "Relation");
+            if (relationGroup != null) {
+                String text = relationGroup.getTextContent();
+                // Regex to find (iconId : category | physId) or (iconId | physId)
+                String pattern = "\\s*\\(\\s*" + Pattern.quote(iconId) + "\\s*\\|[^)]+\\)";
+                String newText = text.replaceAll(pattern, "");
+                relationGroup.setTextContent(newText);
+            }
+
+            // 4. Save and Refresh
+            saveSvgToInternal();
+
+            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
+            deviceMap.clear();
+            deviceMap.putAll(newDevices);
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+            iconToDeviceRelations.clear();
+            iconToDeviceRelations.putAll(newRelations);
+
+            colorManager.init(svgDocument, svgParser, deviceMap);
+            refreshColors();
+            reRenderSvg();
+
+            Toast.makeText(requireContext(), "Device deleted", Toast.LENGTH_SHORT).show();
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error deleting device", e);
+            Toast.makeText(requireContext(), "Failed to delete device", Toast.LENGTH_SHORT).show();
+        }
     }
     private void openNodeConfigForReset(String deviceId, DeviceInfo device) {
         SharedPreferences prefs = requireContext()
@@ -874,6 +1261,8 @@ public class NetworkFragment extends Fragment {
     }
 
     private boolean handleTouch(View v, MotionEvent event) {
+        if (mIsAddDeviceMode) return false; // Let draggableIcon handle it or ignore map touches
+
         if (velocityTracker == null) velocityTracker = VelocityTracker.obtain();
         velocityTracker.addMovement(event);
         gestureDetector.onTouchEvent(event);

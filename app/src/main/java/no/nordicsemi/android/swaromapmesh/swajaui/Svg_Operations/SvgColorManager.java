@@ -20,6 +20,7 @@ public class SvgColorManager {
     // ── Icon color constants ──────────────────────────────────────────────
     public static final String COLOR_SELECTED      = "#ff0000";
     public static final String COLOR_DEVICE_ACTIVE = "#ffbb00";
+    public static final String COLOR_INACTIVE_GRAY = "#808080";
     public static final String COLOR_TRANSPARENT   = "transparent";
 
     private final Map<Integer, Boolean> devicesOriginalFillInStyle = new HashMap<>();
@@ -293,7 +294,7 @@ public class SvgColorManager {
     //  DEVICE GROUP (physical Devices layer)
     // ══════════════════════════════════════════════════════════════════════
 
-    public void showOnlyPhysicalDevices(Set<String> activeDeviceIds) {
+    public void showOnlyPhysicalDevices(Set<String> activeDeviceIds, Set<String> addressedIds) {
         if (svgDocument == null) return;
         Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
         if (dg == null) return;
@@ -302,7 +303,13 @@ public class SvgColorManager {
             Element deviceEl = parser.findElementById(dg, deviceId);
             if (deviceEl != null) {
                 restoreIconGroupColor(deviceEl); // Remove display:none if it was hidden as an icon
-                restoreOriginalFillRecursive(deviceEl);
+
+                // If it's a lighting node ("_s_") and has no saved address, show as gray
+                if (deviceId.contains("_s_") && !addressedIds.contains(deviceId)) {
+                    applyColorToAllElements(deviceEl, COLOR_INACTIVE_GRAY);
+                } else {
+                    restoreOriginalFillRecursive(deviceEl);
+                }
             }
         }
     }
@@ -340,6 +347,7 @@ public class SvgColorManager {
 
     public void refreshAllColors(Map<String, DeviceInfo> deviceMap,
                                  Set<String> provisionedIds,
+                                 Set<String> addressedIds,
                                  String selectedDeviceId,
                                  Map<String, Set<String>> iconToDeviceRelations,
                                  String areaFilterId) {
@@ -378,7 +386,7 @@ public class SvgColorManager {
         if (devicesToShow.isEmpty()) {
             hideAllPhysicalDevices();
         } else {
-            showOnlyPhysicalDevices(devicesToShow);
+            showOnlyPhysicalDevices(devicesToShow, addressedIds);
         }
     }
     // ══════════════════════════════════════════════════════════════════════
