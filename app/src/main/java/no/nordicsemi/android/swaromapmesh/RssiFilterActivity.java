@@ -25,8 +25,10 @@ public class RssiFilterActivity extends AppCompatActivity {
     private RadioGroup rgSignalStrength;
     private Button btnApply, btnReset;
 
-    // ── DEFAULT changed to SIGNAL_VERY_CLOSE ──────────────────────────────
-    private int selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
+    // TODO: SIGNAL_VERY_CLOSE / SIGNAL_50 logic temporarily disabled —
+    // DevicesAdapter doesn't define these constants yet. Falling back to
+    // SIGNAL_DEFAULT until final threshold values are decided.
+    private int selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -46,12 +48,14 @@ public class RssiFilterActivity extends AppCompatActivity {
         setInitialSelection(selectedSignal);
 
         rgSignalStrength.setOnCheckedChangeListener((group, checkedId) -> {
-            if (checkedId == R.id.rbSignalVeryClose)
-                selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
-            else if (checkedId == R.id.rbSignal100)
+            // TODO: re-enable once SIGNAL_VERY_CLOSE / SIGNAL_50 exist in DevicesAdapter
+            // if (checkedId == R.id.rbSignalVeryClose)
+            //     selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
+            // else
+            if (checkedId == R.id.rbSignal100)
                 selectedSignal = DevicesAdapter.SIGNAL_100;
-            else if (checkedId == R.id.rbSignal50)
-                selectedSignal = DevicesAdapter.SIGNAL_50;
+                // else if (checkedId == R.id.rbSignal50)
+                //     selectedSignal = DevicesAdapter.SIGNAL_50;
             else if (checkedId == R.id.rbSignal20)
                 selectedSignal = DevicesAdapter.SIGNAL_20;
             else
@@ -63,21 +67,24 @@ public class RssiFilterActivity extends AppCompatActivity {
             finish();
         });
 
-        // ── Reset now restores to SIGNAL_VERY_CLOSE, not SIGNAL_DEFAULT ───
         btnReset.setOnClickListener(v -> {
-            selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
+            // TODO: was incorrectly resetting to SIGNAL_VERY_CLOSE — restored
+            // to SIGNAL_DEFAULT (no filter) until intended Reset behavior is confirmed.
+            selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
             mSharedViewModel.setSignalThreshold(selectedSignal);
             setInitialSelection(selectedSignal);
         });
     }
 
     private void setInitialSelection(int value) {
-        if (value == DevicesAdapter.SIGNAL_VERY_CLOSE)
-            rgSignalStrength.check(R.id.rbSignalVeryClose);
-        else if (value == DevicesAdapter.SIGNAL_100)
+        // TODO: re-enable once SIGNAL_VERY_CLOSE / SIGNAL_50 exist in DevicesAdapter
+        // if (value == DevicesAdapter.SIGNAL_VERY_CLOSE)
+        //     rgSignalStrength.check(R.id.rbSignalVeryClose);
+        // else
+        if (value == DevicesAdapter.SIGNAL_100)
             rgSignalStrength.check(R.id.rbSignal100);
-        else if (value == DevicesAdapter.SIGNAL_50)
-            rgSignalStrength.check(R.id.rbSignal50);
+            // else if (value == DevicesAdapter.SIGNAL_50)
+            //     rgSignalStrength.check(R.id.rbSignal50);
         else if (value == DevicesAdapter.SIGNAL_20)
             rgSignalStrength.check(R.id.rbSignal20);
         else
