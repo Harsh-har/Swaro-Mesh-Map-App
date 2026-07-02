@@ -55,11 +55,22 @@ public class ScannerActivity extends AppCompatActivity implements
     private static final long   AUTO_CONNECT_AFTER_PROVISIONING_DELAY = 2000;
 
     // ── Multi-device Identify timing ────────────────────────────────────────
-    private static final long IDENTIFY_ATTENTION_DURATION_MS =
-            (NrfMeshRepository.getAttentionTimerSeconds() + 1) * 1000L; // +1s buffer
-    private static final long IDENTIFY_CONNECT_TIMEOUT_MS = 8000;
-    private static final long IDENTIFY_POLL_INTERVAL_MS   = 300;
-    private static final long IDENTIFY_NEXT_DELAY_MS      = 500;
+    // identifyNode() sends the BLE-Mesh Provisioning INVITE PDU — valid only
+    // once per provisioning session (the device advances its internal state
+    // machine as soon as it replies with Capabilities). Re-sending Invite on
+    // an already-open link is silently ignored by the device firmware, even
+    // though the GATT write itself succeeds — so identify cannot be sped up
+    // by keeping the connection alive. Every identify needs a fresh
+    // disconnect + reconnect (i.e. a new provisioning session) to blink again.
+    private static final long IDENTIFY_PDU_SEND_BUFFER_MS          = 300;
+    private static final long IDENTIFY_CONNECT_TIMEOUT_MS          = 8000;
+    private static final long IDENTIFY_POLL_INTERVAL_MS            = 200;
+    // Poll until the BLE stack actually confirms disconnection (instead of a
+    // fixed delay) before starting the next identify — avoids a new connect()
+    // racing an in-flight disconnect(), which was the main source of
+    // unpredictable slowness.
+    private static final long IDENTIFY_DISCONNECT_POLL_INTERVAL_MS = 100;
+    private static final long IDENTIFY_DISCONNECT_TIMEOUT_MS       = 1500;
 
     private ActivityScannerBinding binding;
     private ScannerViewModel       mViewModel;
@@ -91,9 +102,10 @@ public class ScannerActivity extends AppCompatActivity implements
 
     // ── Multi-device Identify state ─────────────────────────────────────────
     private final LinkedList<ExtendedBluetoothDevice> mIdentifyQueue = new LinkedList<>();
-    private boolean                 mIdentifyInProgress   = false;
-    private ExtendedBluetoothDevice mIdentifyingDevice    = null;
-    private long                    mIdentifyConnectStart = 0L;
+    private boolean                 mIdentifyInProgress      = false;
+    private ExtendedBluetoothDevice mIdentifyingDevice       = null;
+    private long                    mIdentifyConnectStart    = 0L;
+    private long                    mIdentifyDisconnectStart = 0L;
     private Handler                 mIdentifyHandler;
 
     // -----------------------------------------------------------------------
@@ -314,7 +326,6 @@ public class ScannerActivity extends AppCompatActivity implements
         mSharedViewModel.getSignalThreshold().observe(this, threshold -> {
             mCurrentSignalFilter = threshold != null
                     ? threshold : DevicesAdapter.SIGNAL_DEFAULT;
-            // mViewModel.getScannerRepository().setRssiThreshold(mCurrentSignalFilter);
             Log.d(TAG, "Signal filter: " + mCurrentSignalFilter);
             applyFilterToAdapter();
         });
@@ -465,6 +476,10 @@ public class ScannerActivity extends AppCompatActivity implements
         mIdentifyHandler.postDelayed(mIdentifyPollRunnable, IDENTIFY_POLL_INTERVAL_MS);
     }
 
+    // Poll until device is ready, then send the Provisioning Invite (identify)
+    // PDU and move to a short send-buffer wait instead of the old full
+    // attention-timer wait — the device blinks locally on its own once it
+    // receives the Invite, we don't need to hold the link open for that.
     private final Runnable mIdentifyPollRunnable = new Runnable() {
         @Override
         public void run() {
@@ -474,7 +489,7 @@ public class ScannerActivity extends AppCompatActivity implements
                 Log.d(TAG, "Identify: device ready — sending identify PDU to "
                         + mIdentifyingDevice.getAddress());
                 mViewModel.getMeshRepository().identifyNode(mIdentifyingDevice);
-                mIdentifyHandler.postDelayed(mIdentifyFinishRunnable, IDENTIFY_ATTENTION_DURATION_MS);
+                mIdentifyHandler.postDelayed(mIdentifyFinishRunnable, IDENTIFY_PDU_SEND_BUFFER_MS);
                 return;
             }
 
@@ -507,13 +522,31 @@ public class ScannerActivity extends AppCompatActivity implements
         Log.d(TAG, "Identify finished. Next in queue: "
                 + (next != null ? next.getAddress() : "none"));
 
-        mIdentifyHandler.postDelayed(() -> {
-            if (next != null) {
-                startIdentify(next);
-            } else {
-                mViewModel.getScannerRepository().getScannerState().startScanning();
+        // Poll until the BLE stack actually confirms disconnection (instead
+        // of a fixed delay) before starting the next identify / rescanning —
+        // this avoids a new connect() racing an in-flight disconnect().
+        mIdentifyDisconnectStart = System.currentTimeMillis();
+        mIdentifyHandler.post(new Runnable() {
+            @Override
+            public void run() {
+                final boolean stillConnected = mViewModel.getBleMeshManager().isConnected();
+                final long elapsed = System.currentTimeMillis() - mIdentifyDisconnectStart;
+
+                if (!stillConnected || elapsed > IDENTIFY_DISCONNECT_TIMEOUT_MS) {
+                    if (elapsed > IDENTIFY_DISCONNECT_TIMEOUT_MS && stillConnected) {
+                        Log.w(TAG, "Identify: disconnect wait timed out — proceeding anyway");
+                    }
+                    if (next != null) {
+                        startIdentify(next);
+                    } else {
+                        mViewModel.getScannerRepository().getScannerState().startScanning();
+                    }
+                    return;
+                }
+
+                mIdentifyHandler.postDelayed(this, IDENTIFY_DISCONNECT_POLL_INTERVAL_MS);
             }
-        }, IDENTIFY_NEXT_DELAY_MS);
+        });
     }
 
     private Set<String> queuedIdentifyAddresses() {
