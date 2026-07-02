@@ -1,21 +1,30 @@
 package no.nordicsemi.android.swaromapmesh.ble.adapter;
 
+import android.graphics.drawable.Drawable;
 import android.text.TextUtils;
 import android.util.Log;
 import android.view.LayoutInflater;
+import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.lifecycle.LifecycleOwner;
 import androidx.recyclerview.widget.RecyclerView;
+
+import com.google.android.material.button.MaterialButton;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
@@ -39,8 +48,16 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     private final List<ExtendedBluetoothDevice> mDisplayedDevices;
 
     // Current active filters
-    private String mCurrentNameFilter     = "";
+    private String mCurrentNameFilter      = "";
     private int    mCurrentSignalThreshold = SIGNAL_DEFAULT;
+
+    // ── Multi-device Identify state ─────────────────────────────────────────
+    // Address of the device currently being identified (connected + blinking), or null.
+    private String mIdentifyingAddress = null;
+    // Addresses waiting in the identify queue (shown as "Queued" and disabled).
+    private final Set<String> mQueuedIdentifyAddresses = new HashSet<>();
+
+    private OnIdentifyClickListener mOnIdentifyClickListener;
 
     // Smoothed RSSI per device address (exponential moving average).
     // Raw BLE RSSI readings fluctuate by ±10-15 dBm between consecutive scans
@@ -119,6 +136,43 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
      */
     public void applySignalFilter(int signalThreshold) {
         applyFilters(mCurrentNameFilter, signalThreshold);
+    }
+
+    // -------------------------------------------------------------------------
+    // Multi-device Identify API
+    // -------------------------------------------------------------------------
+
+    @FunctionalInterface
+    public interface OnIdentifyClickListener {
+        void onIdentifyClick(final ExtendedBluetoothDevice device);
+    }
+
+    public void setOnIdentifyClickListener(@NonNull final OnIdentifyClickListener listener) {
+        mOnIdentifyClickListener = listener;
+    }
+
+    /**
+     * Marks a single device address as "currently identifying" (connected,
+     * blinking/vibrating). Pass null to clear. Triggers a rebind so the
+     * affected row(s) swap between the Identify button and the progress spinner.
+     *
+     * @param address address of the device being identified, or null if none.
+     */
+    public void setIdentifyingDevice(@Nullable final String address) {
+        mIdentifyingAddress = address;
+        notifyDataSetChanged();
+    }
+
+    /**
+     * Updates the set of addresses waiting in the identify queue. Queued rows
+     * show a disabled "Queued" button instead of the normal Identify action.
+     *
+     * @param addresses addresses currently queued for identify.
+     */
+    public void setQueuedIdentifyAddresses(@NonNull final Set<String> addresses) {
+        mQueuedIdentifyAddresses.clear();
+        mQueuedIdentifyAddresses.addAll(addresses);
+        notifyDataSetChanged();
     }
 
     // -------------------------------------------------------------------------
@@ -232,12 +286,30 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
         // Without mutate(), Android shares one ConstantState across every
         // ImageView pointing at @drawable/ic_signal_bar, so setImageLevel()
         // on a recycled row can silently fail to redraw the correct icon.
-        final android.graphics.drawable.Drawable rssiDrawable =
-                androidx.core.content.ContextCompat
-                        .getDrawable(holder.rssi.getContext(), R.drawable.ic_signal_bar)
+        final Drawable rssiDrawable =
+                ContextCompat.getDrawable(holder.rssi.getContext(), R.drawable.ic_signal_bar)
                         .mutate();
         holder.rssi.setImageDrawable(rssiDrawable);
         holder.rssi.setImageLevel(rssiPercent);
+
+        // ── Multi-device Identify row state ─────────────────────────────────
+        final String  address       = device.getAddress();
+        final boolean isIdentifying = address != null
+                && address.equalsIgnoreCase(mIdentifyingAddress);
+        final boolean isQueued      = address != null
+                && mQueuedIdentifyAddresses.contains(address);
+
+        if (isIdentifying) {
+            holder.identifyButton.setVisibility(View.GONE);
+            holder.identifyProgress.setVisibility(View.VISIBLE);
+        } else {
+            holder.identifyProgress.setVisibility(View.GONE);
+            holder.identifyButton.setVisibility(View.VISIBLE);
+            holder.identifyButton.setEnabled(!isQueued);
+            holder.identifyButton.setText(isQueued
+                    ? R.string.identify_queued_action
+                    : R.string.identify_action);
+        }
     }
 
     @Override
@@ -260,21 +332,34 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     }
 
     final class ViewHolder extends RecyclerView.ViewHolder {
-        TextView  deviceAddress;
-        TextView  deviceName;
-        ImageView rssi;
+        TextView       deviceAddress;
+        TextView       deviceName;
+        ImageView      rssi;
+        MaterialButton identifyButton;
+        ProgressBar    identifyProgress;
 
         private ViewHolder(final @NonNull DeviceItemBinding binding) {
             super(binding.getRoot());
-            deviceAddress = binding.deviceAddress;
-            deviceName    = binding.deviceName;
-            rssi          = binding.rssi;
+            deviceAddress    = binding.deviceAddress;
+            deviceName       = binding.deviceName;
+            rssi             = binding.rssi;
+            identifyButton   = binding.actionIdentify;
+            identifyProgress = binding.identifyProgress;
 
             binding.deviceContainer.setOnClickListener(v -> {
                 if (mOnItemClickListener != null) {
                     int pos = getAdapterPosition();
                     if (pos > -1 && !mDisplayedDevices.isEmpty()) {
                         mOnItemClickListener.onItemClick(mDisplayedDevices.get(pos));
+                    }
+                }
+            });
+
+            identifyButton.setOnClickListener(v -> {
+                if (mOnIdentifyClickListener != null) {
+                    int pos = getAdapterPosition();
+                    if (pos > -1 && !mDisplayedDevices.isEmpty()) {
+                        mOnIdentifyClickListener.onIdentifyClick(mDisplayedDevices.get(pos));
                     }
                 }
             });

@@ -92,7 +92,14 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     private static final String TAG_BIND = "AUTO_BIND";
 
     private static final int ATTENTION_TIMER = 5;
-
+    /**
+     * Duration (seconds) the identify PDU keeps a device blinking/vibrating.
+     * Exposed so callers (e.g. ScannerActivity's multi-device identify queue)
+     * know how long to hold a connection open after sending it.
+     */
+    public static int getAttentionTimerSeconds() {
+        return ATTENTION_TIMER;
+    }
     private static final long BIND_TIMEOUT_MS = 4_000;
 
     // ── SIG Model IDs ─────────────────────────────────────────────────────────

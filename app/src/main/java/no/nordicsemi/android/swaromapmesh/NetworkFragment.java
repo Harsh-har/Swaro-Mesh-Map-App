@@ -77,7 +77,7 @@ public class NetworkFragment extends Fragment {
     private static final float MAX_ZOOM           = 25f;
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
     private static final float TOUCH_TOLERANCE_PX = 20f;
-    private static final float MIN_SVG_TOLERANCE  = 0.3f; // floor so high zoom doesn't make tap impossibly precise
+    private static final float MIN_SVG_TOLERANCE  = 0.3f; 
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
     private static final float TAP_MOVE_SLOP      = 10f;

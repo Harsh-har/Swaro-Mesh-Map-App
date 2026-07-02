@@ -76,6 +76,7 @@
 
     <string name="provision_action">Provision</string>
     <string name="identify_action">Identify</string>
+    <string name="identify_queued_action">Queued</string>
 
     <string name="ok">OK</string>
 

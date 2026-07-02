@@ -36,9 +36,15 @@
 //import org.w3c.dom.Node;
 //import org.w3c.dom.NodeList;
 //import java.io.File;
+//import java.io.FileOutputStream;
+//import java.io.IOException;
+//import java.io.OutputStream;
+//import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
+//import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+//import android.widget.EditText;
+//import android.widget.LinearLayout;
 //import java.io.InputStream;
 //import java.io.StringWriter;
-//import java.util.ArrayList;
 //import java.util.HashMap;
 //import java.util.HashSet;
 //import java.util.LinkedHashMap;
@@ -48,6 +54,7 @@
 //import java.util.concurrent.ExecutorService;
 //import java.util.concurrent.Executors;
 //import java.util.concurrent.Future;
+//import java.util.regex.Pattern;
 //import javax.xml.transform.Transformer;
 //import javax.xml.transform.TransformerFactory;
 //import javax.xml.transform.dom.DOMSource;
@@ -67,9 +74,11 @@
 //    private static final String TAG = "NetworkFragment";
 //
 //    // ── Zoom constants ────────────────────────────────────────────────────
-//    private static final float MAX_ZOOM           = 22f;
-//    private static final float DOUBLE_TAP_ZOOM    = 7f;
-//    private static final float TAP_TOLERANCE      = 8f;
+//    private static final float MAX_ZOOM           = 25f;
+//    private static final float DOUBLE_TAP_ZOOM    = 2.5f;
+//    private static final float TOUCH_TOLERANCE_PX = 20f;  // comfortable fingertip radius, in screen px
+//    private static final float MIN_SVG_TOLERANCE  = 0.3f; // floor so high zoom doesn't make tap impossibly precise
+//    private static final float TAP_TOLERANCE      = 2f;
 //    private static final long  ANIMATION_DURATION = 280L;
 //    private static final int   FLING_DURATION     = 2000;
 //    private static final float TAP_MOVE_SLOP      = 10f;
@@ -132,6 +141,10 @@
 //    // When true, fling is suppressed so pinch-lift never jerks the map.
 //    private boolean wasMultiTouch = false;
 //
+//    private boolean mIsAddDeviceMode = false;
+//    private String mSelectedCategory = "Control Node";
+//    private float mNewDeviceX, mNewDeviceY;
+//
 //    // ══════════════════════════════════════════════════════════════════════
 //    //  LIFECYCLE
 //    // ══════════════════════════════════════════════════════════════════════
@@ -144,9 +157,287 @@
 //        binding    = FragmentNetworkBinding.inflate(inflater, container, false);
 //        mViewModel = new ViewModelProvider(requireActivity()).get(SharedViewModel.class);
 //        setupZoomAndPan();
+//        setupAddDeviceLogic();
 //        observeViewModel();
-//        loadSvgFromAssets("lalitesh.svg");
+//        loadInitialSvg();
 //        return binding.getRoot();
+//    }
+//
+//    private void loadInitialSvg() {
+//        File internalSvg = new File(requireContext().getFilesDir(), "modified_map.svg");
+//        if (internalSvg.exists()) {
+//            loadSvgFromUri(Uri.fromFile(internalSvg));
+//        } else {
+//            loadSvgFromAssets("lalitesh.svg");
+//        }
+//    }
+//
+//    private void setupAddDeviceLogic() {
+//        binding.fabAddDevice.setOnClickListener(v -> showCategorySelectionDialog());
+//        binding.btnCancelAdd.setOnClickListener(v -> exitAddDeviceMode());
+//        binding.btnSaveDevice.setOnClickListener(v -> showDeviceInfoDialog());
+//
+//        binding.draggableIcon.setOnTouchListener((v, event) -> {
+//            if (event.getAction() == MotionEvent.ACTION_MOVE) {
+//                v.setX(event.getRawX() - v.getWidth() / 2f);
+//                v.setY(event.getRawY() - v.getHeight() / 2f);
+//            } else if (event.getAction() == MotionEvent.ACTION_UP) {
+//                v.performClick();
+//            }
+//            return true;
+//        });
+//    }
+//
+//    private void showCategorySelectionDialog() {
+//        String[] categories = {"Control Node", "Strip Node", "LC Node", "AC Node", "Relay Node", "Fan Node", "Switch Plate", "Manual Entry..."};
+//        new MaterialAlertDialogBuilder(requireContext())
+//                .setTitle("Select Device Category")
+//                .setItems(categories, (dialog, which) -> {
+//                    if (which == categories.length - 1) {
+//                        showManualCategoryDialog();
+//                    } else {
+//                        mSelectedCategory = categories[which];
+//                        enterAddDeviceMode();
+//                    }
+//                })
+//                .show();
+//    }
+//
+//    private void showManualCategoryDialog() {
+//        final EditText input = new EditText(requireContext());
+//        input.setHint("Category Name ");
+//        new MaterialAlertDialogBuilder(requireContext())
+//                .setTitle("Enter Category")
+//                .setView(input)
+//                .setPositiveButton("OK", (dialog, which) -> {
+//                    String cat = input.getText().toString().trim();
+//                    if (!cat.isEmpty()) {
+//                        mSelectedCategory = cat;
+//                        enterAddDeviceMode();
+//                    }
+//                })
+//                .setNegativeButton("Cancel", null)
+//                .show();
+//    }
+//
+//    private void enterAddDeviceMode() {
+//        mIsAddDeviceMode = true;
+//        binding.addDeviceToolbar.setVisibility(View.VISIBLE);
+//        binding.draggableIcon.setVisibility(View.VISIBLE);
+//        binding.fabAddDevice.setVisibility(View.GONE);
+//
+//        // Center the icon after layout pass
+//        binding.draggableIcon.post(() -> {
+//            if (binding == null) return;
+//            float viewWidth = binding.container.getWidth();
+//            float viewHeight = binding.container.getHeight();
+//            if (viewWidth > 0 && viewHeight > 0) {
+//                binding.draggableIcon.setX(viewWidth / 2f - binding.draggableIcon.getWidth() / 2f);
+//                binding.draggableIcon.setY(viewHeight / 2f - binding.draggableIcon.getHeight() / 2f);
+//            }
+//        });
+//    }
+//
+//    private void exitAddDeviceMode() {
+//        mIsAddDeviceMode = false;
+//        binding.addDeviceToolbar.setVisibility(View.GONE);
+//        binding.draggableIcon.setVisibility(View.GONE);
+//        binding.fabAddDevice.setVisibility(View.VISIBLE);
+//    }
+//
+//    private void showDeviceInfoDialog() {
+//        LinearLayout layout = new LinearLayout(requireContext());
+//        layout.setOrientation(LinearLayout.VERTICAL);
+//        layout.setPadding(40, 20, 40, 20);
+//
+//        final EditText nameInput = new EditText(requireContext());
+//        nameInput.setHint("Device Name ()");
+//        layout.addView(nameInput);
+//
+//        final EditText elementIdInput = new EditText(requireContext());
+//        elementIdInput.setHint("Element ID (Integer)");
+//        elementIdInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+//        layout.addView(elementIdInput);
+//
+//        final EditText receiveIdInput = new EditText(requireContext());
+//        receiveIdInput.setHint("Receive ID (Integer)");
+//        layout.addView(receiveIdInput);
+//
+//        new MaterialAlertDialogBuilder(requireContext())
+//                .setTitle("Enter Device Info")
+//                .setView(layout)
+//                .setPositiveButton("Save", (dialog, which) -> {
+//                    String name = nameInput.getText().toString().trim();
+//                    String eid = elementIdInput.getText().toString().trim();
+//                    String rid = receiveIdInput.getText().toString().trim();
+//
+//                    if (name.isEmpty() || eid.isEmpty()) {
+//                        Toast.makeText(requireContext(), "Name and Element ID are required", Toast.LENGTH_SHORT).show();
+//                        return;
+//                    }
+//
+//                    // Convert screen position of draggableIcon center to SVG coordinates
+//                    float centerX = binding.draggableIcon.getX() + binding.draggableIcon.getWidth() / 2f;
+//                    float centerY = binding.draggableIcon.getY() + binding.draggableIcon.getHeight() / 2f;
+//                    float[] svgCoords = touchToSvgCoords(centerX, centerY);
+//
+//                    addNewDeviceToSvg(mSelectedCategory, name, eid, rid, svgCoords[0], svgCoords[1]);
+//                    exitAddDeviceMode();
+//                })
+//                .setNegativeButton("Cancel", null)
+//                .show();
+//    }
+//
+//    private void addNewDeviceToSvg(String category, String name, String eid, String rid, float x, float y) {
+//        if (svgDocument == null) return;
+//
+//        try {
+//            Element root = svgDocument.getDocumentElement();
+//
+//            // 1. Determine the correct Area ID
+//            String areaId = currentFocusAreaId;
+//            if (areaId == null) {
+//                // Try to find area by spatial check if not focused
+//                for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+//                    if (entry.getValue().contains(x, y)) {
+//                        areaId = entry.getKey();
+//                        break;
+//                    }
+//                }
+//            }
+//            if (areaId == null) areaId = "AddedDevices";
+//
+//            // 2. Generate unique Device ID
+//            String deviceId = "manual_" + name.replace(" ", "_").replace(":", "_") + "_" + System.currentTimeMillis();
+//            String fullId = deviceId + ":" + category;
+//
+//            // 3. Add to Icons group
+//            Element iconsGroup = svgParser.findElementById(root, "Icons");
+//            if (iconsGroup == null) {
+//                iconsGroup = svgDocument.createElement("g");
+//                iconsGroup.setAttribute("id", "Icons");
+//                root.appendChild(iconsGroup);
+//            }
+//
+//            // Find or create the area-specific group inside Icons
+//            Element areaGroup = svgParser.findElementById(iconsGroup, areaId);
+//            if (areaGroup == null) {
+//                areaGroup = svgParser.findElementFuzzy(iconsGroup, areaId);
+//            }
+//            if (areaGroup == null) {
+//                areaGroup = svgDocument.createElement("g");
+//                areaGroup.setAttribute("id", areaId);
+//                iconsGroup.appendChild(areaGroup);
+//            }
+//
+//            Element iconEl = svgDocument.createElement("g");
+//            iconEl.setAttribute("id", deviceId + ":" + category);
+//            iconEl.setAttribute("data-manual", "true");
+//            iconEl.setAttribute("data-manual-added", "true"); // Backup attribute
+//            iconEl.setAttribute("transform", "translate(" + (x - svgParser.vbX) + " " + (y - svgParser.vbY) + ")");
+//
+//            Element metadata = svgDocument.createElement("metadata");
+//            Element eidNode = svgDocument.createElement("elementId");
+//            eidNode.setTextContent(eid);
+//            metadata.appendChild(eidNode);
+//            if (!rid.isEmpty()) {
+//                Element ridNode = svgDocument.createElement("reciveId");
+//                ridNode.setTextContent(rid);
+//                metadata.appendChild(ridNode);
+//            }
+//            iconEl.appendChild(metadata);
+//
+//            // Simple visual for icon: a square
+//            Element rect = svgDocument.createElement("rect");
+//            rect.setAttribute("width", "10");
+//            rect.setAttribute("height", "10");
+//            rect.setAttribute("x", "-5");
+//            rect.setAttribute("y", "-5");
+//            rect.setAttribute("fill", "#ffae42");
+//            rect.setAttribute("stroke", "#000");
+//            rect.setAttribute("stroke-width", "0.5");
+//            iconEl.appendChild(rect);
+//
+//            areaGroup.appendChild(iconEl);
+//
+//            // 4. Add to Devices group
+//            Element devicesGroup = svgParser.findElementById(root, "Devices");
+//            if (devicesGroup == null) {
+//                devicesGroup = svgDocument.createElement("g");
+//                devicesGroup.setAttribute("id", "Devices");
+//                root.appendChild(devicesGroup);
+//            }
+//
+//            Element devAreaGroup = svgParser.findElementById(devicesGroup, areaId);
+//            if (devAreaGroup == null) {
+//                NodeList devChildren = devicesGroup.getChildNodes();
+//                for (int i = 0; i < devChildren.getLength(); i++) {
+//                    if (devChildren.item(i) instanceof Element) {
+//                        devAreaGroup = (Element) devChildren.item(i);
+//                        break;
+//                    }
+//                }
+//            }
+//            if (devAreaGroup == null) {
+//                devAreaGroup = svgDocument.createElement("g");
+//                devAreaGroup.setAttribute("id", areaId + "_Dev");
+//                devicesGroup.appendChild(devAreaGroup);
+//            }
+//
+//            String physicalId = deviceId + "_phys";
+//            Element physEl = svgDocument.createElement("circle");
+//            physEl.setAttribute("id", physicalId);
+//            physEl.setAttribute("cx", String.valueOf(x));
+//            physEl.setAttribute("cy", String.valueOf(y));
+//            physEl.setAttribute("r", "3");
+//            physEl.setAttribute("style", "fill:#b3b3b3;");
+//            devAreaGroup.appendChild(physEl);
+//
+//            // 5. Add to Relation
+//            Element relationGroup = svgParser.findElementById(root, "Relation");
+//            if (relationGroup == null) {
+//                relationGroup = svgDocument.createElement("g");
+//                relationGroup.setAttribute("id", "Relation");
+//                root.appendChild(relationGroup);
+//            }
+//            String currentRelations = relationGroup.getTextContent();
+//            String newRelation = "\n        (" + deviceId + ":" + category + " | " + physicalId + ")";
+//            relationGroup.setTextContent(currentRelations + newRelation);
+//
+//            // 6. Save to Internal Storage
+//            saveSvgToInternal();
+//
+//            // 7. Update local state and re-render
+//            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
+//            deviceMap.clear();
+//            deviceMap.putAll(newDevices);
+//            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+//            iconToDeviceRelations.clear();
+//            iconToDeviceRelations.putAll(newRelations);
+//
+//            colorManager.init(svgDocument, svgParser, deviceMap);
+//            refreshColors();
+//            reRenderSvg();
+//
+//            Toast.makeText(requireContext(), "Device added to " + areaId, Toast.LENGTH_SHORT).show();
+//
+//        } catch (Exception e) {
+//            Log.e(TAG, "Error adding new device", e);
+//            Toast.makeText(requireContext(), "Failed to add device", Toast.LENGTH_SHORT).show();
+//        }
+//    }
+//
+//    private void saveSvgToInternal() {
+//        try {
+//            File file = new File(requireContext().getFilesDir(), "modified_map.svg");
+//            OutputStream os = new FileOutputStream(file);
+//            Transformer t = TransformerFactory.newInstance().newTransformer();
+//            t.transform(new DOMSource(svgDocument), new StreamResult(os));
+//            os.close();
+//            Log.d(TAG, "SVG saved to " + file.getAbsolutePath());
+//        } catch (Exception e) {
+//            Log.e(TAG, "Error saving SVG", e);
+//        }
 //    }
 //
 //    private void observeViewModel() {
@@ -285,7 +576,7 @@
 //        loadExecutor.execute(() -> {
 //            try {
 //                String[] assets = requireContext().getAssets().list("");
-//                boolean  found  = false;
+//                boolean found = false;
 //                if (assets != null)
 //                    for (String a : assets)
 //                        if (a.equals(assetFileName)) { found = true; break; }
@@ -360,6 +651,94 @@
 //        });
 //    }
 //
+//    private void debugDrawTolerance() {
+//        if (svgDocument == null) return;
+//        try {
+//            Element root = svgDocument.getDocumentElement();
+//            Node devicesGroup = svgParser.findElementById(root, "Devices");
+//
+//            Element debugGroup = svgDocument.createElement("g");
+//            debugGroup.setAttribute("id", "debug_tolerance_layer");
+//
+//            // Accurate shapes for ALL physical devices in "Devices" group (Purple)
+//            if (devicesGroup instanceof Element) {
+//                addPhysicalDevicesToDebug((Element) devicesGroup, debugGroup);
+//            }
+//
+//            if (devicesGroup != null) {
+//                root.insertBefore(debugGroup, devicesGroup);
+//            } else {
+//                root.appendChild(debugGroup);
+//            }
+//        } catch (Exception e) {
+//            Log.e(TAG, "Error drawing debug tolerance", e);
+//        }
+//    }
+//
+//    private void addPhysicalDevicesToDebug(Element parent, Element debugGroup) {
+//        NodeList children = parent.getChildNodes();
+//        for (int i = 0; i < children.getLength(); i++) {
+//            Node node = children.item(i);
+//            if (!(node instanceof Element)) continue;
+//            Element el = (Element) node;
+//
+//            String id = el.getAttribute("id");
+//            String tag = el.getTagName().toLowerCase().replace("svg:", "");
+//
+//            // If it's a leaf group or a direct drawable element with an ID, add it
+//            if (!id.isEmpty() && (!"g".equals(tag) || !hasDirectGChild(el))) {
+//                Element clone = (Element) el.cloneNode(true);
+//                clone.setAttribute("pointer-events", "none");
+//                applyDebugAppearance(clone, "#E040FB"); // Purple for physical devices
+//                debugGroup.appendChild(clone);
+//            } else if ("g".equals(tag)) {
+//                // Keep searching for leaves
+//                addPhysicalDevicesToDebug(el, debugGroup);
+//            }
+//        }
+//    }
+//
+//    private boolean hasDirectGChild(Element el) {
+//        NodeList children = el.getChildNodes();
+//        for (int i = 0; i < children.getLength(); i++) {
+//            Node c = children.item(i);
+//            if (c instanceof Element && "g".equals(((Element) c).getTagName().toLowerCase().replace("svg:", ""))) {
+//                return true;
+//            }
+//        }
+//        return false;
+//    }
+//
+//    private void applyDebugAppearance(Element el, String color) {
+//        el.removeAttribute("style");
+//        el.removeAttribute("display");
+//        el.setAttribute("fill", "none");
+//        el.setAttribute("stroke", color);
+//        el.setAttribute("stroke-width", "0.2"); // Even thinner for accurate shape
+//        el.setAttribute("stroke-dasharray", "1,1");
+//
+//        NodeList children = el.getChildNodes();
+//        for (int i = 0; i < children.getLength(); i++) {
+//            if (children.item(i) instanceof Element) {
+//                applyDebugAppearance((Element) children.item(i), color);
+//            }
+//        }
+//    }
+//
+//    private void addDebugRect(Element parent, RectF rect, String color) {
+//        Element r = svgDocument.createElement("rect");
+//        r.setAttribute("x", String.valueOf(rect.left));
+//        r.setAttribute("y", String.valueOf(rect.top));
+//        r.setAttribute("width", String.valueOf(rect.width()));
+//        r.setAttribute("height", String.valueOf(rect.height()));
+//        r.setAttribute("fill", "none"); // Remove fill to avoid "collaboration" mess
+//        r.setAttribute("stroke", color);
+//        r.setAttribute("stroke-width", "0.5");
+//        r.setAttribute("stroke-dasharray", "2,1"); // Dashed line for better visibility
+//        r.setAttribute("pointer-events", "none");
+//        parent.appendChild(r);
+//    }
+//
 //    private void onSvgLoaded(SVG svg, Document document,
 //                             Map<String, DeviceInfo>  devices,
 //                             Map<String, Set<String>> relations) {
@@ -371,6 +750,7 @@
 //        iconToDeviceRelations.putAll(relations);
 //
 //        colorManager.init(document, svgParser, deviceMap);
+//        //  debugDrawTolerance(); // Show tolerance areas for debugging
 //        refreshColors();
 //        renderSvg(svg, true);
 //        showLoading(false);
@@ -384,10 +764,27 @@
 //        colorManager.refreshAllColors(
 //                deviceMap,
 //                getProvisionedSet(),
+//                getAddressedSet(),
 //                selectedDeviceId,
 //                iconToDeviceRelations,
 //                currentFocusAreaId
 //        );
+//    }
+//
+//    private Set<String> getAddressedSet() {
+//        Set<String> addressed = new HashSet<>();
+//        SharedPreferences prefs = requireContext().getSharedPreferences("device_address_prefs", Context.MODE_PRIVATE);
+//        Map<String, ?> all = prefs.getAll();
+//        for (String key : all.keySet()) {
+//            if (key.startsWith("address_")) {
+//                String val = String.valueOf(all.get(key));
+//                if (val != null && !val.isEmpty()) {
+//                    // key is "address_device_id", we need "device_id"
+//                    addressed.add(key.substring("address_".length()));
+//                }
+//            }
+//        }
+//        return addressed;
 //    }
 //
 //    // ══════════════════════════════════════════════════════════════════════
@@ -399,43 +796,17 @@
 //        if (areaBounds == null) {
 //            List<String> iconIds = svgParser.areaMap.get(areaId);
 //            if (iconIds == null || iconIds.isEmpty()) return;
-//
-//            // ── Step 1: Collect only "point-like" icon bounds (actual placed icons) ──
-//            // Strip nodes, IRD, TKWD etc. have wrong cumulative bounds starting at (0,0)
-//            // Real icon bounds are small (width & height both < 20 SVG units)
-//            List<RectF> validBounds = new ArrayList<>();
 //            for (String iconId : iconIds) {
 //                DeviceInfo info = deviceMap.get(iconId);
-//                if (info == null || info.bounds == null) continue;
-//                RectF b = info.bounds;
-//                float w = b.width();
-//                float h = b.height();
-//                // Accept only small icon-sized bounds (not strip/wire bounds)
-//                if (w < 20f && h < 20f && b.left > 1f && b.top > 1f) {
-//                    validBounds.add(b);
+//                if (info != null && info.bounds != null) {
+//                    if (areaBounds == null) areaBounds = new RectF(info.bounds);
+//                    else areaBounds.union(info.bounds);
 //                }
 //            }
-//
-//            // ── Step 2: If no small icons found, fallback to selectionLayer or all bounds ──
-//            if (validBounds.isEmpty()) {
-//                for (String iconId : iconIds) {
-//                    DeviceInfo info = deviceMap.get(iconId);
-//                    if (info != null && info.bounds != null) {
-//                        if (areaBounds == null) areaBounds = new RectF(info.bounds);
-//                        else areaBounds.union(info.bounds);
-//                    }
-//                }
-//            } else {
-//                for (RectF b : validBounds) {
-//                    if (areaBounds == null) areaBounds = new RectF(b);
-//                    else areaBounds.union(b);
-//                }
-//            }
-//
 //            if (areaBounds == null) return;
 //        }
 //
-//        Log.d(TAG, "zoomToArea '" + areaId + "' → FILTERED bounds=" + areaBounds);
+//        Log.d(TAG, "zoomToArea '" + areaId + "' → " + areaBounds);
 //        currentFocusAreaId = areaId;
 //
 //        colorManager.dimOtherAreas(
@@ -456,22 +827,23 @@
 //                    mainHandler.postDelayed(() -> zoomToArea(areaId), 150);
 //                    return;
 //                }
-//
-//                float padding     = 20f;
+//                float padding     = 8f;
 //                RectF padded      = new RectF(finalBounds);
 //                padded.inset(-padding, -padding);
 //
-//                float targetScale = Math.min(MAX_ZOOM, vW / padded.width()); // fit to WIDTH only
+//                float scaleX      = vW / padded.width();
+//                float scaleY      = vH / padded.height();
+//                float targetScale = Math.min(MAX_ZOOM,
+//                        Math.max(minZoom, Math.min(scaleX, scaleY)));
 //
 //                areaLockedId      = areaId;
 //                areaLockedMinZoom = targetScale;
 //
-//                float cx     = finalBounds.centerX() - svgParser.vbX;
-//                float cy     = finalBounds.centerY() - svgParser.vbY;
+//                float cx     = padded.centerX() - svgParser.vbX;
+//                float cy     = padded.centerY() - svgParser.vbY;
 //                float transX = vW / 2f - cx * targetScale;
 //                float transY = vH / 2f - cy * targetScale;
 //
-//                Log.d(TAG, "doZoom: scale=" + targetScale + " cx=" + cx + " cy=" + cy);
 //                animateToMatrix(targetScale, transX, transY);
 //            };
 //
@@ -481,6 +853,7 @@
 //                mainHandler.postDelayed(() -> binding.svgView.post(doZoom), 200);
 //        }, 300);
 //    }
+//
 //    private void exitAreaZoom() {
 //        areaLockedId      = null;
 //        areaLockedMinZoom = -1f;
@@ -517,13 +890,18 @@
 //
 //        RectF fp = getFloorPlanBounds();
 //        if (fp == null || fp.isEmpty()) {
+//            // ── FIX: use SVG viewBox dimensions, not drawable intrinsic size ──
 //            float svgW  = svgParser.vbW > 0 ? svgParser.vbW : binding.svgView.getDrawable().getIntrinsicWidth();
 //            float svgH  = svgParser.vbH > 0 ? svgParser.vbH : binding.svgView.getDrawable().getIntrinsicHeight();
-//            float scale = Math.min(vW / svgW, vH / svgH) * 1.5f;
-//            minZoom = Math.min(vW / svgW, vH / svgH); // Actual min zoom remains fit-to-view
+//            float scale = Math.min(vW / svgW, vH / svgH);
+//            minZoom = scale;
 //
+//            // FIX: The drawable already represents the viewBox, so its (0,0) is (vbX, vbY).
+//            // We only need to center the drawable within the view.
 //            float transX = (vW - svgW * scale) / 2f;
 //            float transY = (vH - svgH * scale) / 2f;
+//
+//            Log.d(TAG, "fitFloorPlanToView (NoBounds): vSize=" + vW + "x" + vH + " svgSize=" + svgW + "x" + svgH + " vb=" + svgParser.vbX + "," + svgParser.vbY + " scale=" + scale + " trans=" + transX + "," + transY);
 //
 //            if (animate) {
 //                animateToMatrix(scale, transX, transY);
@@ -537,16 +915,16 @@
 //            return;
 //        }
 //
-//        float padding = 5f;
+//        float padding = 16f;
 //        RectF padded  = new RectF(fp);
 //        padded.inset(-padding, -padding);
 //
-//        float scale  = Math.min(vW / padded.width(), vH / padded.height()) * 1.4f;
+//        float scale  = Math.min(vW / padded.width(), vH / padded.height());
 //        float cx     = padded.centerX() - svgParser.vbX;
 //        float cy     = padded.centerY() - svgParser.vbY;
 //        float transX = vW / 2f - cx * scale;
 //        float transY = vH / 2f - cy * scale;
-//        minZoom      = Math.min(vW / padded.width(), vH / padded.height());
+//        minZoom      = scale;
 //
 //        if (animate) animateToMatrix(scale, transX, transY);
 //        else {
@@ -560,14 +938,7 @@
 //
 //    private RectF getFloorPlanBounds() {
 //        if (floorPlanBounds != null) return floorPlanBounds;
-//
-//        if (svgParser.selectionLayerBounds.isEmpty()) {
-//            // Fallback: Use viewBox as the floor plan boundary if selection_layer is missing
-//            return new RectF(svgParser.vbX, svgParser.vbY,
-//                    svgParser.vbX + svgParser.vbW,
-//                    svgParser.vbY + svgParser.vbH);
-//        }
-//
+//        if (svgParser.selectionLayerBounds.isEmpty()) return null;
 //        RectF union = null;
 //        for (RectF r : svgParser.selectionLayerBounds.values()) {
 //            if (union == null) union = new RectF(r);
@@ -591,7 +962,10 @@
 //            binding.svgView.setImageDrawable(drawable);
 //            binding.svgView.setVisibility(View.VISIBLE);
 //            binding.svgPlaceholder.setVisibility(View.GONE);
-//            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+//            if (!mAutoSetupInProgress) {
+//                binding.progressBar.setVisibility(View.GONE);
+//                binding.fabAddDevice.setVisibility(View.VISIBLE);
+//            }
 //
 //            binding.svgView.post(() -> {
 //                fitFloorPlanToView(false);
@@ -630,8 +1004,7 @@
 //                mainHandler.post(() -> {
 //                    if (binding == null) return;
 //                    binding.svgView.setImageDrawable(drawable);
-//                    // Use the current matrix to avoid jumping if the user is currently panning
-//                    binding.svgView.setImageMatrix(matrix);
+//                    binding.svgView.setImageMatrix(frozenMatrix);
 //                    binding.svgView.invalidate();
 //                });
 //            } catch (Exception e) {
@@ -662,7 +1035,10 @@
 //        if (show) {
 //            binding.svgPlaceholder.setVisibility(View.VISIBLE);
 //            binding.svgView.setVisibility(View.GONE);
-//            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+//            if (!mAutoSetupInProgress) {
+//                binding.progressBar.setVisibility(View.GONE);
+//                binding.fabAddDevice.setVisibility(View.VISIBLE);
+//            }
 //        } else {
 //            binding.svgPlaceholder.setVisibility(View.GONE);
 //            binding.svgView.setVisibility(View.VISIBLE);
@@ -676,7 +1052,10 @@
 //            binding.svgPlaceholder.setVisibility(View.GONE);
 //            binding.svgView.setVisibility(View.GONE);
 //        } else {
-//            if (!mAutoSetupInProgress) binding.progressBar.setVisibility(View.GONE);
+//            if (!mAutoSetupInProgress) {
+//                binding.progressBar.setVisibility(View.GONE);
+//                binding.fabAddDevice.setVisibility(View.VISIBLE);
+//            }
 //        }
 //    }
 //
@@ -726,15 +1105,8 @@
 //                        if (areaLockedId != null) {
 //                            exitAreaZoom();
 //                        } else {
-//                            // Agar abhi scale minZoom ke kareeb hai, toh full zoom karein.
-//                            // Warna wapas zoom out (minZoom) karein.
-//                            float currentScale = getScale();
-//                            float target;
-//                            if (currentScale < DOUBLE_TAP_ZOOM - 0.5f) {
-//                                target = DOUBLE_TAP_ZOOM;
-//                            } else {
-//                                target = minZoom;
-//                            }
+//                            float target = getScale() > minZoom + 0.5f
+//                                    ? minZoom : DOUBLE_TAP_ZOOM;
 //                            animateZoomTo(target, e.getX(), e.getY());
 //                        }
 //                        return true;
@@ -766,36 +1138,107 @@
 //
 //        String hitIconId = findDeviceAt(c[0], c[1]);
 //        if (hitIconId == null) return;
-//        if (!isProvisioned(hitIconId)) return;
 //
 //        DeviceInfo device = deviceMap.get(hitIconId);
 //        if (device == null) return;
+//
+//        boolean isProvisioned = isProvisioned(hitIconId);
+//        boolean isManual = device.element.hasAttribute("data-manual")
+//                || device.element.hasAttribute("data-manual-added")
+//                || hitIconId.startsWith("manual_")
+//                || hitIconId.contains("new_device");
+//
+//        Log.d(TAG, "handleSvgLongPress: id=" + hitIconId + " isManual=" + isManual + " isProvisioned=" + isProvisioned);
 //
 //        // ── Haptic feedback ───────────────────────────────────────────────
 //        binding.svgView.performHapticFeedback(
 //                android.view.HapticFeedbackConstants.LONG_PRESS);
 //
-//        // ── Proxy connection check ────────────────────────────────────────
-//        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
-//                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+//        List<String> options = new java.util.ArrayList<>();
+//        if (isProvisioned) options.add("Reset Node");
+//        if (isManual) options.add("Delete from Map");
+//        options.add("Cancel");
 //
-//        if (!isConnected) {
-//            new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-//                    .setTitle("Not Connected")
-//                    .setMessage("Please connect to a proxy node before resetting the device.")
-//                    .setPositiveButton("OK", null)
-//                    .show();
-//            return;
-//        }
+//        if (options.size() <= 1) return; // Only Cancel
 //
-//        // ── Reset dialog ──────────────────────────────────────────────────
-//        new androidx.appcompat.app.AlertDialog.Builder(requireContext())
-//                .setTitle("Device Options")
-//                .setMessage("Do you want to reset this device?")
-//                .setPositiveButton("Reset Node", (dialog, which) ->
-//                        openNodeConfigForReset(hitIconId, device))
-//                .setNegativeButton("Cancel", null)
+//        new MaterialAlertDialogBuilder(requireContext())
+//                .setTitle(extractPureDeviceName(hitIconId))
+//                .setItems(options.toArray(new String[0]), (dialog, which) -> {
+//                    String choice = options.get(which);
+//                    if ("Reset Node".equals(choice)) {
+//                        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
+//                                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+//                        if (!isConnected) {
+//                            Toast.makeText(requireContext(), "Connect to proxy first", Toast.LENGTH_SHORT).show();
+//                            return;
+//                        }
+//                        openNodeConfigForReset(hitIconId, device);
+//                    } else if ("Delete from Map".equals(choice)) {
+//                        if (isProvisioned) {
+//                            Toast.makeText(requireContext(), "Cannot delete provisioned device", Toast.LENGTH_SHORT).show();
+//                        } else {
+//                            deleteDeviceFromSvg(hitIconId);
+//                        }
+//                    }
+//                })
 //                .show();
+//    }
+//
+//    private void deleteDeviceFromSvg(String iconId) {
+//        if (svgDocument == null) return;
+//        try {
+//            Element root = svgDocument.getDocumentElement();
+//
+//            // 1. Find and remove Icon
+//            DeviceInfo info = deviceMap.get(iconId);
+//            if (info != null && info.element != null) {
+//                Node parent = info.element.getParentNode();
+//                if (parent != null) parent.removeChild(info.element);
+//            }
+//
+//            // 2. Find and remove Physical Device
+//            Set<String> physicalIds = iconToDeviceRelations.get(iconId);
+//            if (physicalIds != null) {
+//                Element devGroup = svgParser.findElementById(root, "Devices");
+//                for (String pid : physicalIds) {
+//                    Element pEl = svgParser.findElementById(devGroup, pid);
+//                    if (pEl != null) {
+//                        Node pParent = pEl.getParentNode();
+//                        if (pParent != null) pParent.removeChild(pEl);
+//                    }
+//                }
+//            }
+//
+//            // 3. Update Relation group
+//            Element relationGroup = svgParser.findElementById(root, "Relation");
+//            if (relationGroup != null) {
+//                String text = relationGroup.getTextContent();
+//                // Regex to find (iconId : category | physId) or (iconId | physId)
+//                String pattern = "\\s*\\(\\s*" + Pattern.quote(iconId) + "\\s*\\|[^)]+\\)";
+//                String newText = text.replaceAll(pattern, "");
+//                relationGroup.setTextContent(newText);
+//            }
+//
+//            // 4. Save and Refresh
+//            saveSvgToInternal();
+//
+//            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
+//            deviceMap.clear();
+//            deviceMap.putAll(newDevices);
+//            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+//            iconToDeviceRelations.clear();
+//            iconToDeviceRelations.putAll(newRelations);
+//
+//            colorManager.init(svgDocument, svgParser, deviceMap);
+//            refreshColors();
+//            reRenderSvg();
+//
+//            Toast.makeText(requireContext(), "Device deleted", Toast.LENGTH_SHORT).show();
+//
+//        } catch (Exception e) {
+//            Log.e(TAG, "Error deleting device", e);
+//            Toast.makeText(requireContext(), "Failed to delete device", Toast.LENGTH_SHORT).show();
+//        }
 //    }
 //    private void openNodeConfigForReset(String deviceId, DeviceInfo device) {
 //        SharedPreferences prefs = requireContext()
@@ -818,8 +1261,12 @@
 //    }
 //
 //    private boolean handleTouch(View v, MotionEvent event) {
+//        if (mIsAddDeviceMode) return false; // Let draggableIcon handle it or ignore map touches
+//
 //        if (velocityTracker == null) velocityTracker = VelocityTracker.obtain();
 //        velocityTracker.addMovement(event);
+//        gestureDetector.onTouchEvent(event);
+//        scaleDetector.onTouchEvent(event);
 //
 //        switch (event.getActionMasked()) {
 //            case MotionEvent.ACTION_DOWN:
@@ -868,6 +1315,8 @@
 //                    handleSvgTap(tapDownX, tapDownY);
 //                activePointerId = MotionEvent.INVALID_POINTER_ID;
 //                isDragging      = false;
+//                hasMoved        = false;
+//                wasMultiTouch   = false;  // reset for next gesture
 //                if (velocityTracker != null) {
 //                    velocityTracker.recycle();
 //                    velocityTracker = null;
@@ -878,6 +1327,7 @@
 //                activePointerId = MotionEvent.INVALID_POINTER_ID;
 //                isDragging      = false;
 //                hasMoved        = true;
+//                wasMultiTouch   = false;  // reset for next gesture
 //                if (velocityTracker != null) {
 //                    velocityTracker.recycle();
 //                    velocityTracker = null;
@@ -895,13 +1345,6 @@
 //                }
 //                break;
 //        }
-//
-//        // Call detectors AFTER the custom logic above. This ensures that:
-//        // 1) onDoubleTap (triggered on ACTION_DOWN) can start an animation that won't be immediately cancelled.
-//        // 2) hasMoved = true set by onDoubleTap won't be overwritten by ACTION_DOWN's hasMoved = false.
-//        scaleDetector.onTouchEvent(event);
-//        gestureDetector.onTouchEvent(event);
-//
 //        return true;
 //    }
 //
@@ -912,6 +1355,8 @@
 //    private void handleSvgTap(float touchX, float touchY) {
 //        if (svgDocument == null) return;
 //        float[] c = touchToSvgCoords(touchX, touchY);
+//
+//        Log.d(TAG, "TAP-EVENT: touch=(" + touchX + "," + touchY + ") -> svg=(" + c[0] + "," + c[1] + ") scale=" + getScale() + " areaLocked=" + areaLockedId);
 //
 //        // 1. Icon hit check
 //        String hitIconId = findDeviceAt(c[0], c[1]);
@@ -933,7 +1378,6 @@
 //
 //        deselectCurrentDevice();
 //    }
-//
 //    private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
 //        DeviceInfo device = deviceMap.get(iconId);
 //        if (device == null) return;
@@ -944,77 +1388,192 @@
 //        String svgUriString = svgUri != null ? svgUri.toString() : "";
 //        String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 //
-//        String displayName = extractPureDeviceName(tappedDeviceId);
+//        String displayName = extractPureDeviceName(iconId);
 //
-//        Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
-//        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
-//        intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
-//        intent.putExtra("svg_name", svgName);
-//        startActivity(intent);
+//        if (isProvisioned(iconId)) {
+//            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+//            intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
+//            intent.putExtra("svg_name", svgName);
+//            startActivity(intent);
+//        } else {
+//            Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+//            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+//            startActivity(intent);
+//        }
 //    }
 //
 //    private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
+//        String bestIconId    = null;
+//        String bestDeviceId  = null;
+//        float  smallestArea  = Float.MAX_VALUE;
+//        float  minDistSq     = Float.MAX_VALUE;
+//
+//        // Pass 1: Exact hits (no expansion)
 //        for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
 //            String      iconId    = entry.getKey();
-//            Set<String> deviceIds = entry.getValue();
+//            // Allow tapping relation devices even if not provisioned yet to help user find them
+//            // if (!isProvisioned(iconId)) continue;
 //
-//            if (!isProvisioned(iconId)) continue;
-//
-//            for (String deviceId : deviceIds) {
-//                Element deviceEl = svgParser.findElementById(
-//                        svgDocument.getDocumentElement(), deviceId);
+//            for (String deviceId : entry.getValue()) {
+//                Element deviceEl = svgParser.findElementById(svgDocument.getDocumentElement(), deviceId);
 //                if (deviceEl == null) continue;
 //
 //                RectF bounds = svgParser.computeBounds(deviceEl);
 //                if (bounds == null || bounds.isEmpty()) continue;
 //
-//                RectF expanded = new RectF(bounds);
-//                float scale    = getScale();
-//                float tolerance = 10f / (scale > 0 ? scale : 1f);
-//                expanded.inset(-Math.max(tolerance, 2f), -Math.max(tolerance, 2f));
+//                boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
+//                float limit = isStrip ? 200f : 15f;
+//                if (bounds.width() > limit || bounds.height() > limit) continue;
 //
-//                if (expanded.contains(svgX, svgY)) {
-//                    return new RelationHitResult(iconId, deviceId);
+//                if (svgParser.contains(deviceEl, svgX, svgY)) {
+//                    float area = bounds.width() * bounds.height();
+//                    float dx = svgX - bounds.centerX();
+//                    float dy = svgY - bounds.centerY();
+//                    float distSq = dx * dx + dy * dy;
+//
+//                    if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
+//                        smallestArea = area;
+//                        minDistSq    = distSq;
+//                        bestIconId   = iconId;
+//                        bestDeviceId = deviceId;
+//                    }
 //                }
 //            }
 //        }
-//        return null;
-//    }
+//        if (bestIconId != null) return new RelationHitResult(bestIconId, bestDeviceId);
 //
-//    private float[] touchToSvgCoords(float touchX, float touchY) {
+//        // Pass 2: Expanded hits — same scale-aware tolerance as findDeviceAt()
+//        float currentScale = getScale();
+//        smallestArea = Float.MAX_VALUE;
+//        minDistSq    = Float.MAX_VALUE;
+//        for (Map.Entry<String, Set<String>> entry : iconToDeviceRelations.entrySet()) {
+//            String      iconId    = entry.getKey();
+//            // if (!isProvisioned(iconId)) continue;
+//
+//            for (String deviceId : entry.getValue()) {
+//                Element deviceEl = svgParser.findElementById(svgDocument.getDocumentElement(), deviceId);
+//                if (deviceEl == null) continue;
+//
+//                RectF bounds = svgParser.computeBounds(deviceEl);
+//                if (bounds == null || bounds.isEmpty()) continue;
+//
+//                boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
+//                float limit = isStrip ? 200f : 15f;
+//                if (bounds.width() > limit || bounds.height() > limit) continue;
+//
+//                float screenTolPx = isStrip ? TOUCH_TOLERANCE_PX * 1.4f : TOUCH_TOLERANCE_PX;
+//                float tolerance = Math.max(MIN_SVG_TOLERANCE, screenTolPx / currentScale);
+//
+//                if (svgParser.contains(deviceEl, svgX, svgY, tolerance)) {
+//                    float area = bounds.width() * bounds.height();
+//                    float dx = svgX - bounds.centerX();
+//                    float dy = svgY - bounds.centerY();
+//                    float distSq = dx * dx + dy * dy;
+//
+//                    if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
+//                        smallestArea = area;
+//                        minDistSq    = distSq;
+//                        bestIconId   = iconId;
+//                        bestDeviceId = deviceId;
+//                    }
+//                }
+//            }
+//        }
+//
+//        return (bestIconId != null) ? new RelationHitResult(bestIconId, bestDeviceId) : null;
+//    }    private float[] touchToSvgCoords(float touchX, float touchY) {
 //        Matrix inverse = new Matrix();
 //        if (!matrix.invert(inverse)) return new float[]{touchX, touchY};
 //        float[] pt = {touchX, touchY};
 //        inverse.mapPoints(pt);
-//        return new float[]{svgParser.vbX + pt[0], svgParser.vbY + pt[1]};
+//        float finalX = svgParser.vbX + pt[0];
+//        float finalY = svgParser.vbY + pt[1];
+//        Log.v(TAG, "touchToSvgCoords: ptInDrawable=(" + pt[0] + "," + pt[1] + ") vb=(" + svgParser.vbX + "," + svgParser.vbY + ") -> finalSvg=(" + finalX + "," + finalY + ")");
+//        return new float[]{finalX, finalY};
 //    }
 //
 //    private String findDeviceAt(float svgX, float svgY) {
 //        String bestId       = null;
 //        float  smallestArea = Float.MAX_VALUE;
-//        float  scale        = getScale();
-//        // Strict screen-space tolerance (5px)
-//        float  tolerance    = 5f / (scale > 0 ? scale : 1f);
+//        float  minDistSq    = Float.MAX_VALUE;
 //
+//        Log.d(TAG, "findDeviceAt: searching at (" + svgX + "," + svgY + ")");
+//
+//        // Pass 1: Exact hits on icon bounds
 //        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
-//            RectF bounds   = entry.getValue().bounds;
-//            RectF expanded = new RectF(bounds);
-//            // Expand by minimal units
-//            float inset    = -Math.max(tolerance, 1.5f);
-//            expanded.inset(inset, inset);
+//            String id = entry.getKey();
+//            RectF bounds = entry.getValue().bounds;
 //
-//            if (expanded.contains(svgX, svgY)) {
+//            // 1. First check if point is within the bounding box of the icon
+//            // We use a small buffer (0.5 units) to account for floating point errors
+//            if (svgX < bounds.left - 0.5f || svgX > bounds.right + 0.5f ||
+//                    svgY < bounds.top - 0.5f || svgY > bounds.bottom + 0.5f) {
+//                continue;
+//            }
+//
+//            // 2. Then check the actual shape (paths/circles/etc) for precision
+//            if (svgParser.contains(entry.getValue().element, svgX, svgY)) {
 //                float area = bounds.width() * bounds.height();
-//                if (area < smallestArea) { smallestArea = area; bestId = entry.getKey(); }
+//                float dx = svgX - bounds.centerX();
+//                float dy = svgY - bounds.centerY();
+//                float distSq = dx * dx + dy * dy;
+//
+//                if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
+//                    smallestArea = area;
+//                    minDistSq    = distSq;
+//                    bestId       = id;
+//                    Log.d(TAG, "MATCH-Pass1: " + id + " dist=" + Math.sqrt(distSq));
+//                }
 //            }
 //        }
+//        if (bestId != null) return bestId;
+//
+//        // Pass 2: Expanded hits (Tolerance based)
+//        float currentScale = getScale();
+//        smallestArea = Float.MAX_VALUE;
+//        minDistSq    = Float.MAX_VALUE;
+//
+//        for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
+//            String id     = entry.getKey();
+//            RectF  bounds = entry.getValue().bounds;
+//            boolean isStrip = id.toLowerCase().contains("st_") || id.toLowerCase().contains("strip");
+//
+//            float screenTolPx = isStrip ? TOUCH_TOLERANCE_PX * 1.5f : TOUCH_TOLERANCE_PX;
+//            float tol = Math.max(MIN_SVG_TOLERANCE, screenTolPx / currentScale);
+//
+//            // Check against expanded bounding box
+//            if (svgX < bounds.left - tol || svgX > bounds.right + tol ||
+//                    svgY < bounds.top - tol || svgY > bounds.bottom + tol) {
+//                continue;
+//            }
+//
+//            // Precise check with tolerance
+//            if (svgParser.contains(entry.getValue().element, svgX, svgY, tol)) {
+//                float area = bounds.width() * bounds.height();
+//                float dx = svgX - bounds.centerX();
+//                float dy = svgY - bounds.centerY();
+//                float distSq = dx * dx + dy * dy;
+//
+//                if (distSq < minDistSq || (Math.abs(distSq - minDistSq) < 4f && area < smallestArea)) {
+//                    smallestArea = area;
+//                    minDistSq    = distSq;
+//                    bestId       = id;
+//                    Log.d(TAG, "MATCH-Pass2: " + id + " dist=" + Math.sqrt(distSq) + " tol=" + tol);
+//                }
+//            }
+//        }
+//        if (bestId != null) Log.d(TAG, "findDeviceAt Winner: " + bestId);
 //        return bestId;
 //    }
-//
 //    // ══════════════════════════════════════════════════════════════════════
 //    //  DEVICE TAP
 //    // ══════════════════════════════════════════════════════════════════════

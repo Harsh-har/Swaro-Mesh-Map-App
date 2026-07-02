@@ -73,6 +73,7 @@ public class SvgColorManager {
         originalIconFillMap.clear();
         originalIconFillInStyle.clear();
         devicesOriginalFillMap.clear();
+        devicesOriginalFillInStyle.clear();
         originalAreaStyles.clear();
         dimmedAreaId = null;
 
@@ -101,12 +102,25 @@ public class SvgColorManager {
             // ✅ ALREADY SNAPSHOTTED? Skip
             if (originalIconFillMap.containsKey(key)) return;
 
+            // ✅ FIX: prefer the permanent DOM backup over the live attribute.
+            // The live fill may already be "transparent" (hidden by a previous
+            // refreshColors() pass) by the time init() runs again, which would
+            // otherwise get baked in as the "original" color forever.
+            String backedUp = childEl.getAttribute("data-original-fill");
+            if (backedUp != null && !backedUp.isEmpty()) {
+                originalIconFillMap.put(key, backedUp);
+                originalIconFillInStyle.put(key,
+                        "style".equals(childEl.getAttribute("data-original-fill-source")));
+                return;
+            }
+
             String fillAttr = childEl.getAttribute("fill");
-            if (fillAttr != null && !fillAttr.isEmpty()) {
+            if (fillAttr != null && !fillAttr.isEmpty() && !COLOR_TRANSPARENT.equals(fillAttr)) {
                 originalIconFillMap.put(key, fillAttr);
                 originalIconFillInStyle.put(key, false);
                 // ✅ Store backup
                 childEl.setAttribute("data-original-fill", fillAttr);
+                childEl.setAttribute("data-original-fill-source", "attr");
                 return;
             }
 
@@ -117,13 +131,13 @@ public class SvgColorManager {
                     originalIconFillMap.put(key, fillFromStyle);
                     originalIconFillInStyle.put(key, true);
                     childEl.setAttribute("data-original-fill", fillFromStyle);
+                    childEl.setAttribute("data-original-fill-source", "style");
                     return;
                 }
             }
 
             originalIconFillMap.put(key, COLOR_TRANSPARENT);
             originalIconFillInStyle.put(key, false);
-            childEl.setAttribute("data-original-fill", COLOR_TRANSPARENT);
             return;
         }
     }
@@ -134,22 +148,50 @@ public class SvgColorManager {
         snapshotFillsRecursive(dg);
     }
 
+    /**
+     * ✅ FIX: Snapshot the true original fill of every element inside the
+     * Devices group, the same way snapshotIconRectFill does for icons —
+     * by persisting a "data-original-fill" backup attribute into the DOM the
+     * first time, and always trusting that backup on subsequent re-snapshots
+     * (e.g. triggered by colorManager.init() after add/edit/delete device).
+     *
+     * Without this, if a device is currently hidden (fill="transparent",
+     * because it belongs to a provisioned/hidden icon) at the moment init()
+     * re-runs, the live "transparent" value would get captured as the
+     * "original" color and the device could never be shown again — this was
+     * the root cause of provisioned devices (most visibly LC Node, since it
+     * tends to get provisioned/hidden early) staying invisible permanently
+     * after any later add/edit/delete action.
+     */
     private void snapshotFillsRecursive(Element el) {
         int key = System.identityHashCode(el);
-        String fill = el.getAttribute("fill");
-        if (fill != null && !fill.isEmpty()) {
-            devicesOriginalFillMap.put(key, fill);
-            devicesOriginalFillInStyle.put(key, false);
+
+        String backedUp = el.getAttribute("data-original-fill");
+        if (backedUp != null && !backedUp.isEmpty()) {
+            devicesOriginalFillMap.put(key, backedUp);
+            devicesOriginalFillInStyle.put(key,
+                    "style".equals(el.getAttribute("data-original-fill-source")));
         } else {
-            String style = el.getAttribute("style");
-            if (style != null && style.contains("fill")) {
-                String fillFromStyle = extractFillFromStyle(style);
-                if (!fillFromStyle.equals(COLOR_TRANSPARENT)) {
-                    devicesOriginalFillMap.put(key, fillFromStyle);
-                    devicesOriginalFillInStyle.put(key, true);
+            String fill = el.getAttribute("fill");
+            if (fill != null && !fill.isEmpty() && !COLOR_TRANSPARENT.equals(fill)) {
+                devicesOriginalFillMap.put(key, fill);
+                devicesOriginalFillInStyle.put(key, false);
+                el.setAttribute("data-original-fill", fill);
+                el.setAttribute("data-original-fill-source", "attr");
+            } else {
+                String style = el.getAttribute("style");
+                if (style != null && style.contains("fill")) {
+                    String fillFromStyle = extractFillFromStyle(style);
+                    if (!fillFromStyle.equals(COLOR_TRANSPARENT)) {
+                        devicesOriginalFillMap.put(key, fillFromStyle);
+                        devicesOriginalFillInStyle.put(key, true);
+                        el.setAttribute("data-original-fill", fillFromStyle);
+                        el.setAttribute("data-original-fill-source", "style");
+                    }
                 }
             }
         }
+
         NodeList children = el.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
@@ -781,13 +823,14 @@ public class SvgColorManager {
         String original = rectEl.getAttribute("data-original-fill");
         if (original != null && !original.isEmpty()) {
             originalIconFillMap.put(key, original);
-            originalIconFillInStyle.put(key, false);
+            originalIconFillInStyle.put(key,
+                    "style".equals(rectEl.getAttribute("data-original-fill-source")));
             return;
         }
 
         // Fallback: re-parse from attribute
         String fill = rectEl.getAttribute("fill");
-        if (fill != null && !fill.isEmpty()) {
+        if (fill != null && !fill.isEmpty() && !COLOR_TRANSPARENT.equals(fill)) {
             originalIconFillMap.put(key, fill);
             originalIconFillInStyle.put(key, false);
         }
@@ -807,9 +850,10 @@ public class SvgColorManager {
                     String original = childEl.getAttribute("data-original-fill");
                     if (original != null && !original.isEmpty()) {
                         originalIconFillMap.put(key, original);
-                        originalIconFillInStyle.put(key, false);
+                        originalIconFillInStyle.put(key,
+                                "style".equals(childEl.getAttribute("data-original-fill-source")));
 
-                        // Also restore the actual fill
+                        // Also restore the actual fill (only if not currently hidden via display:none)
                         childEl.setAttribute("fill", original);
                     }
                 }
