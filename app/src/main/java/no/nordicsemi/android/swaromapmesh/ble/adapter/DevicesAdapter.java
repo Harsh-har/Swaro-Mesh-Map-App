@@ -98,8 +98,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
         mCurrentSignalThreshold = signalThreshold;
         mDisplayedDevices.clear();
 
-        // Update the smoothed RSSI for every known device before filtering/sorting,
-        // so both operations use the stable value instead of the noisy raw reading.
+        // Update smoothed RSSI still needed — signal bar icon ke liye,
         for (ExtendedBluetoothDevice device : mAllDevices) {
             updateSmoothedRssi(device);
         }
@@ -111,10 +110,6 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
             }
         }
 
-        // Sort strongest signal first using the smoothed value, so the list
-        // doesn't reorder on every tiny raw RSSI blip.
-        Collections.sort(mDisplayedDevices, (d1, d2) ->
-                Double.compare(getSmoothedRssi(d2), getSmoothedRssi(d1)));
 
         Log.d(TAG, "applyFilters: nameFilter='" + nameFilter
                 + "' signalThreshold=" + signalThreshold
@@ -123,7 +118,6 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
         notifyDataSetChanged();
     }
-
     /**
      * Apply name filter only — keeps the current signal threshold.
      */

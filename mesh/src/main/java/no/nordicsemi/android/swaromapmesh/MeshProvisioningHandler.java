@@ -371,60 +371,44 @@ class MeshProvisioningHandler implements InternalProvisioningCallbacks {
     }
 
     private void sendProvisioningStart(final UnprovisionedMeshNode node) {
-        if (provisioningState instanceof ProvisioningCapabilitiesState) {
-            final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
-            final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
-            final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
-            provisioningState = startProvisioning;
-            startProvisioning.executeSend();
-        } else {
-            MeshLogger.error(TAG, "Cannot start provisioning: invalid state " + provisioningState.getState().name());
-        }
+        final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
+        final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
+        final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
+        provisioningState = startProvisioning;
+        startProvisioning.executeSend();
     }
 
     private void sendProvisioningStartWithStaticOOB(
             final UnprovisionedMeshNode node) {
-        if (provisioningState instanceof ProvisioningCapabilitiesState) {
-            final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
-            final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
+        final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
+        final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
 
-            final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
-            startProvisioning.setUseStaticOOB(StaticOOBType.STATIC_OOB_AVAILABLE);
-            provisioningState = startProvisioning;
-            startProvisioning.executeSend();
-        } else {
-            MeshLogger.error(TAG, "Cannot start provisioning with static OOB: invalid state " + provisioningState.getState().name());
-        }
+        final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
+        startProvisioning.setUseStaticOOB(StaticOOBType.STATIC_OOB_AVAILABLE);
+        provisioningState = startProvisioning;
+        startProvisioning.executeSend();
     }
 
     private void sendProvisioningStartWithOutputOOB(
             final UnprovisionedMeshNode node, final OutputOOBAction action) {
-        if (provisioningState instanceof ProvisioningCapabilitiesState) {
-            final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
-            final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
+        final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
+        final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
 
-            final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
-            startProvisioning.setUseOutputOOB(action);
-            provisioningState = startProvisioning;
-            startProvisioning.executeSend();
-        } else {
-            MeshLogger.error(TAG, "Cannot start provisioning with output OOB: invalid state " + provisioningState.getState().name());
-        }
+        final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
+        startProvisioning.setUseOutputOOB(action);
+        provisioningState = startProvisioning;
+        startProvisioning.executeSend();
     }
 
     private void sendProvisioningStartWithInputOOB(
             final UnprovisionedMeshNode node, final InputOOBAction action) {
-        if (provisioningState instanceof ProvisioningCapabilitiesState) {
-            final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
-            final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
+        final ProvisioningCapabilitiesState capabilitiesState = (ProvisioningCapabilitiesState) provisioningState;
+        final ProvisioningCapabilities capabilities = capabilitiesState.getCapabilities();
 
-            final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
-            startProvisioning.setUseInputOOB(action);
-            provisioningState = startProvisioning;
-            startProvisioning.executeSend();
-        } else {
-            MeshLogger.error(TAG, "Cannot start provisioning with input OOB: invalid state " + provisioningState.getState().name());
-        }
+        final ProvisioningStartState startProvisioning = new ProvisioningStartState(node, capabilities, mInternalTransportCallbacks, mStatusCallbacks);
+        startProvisioning.setUseInputOOB(action);
+        provisioningState = startProvisioning;
+        startProvisioning.executeSend();
     }
 
 
