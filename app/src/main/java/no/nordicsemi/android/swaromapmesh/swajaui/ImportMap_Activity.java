@@ -16,6 +16,8 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.cardview.widget.CardView;
 import androidx.lifecycle.ViewModelProvider;
 
+import java.io.File;
+import java.io.InputStream;
 import java.util.ArrayList;
 
 import dagger.hilt.android.AndroidEntryPoint;
@@ -82,12 +84,7 @@ public class ImportMap_Activity extends AppCompatActivity {
 
                 String savedName = prefs.getString("svg_name_" + savedUri, "Imported Map");
 
-                Intent intent = new Intent(this, AreaListActivity.class);
-                intent.putExtra("svg_uri", savedUri);
-                intent.putStringArrayListExtra("area_list", areaList);
-                intent.putExtra("svg_display_name", savedName);
-
-                startActivity(intent);
+                no.nordicsemi.android.swaromapmesh.FlutterNavigator.navigateToAreaList(this, savedUri, savedName);
                 finish();
                 return;
             }
@@ -120,9 +117,16 @@ public class ImportMap_Activity extends AppCompatActivity {
                         .trim();
 
                 new Thread(() -> {
+                    // ✅ Copy to internal storage first to avoid permission issues
+                    String localUri = copyToInternalStorage(selectedSvgUri);
+                    if (localUri == null) {
+                        runOnUiThread(() -> Toast.makeText(this, "Failed to copy file", Toast.LENGTH_SHORT).show());
+                        return;
+                    }
 
+                    Uri uriToParse = Uri.parse(localUri);
                     ArrayList<String> areaList =
-                            SvgParserList.parseAreaIds(getContentResolver(), selectedSvgUri);
+                            SvgParserList.parseAreaIds(getContentResolver(), uriToParse);
 
                     runOnUiThread(() -> {
 
@@ -130,21 +134,34 @@ public class ImportMap_Activity extends AppCompatActivity {
                                 getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
 
                         prefs1.edit()
-                                .putString(KEY_SVG_URI, selectedSvgUri.toString())
-                                .putString("svg_name_" + selectedSvgUri.toString(), cleanName)
+                                .putString(KEY_SVG_URI, localUri)
+                                .putString("svg_name_" + localUri, cleanName)
                                 .apply();
 
-                        Intent intent = new Intent(this, AreaListActivity.class);
-                        intent.putExtra("svg_uri", selectedSvgUri.toString());
-                        intent.putStringArrayListExtra("area_list", areaList);
-                        intent.putExtra("svg_display_name", cleanName);
-
-                        startActivity(intent);
+                        no.nordicsemi.android.swaromapmesh.FlutterNavigator.navigateToAreaList(this, localUri, cleanName);
                         finish();
                     });
 
                 }).start();
             });
+        }
+    }
+
+    private String copyToInternalStorage(Uri uri) {
+        try (InputStream is = getContentResolver().openInputStream(uri)) {
+            if (is == null) return null;
+            File localFile = new File(getFilesDir(), "imported_map.svg");
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(localFile)) {
+                byte[] buffer = new byte[4096];
+                int len;
+                while ((len = is.read(buffer)) != -1) {
+                    fos.write(buffer, 0, len);
+                }
+            }
+            return Uri.fromFile(localFile).toString();
+        } catch (Exception e) {
+            Log.e(TAG, "Copy error", e);
+            return null;
         }
     }
 

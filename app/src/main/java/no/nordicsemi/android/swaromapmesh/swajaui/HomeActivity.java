@@ -62,11 +62,8 @@ public class HomeActivity extends AppCompatActivity {
             Log.d("HomeActivity", "Area list size: " + areaList.size());
 
             if (!areaList.isEmpty()) {
-                Intent intent = new Intent(this, AreaListActivity.class);
-                intent.putExtra("svg_uri", savedUri);
-                intent.putStringArrayListExtra("area_list", areaList);
-                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivity(intent);
+                String siteTitle = prefs.getString("svg_name_" + savedUri, "Imported Map");
+                no.nordicsemi.android.swaromapmesh.FlutterNavigator.navigateToAreaList(this, savedUri, siteTitle);
                 finish();
                 return;
             }

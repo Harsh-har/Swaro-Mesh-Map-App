@@ -221,6 +221,13 @@
         <activity
             android:name=".node.GenericModelConfigurationActivity"
             android:launchMode="singleTop" />
+
+        <activity
+            android:name=".MeshFlutterActivity"
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+            android:hardwareAccelerated="true"
+            android:windowSoftInputMode="adjustResize" />
+
         <activity
             android:name=".export.ExportNetworkActivity"
             android:launchMode="singleTop" />

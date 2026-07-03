@@ -272,10 +272,7 @@ public class MapActivity extends AppCompatActivity {
                     .putString("saved_counts", new com.google.gson.Gson().toJson(counts))
                     .apply();
 
-            Intent intent = new Intent(this, AreaListActivity.class);
-            intent.putExtra("svg_uri", localUri);
-            intent.putStringArrayListExtra("area_list", areaList);
-            startActivity(intent);
+            no.nordicsemi.android.swaromapmesh.FlutterNavigator.navigateToAreaList(this, localUri, "Imported Map");
             finish();
         });
     }

@@ -16,7 +16,7 @@ android {
                 "" +
                 "meshprovisioner"
 
-        minSdk 23
+        minSdk 24
         targetSdk 35
 
 
@@ -125,6 +125,7 @@ dependencies {
 
     // -------------------- Mesh Module --------------------
     implementation project(':mesh')
+    implementation project(':flutter')
     annotationProcessor 'androidx.room:room-compiler:2.8.4'
 
 

@@ -35,43 +35,54 @@ public class SvgParserList {
 
         LinkedHashMap<String, List<String>> result = new LinkedHashMap<>();
 
-        try (InputStream is = resolver.openInputStream(uri)) {
-            if (is == null) return result;
-
-            Document doc = parseDocument(is);
-            if (doc == null) return result;
-
-            Element root = doc.getDocumentElement();
-
-            // First, try to find floors structure (groups with Walls, furniture, Lights, Icons)
-            boolean hasFloors = false;
-            NodeList rootChildren = root.getChildNodes();
-
-            for (int i = 0; i < rootChildren.getLength(); i++) {
-                Node child = rootChildren.item(i);
-                if (!(child instanceof Element)) continue;
-
-                Element childEl = (Element) child;
-                String tag = childEl.getTagName().toLowerCase();
-                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-
-                if ("g".equals(tag)) {
-                    String id = childEl.getAttribute("id");
-                    if (id != null && !id.isEmpty() && isFloorGroup(childEl)) {
-                        hasFloors = true;
-                        break;
-                    }
-                }
+        try {
+            InputStream is;
+            if ("file".equals(uri.getScheme())) {
+                is = new java.io.FileInputStream(uri.getPath());
+            } else {
+                is = resolver.openInputStream(uri);
             }
 
-            if (hasFloors) {
-                // Case 1: Multiple floors - parse floor-wise
-                android.util.Log.d(TAG, "Detected multiple floors structure");
-                parseFloorsStructure(root, result);
-            } else {
-                // Case 2: Single floor / area-based structure - parse areas directly
-                android.util.Log.d(TAG, "Detected single floor/area structure");
-                parseAreasStructure(root, result);
+            if (is == null) return result;
+
+            try {
+                Document doc = parseDocument(is);
+                if (doc == null) return result;
+
+                Element root = doc.getDocumentElement();
+
+                // First, try to find floors structure (groups with Walls, furniture, Lights, Icons)
+                boolean hasFloors = false;
+                NodeList rootChildren = root.getChildNodes();
+
+                for (int i = 0; i < rootChildren.getLength(); i++) {
+                    Node child = rootChildren.item(i);
+                    if (!(child instanceof Element)) continue;
+
+                    Element childEl = (Element) child;
+                    String tag = childEl.getTagName().toLowerCase();
+                    if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+
+                    if ("g".equals(tag)) {
+                        String id = childEl.getAttribute("id");
+                        if (id != null && !id.isEmpty() && isFloorGroup(childEl)) {
+                            hasFloors = true;
+                            break;
+                        }
+                    }
+                }
+
+                if (hasFloors) {
+                    // Case 1: Multiple floors - parse floor-wise
+                    android.util.Log.d(TAG, "Detected multiple floors structure");
+                    parseFloorsStructure(root, result);
+                } else {
+                    // Case 2: Single floor / area-based structure - parse areas directly
+                    android.util.Log.d(TAG, "Detected single floor/area structure");
+                    parseAreasStructure(root, result);
+                }
+            } finally {
+                is.close();
             }
 
         } catch (Exception e) {

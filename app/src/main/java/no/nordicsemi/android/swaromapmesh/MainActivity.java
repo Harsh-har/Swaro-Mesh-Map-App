@@ -74,28 +74,29 @@ public class MainActivity extends AppCompatActivity implements
 
             if (savedAreaSet != null && !savedAreaSet.isEmpty()) {
                 // ✅ Instant — no network needed
-                ArrayList<String> areaList = new ArrayList<>(savedAreaSet);
-                Intent intent = new Intent(this,
-                        no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
-                intent.putExtra("svg_uri", savedUri);
-                intent.putStringArrayListExtra("area_list", areaList);
-                intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                startActivity(intent);
+                FlutterNavigator.navigateToAreaList(this, savedUri, "Imported Map");
                 finish();
                 return;
             }
 
             if (!savedUri.startsWith("http://") && !savedUri.startsWith("https://")) {
                 Uri uri = Uri.parse(savedUri);
+                
+                // If it's a content URI, try to migrate it to internal storage
+                if ("content".equals(uri.getScheme())) {
+                    String localUri = copyToInternalStorage(uri);
+                    if (localUri != null) {
+                        savedUri = localUri;
+                        prefs.edit().putString("saved_svg_uri", savedUri).apply();
+                        uri = Uri.parse(savedUri);
+                    }
+                }
+
                 ArrayList<String> areaList = SvgParserList
                         .parseAreaIds(getContentResolver(), uri);
                 if (!areaList.isEmpty()) {
-                    Intent intent = new Intent(this,
-                            no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
-                    intent.putExtra("svg_uri", savedUri);
-                    intent.putStringArrayListExtra("area_list", areaList);
-                    intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-                    startActivity(intent);
+                    FlutterNavigator.navigateToAreaList(this, savedUri, "Imported Map");
+
                     finish();
                     return;
                 }
@@ -111,6 +112,9 @@ public class MainActivity extends AppCompatActivity implements
             return;
         }
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
+        
+        // Initialize Flutter Bridge
+        FlutterNavigator.init(this, mViewModel);
 
         binding = ActivityMainBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -312,6 +316,15 @@ public class MainActivity extends AppCompatActivity implements
             return;
         }
 
+        // Migration check for content URIs
+        if (savedUri.startsWith("content://")) {
+            String localUri = copyToInternalStorage(Uri.parse(savedUri));
+            if (localUri != null) {
+                savedUri = localUri;
+                prefs.edit().putString("saved_svg_uri", savedUri).apply();
+            }
+        }
+
         // Get saved area list
         java.util.Set<String> savedAreaSet = prefs.getStringSet("saved_area_list", null);
         ArrayList<String> areaList = savedAreaSet != null ? new ArrayList<>(savedAreaSet) : null;
@@ -334,12 +347,7 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         if (areaList != null && !areaList.isEmpty()) {
-            Intent intent = new Intent(this,
-                    no.nordicsemi.android.swaromapmesh.swajaui.AreaListActivity.class);
-            intent.putExtra("svg_uri", savedUri);
-            intent.putStringArrayListExtra("area_list", areaList);
-            intent.setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-            startActivity(intent);
+            FlutterNavigator.navigateToAreaList(this, savedUri, "Imported Map");
             finish();
         } else {
             // No areas found, go to HomeActivity
@@ -351,4 +359,21 @@ public class MainActivity extends AppCompatActivity implements
         }
     }
 
+    private String copyToInternalStorage(Uri uri) {
+        try (java.io.InputStream is = getContentResolver().openInputStream(uri)) {
+            if (is == null) return null;
+            java.io.File localFile = new java.io.File(getFilesDir(), "imported_map.svg");
+            try (java.io.FileOutputStream fos = new java.io.FileOutputStream(localFile)) {
+                byte[] buffer = new byte[4096];
+                int len;
+                while ((len = is.read(buffer)) != -1) {
+                    fos.write(buffer, 0, len);
+                }
+            }
+            return Uri.fromFile(localFile).toString();
+        } catch (Exception e) {
+            Log.e(TAG, "Copy error", e);
+            return null;
+        }
+    }
 }
