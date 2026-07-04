@@ -11,6 +11,7 @@
     <string name="sub_title_scanning_proxy_node">Looking for provisioned proxy nodes…</string>
 
     <string name="unknown_device">Unknown Device</string>
+    <string name="rssi_format">%d dBm</string>
     <string name="unknown_address">Unknown Address</string>
     <string name="state">On Off State:</string>
     <string name="button_unknown">UNKNOWN</string>

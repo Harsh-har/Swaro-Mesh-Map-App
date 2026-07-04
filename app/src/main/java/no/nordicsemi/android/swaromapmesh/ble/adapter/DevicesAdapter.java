@@ -286,6 +286,8 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
         holder.rssi.setImageDrawable(rssiDrawable);
         holder.rssi.setImageLevel(rssiPercent);
 
+        holder.rssiValue.setText(holder.rssiValue.getContext().getString(R.string.rssi_format, rawRssi));
+
         // ── Multi-device Identify row state ─────────────────────────────────
         final String  address       = device.getAddress();
         final boolean isIdentifying = address != null
@@ -329,6 +331,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
         TextView       deviceAddress;
         TextView       deviceName;
         ImageView      rssi;
+        TextView       rssiValue;
         MaterialButton identifyButton;
         ProgressBar    identifyProgress;
 
@@ -337,6 +340,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
             deviceAddress    = binding.deviceAddress;
             deviceName       = binding.deviceName;
             rssi             = binding.rssi;
+            rssiValue        = binding.rssiValue;
             identifyButton   = binding.actionIdentify;
             identifyProgress = binding.identifyProgress;
 

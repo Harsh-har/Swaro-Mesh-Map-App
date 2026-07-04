@@ -1,0 +1,19 @@
+// Generated file. Do not edit.
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+apply plugin: "com.android.library"
+
+android {
+    namespace = "com.example.my_flutter_ui"
+    compileSdk = 36
+    defaultConfig {
+        minSdk = 24
+        targetSdk = 36
+    }
+}

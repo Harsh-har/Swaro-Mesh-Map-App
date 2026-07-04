@@ -30,7 +30,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_toEndOf="@id/icon"
-        android:layout_toStartOf="@+id/action_identify"
+        android:layout_toStartOf="@+id/action_container"
         android:layout_centerVertical="true"
         android:layout_marginStart="@dimen/activity_horizontal_margin"
         android:layout_marginEnd="8dp"
@@ -52,32 +52,52 @@
             android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
             tools:text="AA:BB:CC:DD:EE:FF" />
     </LinearLayout>
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/action_identify"
-        style="@style/Widget.MaterialComponents.Button.TextButton"
+    <LinearLayout
+        android:id="@+id/action_container"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_toStartOf="@+id/rssi"
         android:layout_centerVertical="true"
         android:layout_marginEnd="8dp"
-        android:paddingStart="12dp"
-        android:paddingEnd="12dp"
-        android:minWidth="0dp"
-        android:minHeight="48dp"
-        android:background="#EF8D02"
-        android:text="@string/identify_action"
-        android:textColor="#ffbb00" />
+        android:gravity="center_horizontal"
+        android:orientation="vertical">
 
-    <ProgressBar
-        android:id="@+id/identify_progress"
-        style="?android:attr/progressBarStyleSmall"
-        android:layout_width="24dp"
-        android:layout_height="24dp"
-        android:layout_toStartOf="@+id/rssi"
-        android:layout_centerVertical="true"
-        android:layout_marginEnd="14dp"
-        android:visibility="gone"
-        tools:visibility="gone" />
+        <FrameLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/action_identify"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:background="#EF8D02"
+                android:minWidth="0dp"
+                android:minHeight="48dp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:text="@string/identify_action"
+                android:textColor="#ffbb00" />
+
+            <ProgressBar
+                android:id="@+id/identify_progress"
+                style="?android:attr/progressBarStyleSmall"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:visibility="gone"
+                tools:visibility="gone" />
+        </FrameLayout>
+
+        <com.google.android.material.textview.MaterialTextView
+            android:id="@+id/rssi_value"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+            android:textColor="?android:textColorSecondary"
+            tools:text="-60 dBm" />
+
+    </LinearLayout>
 
     <ImageView
         android:id="@+id/rssi"
