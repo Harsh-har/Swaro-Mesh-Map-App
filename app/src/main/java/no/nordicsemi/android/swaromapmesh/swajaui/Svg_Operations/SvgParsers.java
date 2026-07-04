@@ -76,7 +76,7 @@ public class SvgParsers {
         areaMap.clear();
         if (document == null) return devices;
         try {
-            Element iconsGroup = findElementById(document.getDocumentElement(), "Icons");
+            Element iconsGroup = findElementById(document.getDocumentElement(), "Technician Layer");
             if (iconsGroup == null) {
                 scanForLeafIcons(document.getDocumentElement(), devices, null, new Matrix());
                 return devices;
@@ -166,7 +166,6 @@ public class SvgParsers {
             }
         }
 
-        // Fallback: agar rect nahi mila toh purana method
         if (bounds == null || bounds.isEmpty()) {
             bounds = computeBounds(el, parentMatrix);
         }
@@ -176,14 +175,57 @@ public class SvgParsers {
             return;
         }
 
-        String elementId = extractElementId(el);
-        if (elementId == null) elementId = id;
-        String receiveId = extractReceiveId(el);
+        // ── Parsing ID for ElementId, ReceiveId, DeviceName, and Count ─────
+        // New structure: RoomName_DeviceName_Count_ElementId_ReceiveId
+        // Example: GBDR_Strip Node_1_13_13
+        String elementId = null;
+        String receiveId = null;
+        String parsedAreaId = areaId;
+        String deviceName = null;
+        String deviceCount = null;
 
-        Log.d(TAG, "Parsed Device: id=" + id + " elementId=" + elementId + " bounds=" + bounds + " area=" + areaId);
+        try {
+            String[] parts = id.split("_");
+            if (parts.length >= 5) {
+                // Prioritize parsing from ID string as per new requirement
+                receiveId = parts[parts.length - 1];
+                elementId = parts[parts.length - 2];
+                deviceCount = parts[parts.length - 3];
 
-        DeviceInfo info = new DeviceInfo(id, el, bounds, elementId, areaId);
+                // Device name might be one or more parts depending on underscores
+                // If parts.length == 5, deviceName is parts[1]
+                // If more parts, join middle parts as device name
+                StringBuilder nameBuilder = new StringBuilder();
+                for (int i = 1; i < parts.length - 3; i++) {
+                    if (i > 1) nameBuilder.append("_");
+                    nameBuilder.append(parts[i]);
+                }
+                deviceName = nameBuilder.toString();
+
+                parsedAreaId = parts[0];
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "Error parsing ID pattern for: " + id);
+        }
+
+        // Fallback to metadata if ID parsing didn't find values
+        if (elementId == null) {
+            elementId = extractElementId(el);
+        }
+        if (elementId == null) {
+            elementId = id;
+        }
+
+        if (receiveId == null) {
+            receiveId = extractReceiveId(el);
+        }
+
+        Log.d(TAG, "Parsed Device: id=" + id + " name=" + deviceName + " elementId=" + elementId + " receiveId=" + receiveId + " area=" + parsedAreaId);
+
+        DeviceInfo info = new DeviceInfo(id, el, bounds, elementId, parsedAreaId);
         info.receiveId = receiveId;
+        info.deviceName = deviceName;
+        info.deviceCount = deviceCount;
         devices.put(id, info);
     }
     private boolean hasDirectGChild(Element el) {
@@ -195,28 +237,68 @@ public class SvgParsers {
         return false;
     }
 
-    public Map<String, Set<String>> parseRelations(Document document) {
+    public Map<String, Set<String>> parseRelations(Document document, Map<String, DeviceInfo> iconMap) {
         Map<String, Set<String>> relations = new HashMap<>();
+        if (document == null || iconMap == null) return relations;
+
         Element root = document.getDocumentElement();
-        Element relationGroup = findElementById(root, "Relation");
-        if (relationGroup == null) return relations;
+        Element devicesGroup = findElementById(root, "User Layer");
+        if (devicesGroup == null) return relations;
 
-        String text = relationGroup.getTextContent();
-        if (text == null) return relations;
+        // 1. Collect all valid IDs from the Devices layer
+        List<String> physicalDeviceIds = new ArrayList<>();
+        collectAllIds(devicesGroup, physicalDeviceIds);
 
-        Pattern p = Pattern.compile("\\(([^|]+)\\|([^)]+)\\)");
-        Matcher m = p.matcher(text);
-        while (m.find()) {
-            String iconId = m.group(1).trim();
-            String deviceList = m.group(2).trim();
-            Set<String> devices = new HashSet<>();
-            for (String d : deviceList.split(",")) {
-                String trimmed = d.trim();
-                if (!trimmed.isEmpty()) devices.add(trimmed);
+        // 2. Build the mapping
+        for (String iconId : iconMap.keySet()) {
+            Set<String> relatedDevices = new HashSet<>();
+            String iconKey = extractRelationKey(iconId);
+            
+            if (iconKey == null) continue;
+
+            for (String devId : physicalDeviceIds) {
+                String devKey = extractRelationKey(devId);
+                if (iconKey.equalsIgnoreCase(devKey)) {
+                    relatedDevices.add(devId);
+                }
             }
-            relations.put(iconId, devices);
+            relations.put(iconId, relatedDevices);
+            Log.d(TAG, "Relation: Icon '" + iconId + "' -> " + relatedDevices.size() + " devices");
         }
         return relations;
+    }
+
+    private void collectAllIds(Element element, List<String> idList) {
+        String id = element.getAttribute("id");
+        if (id != null && !id.isEmpty() && id.contains("_")) {
+            idList.add(id);
+        }
+        NodeList children = element.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node child = children.item(i);
+            if (child instanceof Element) {
+                collectAllIds((Element) child, idList);
+            }
+        }
+    }
+
+    /**
+     * Extracts a matching key from ID structure: Room_Type_Total_Count_EID(_RID)
+     * Key = Room + ":" + Type + ":" + EID
+     */
+    private String extractRelationKey(String fullId) {
+        if (fullId == null) return null;
+        String[] parts = fullId.split("_");
+        if (parts.length < 5) return null;
+
+        String room = parts[0];
+        String type = parts[1];
+        
+        // ElementId is usually index 4. In case of 6 parts (RID at end), it's still index 4.
+        // But to be safe for varied counts, we look at the second to last if length > 5, or last if 5.
+        String eid = (parts.length > 5) ? parts[4] : parts[parts.length - 1];
+
+        return (room + ":" + type + ":" + eid).toLowerCase().trim();
     }
 
     public void parseSelectionLayer(Document document) {
@@ -649,10 +731,6 @@ public class SvgParsers {
     private boolean isPointInPath(String d, float px, float py, float tol) {
         if (d == null || d.isEmpty()) return false;
 
-        // Curves (C/S/Q/A) ko line segments mein todo, taaki ray-casting
-        // (inside test) aur near-segment (tolerance) dono sahi se kaam karein.
-        // Pehle wala code curve segments ko crossing count mein add hi nahi
-        // karta tha, jisse far-away points bhi galat "inside" detect ho jaate the.
         List<float[]> segments = flattenPathToSegments(d);
         if (segments.isEmpty()) return false;
 
@@ -668,11 +746,6 @@ public class SvgParsers {
         return (crosses % 2 != 0);
     }
 
-    /**
-     * Path 'd' string ko walk karke har segment — curves/arcs samet — ko
-     * straight line segments mein flatten karta hai, taaki hit-testing
-     * accurate rahe.
-     */
     private List<float[]> flattenPathToSegments(String d) {
         List<float[]> segments = new ArrayList<>();
         List<String> tokens = new ArrayList<>();
@@ -790,7 +863,6 @@ public class SvgParsers {
                     for (int k = 0; k + 6 < params.size(); k += 7) {
                         float ex = params.get(k + 5), ey = params.get(k + 6);
                         if (rel) { ex += curX; ey += curY; }
-                        // Arc ko straight line se approximate kiya (icon glyphs mein rare hai)
                         segments.add(new float[]{curX, curY, ex, ey});
                         curX = ex; curY = ey;
                     }

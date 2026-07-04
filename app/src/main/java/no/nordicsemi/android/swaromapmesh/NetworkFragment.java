@@ -37,9 +37,7 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import java.io.File;
 import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.OutputStream;
-import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import android.widget.EditText;
 import android.widget.LinearLayout;
@@ -54,7 +52,6 @@ import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
-import java.util.regex.Pattern;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
@@ -77,7 +74,7 @@ public class NetworkFragment extends Fragment {
     private static final float MAX_ZOOM           = 25f;
     private static final float DOUBLE_TAP_ZOOM    = 2.5f;
     private static final float TOUCH_TOLERANCE_PX = 20f;
-    private static final float MIN_SVG_TOLERANCE  = 0.3f; 
+    private static final float MIN_SVG_TOLERANCE  = 0.3f;
     private static final long  ANIMATION_DURATION = 280L;
     private static final int   FLING_DURATION     = 2000;
     private static final float TAP_MOVE_SLOP      = 10f;
@@ -352,15 +349,15 @@ public class NetworkFragment extends Fragment {
             String deviceId = "manual_" + name.replace(" ", "_").replace(":", "_") + "_" + System.currentTimeMillis();
             String fullId = deviceId + ":" + category;
 
-            // 3. Add to Icons group
-            Element iconsGroup = svgParser.findElementById(root, "Icons");
+            // 3. Add to Technician Layer
+            Element iconsGroup = svgParser.findElementById(root, "Technician Layer");
             if (iconsGroup == null) {
                 iconsGroup = svgDocument.createElement("g");
-                iconsGroup.setAttribute("id", "Icons");
+                iconsGroup.setAttribute("id", "Technician Layer");
                 root.appendChild(iconsGroup);
             }
 
-            // Find or create the area-specific group inside Icons
+            // Find or create the area-specific group inside Technician Layer
             Element areaGroup = svgParser.findElementById(iconsGroup, areaId);
             if (areaGroup == null) {
                 areaGroup = svgParser.findElementFuzzy(iconsGroup, areaId);
@@ -401,11 +398,11 @@ public class NetworkFragment extends Fragment {
 
             areaGroup.appendChild(iconEl);
 
-            // 4. Add to Devices group
-            Element devicesGroup = svgParser.findElementById(root, "Devices");
+            // 4. Add to User Layer
+            Element devicesGroup = svgParser.findElementById(root, "User Layer");
             if (devicesGroup == null) {
                 devicesGroup = svgDocument.createElement("g");
-                devicesGroup.setAttribute("id", "Devices");
+                devicesGroup.setAttribute("id", "User Layer");
                 root.appendChild(devicesGroup);
             }
 
@@ -434,17 +431,6 @@ public class NetworkFragment extends Fragment {
             physEl.setAttribute("style", "fill:#b3b3b3;");
             devAreaGroup.appendChild(physEl);
 
-            // 5. Add to Relation
-            Element relationGroup = svgParser.findElementById(root, "Relation");
-            if (relationGroup == null) {
-                relationGroup = svgDocument.createElement("g");
-                relationGroup.setAttribute("id", "Relation");
-                root.appendChild(relationGroup);
-            }
-            String currentRelations = relationGroup.getTextContent();
-            String newRelation = "\n        (" + deviceId + ":" + category + " | " + physicalId + ")";
-            relationGroup.setTextContent(currentRelations + newRelation);
-
             // 6. Save to Internal Storage
             saveSvgToInternal();
 
@@ -452,7 +438,7 @@ public class NetworkFragment extends Fragment {
             Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
             deviceMap.clear();
             deviceMap.putAll(newDevices);
-            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument, deviceMap);
             iconToDeviceRelations.clear();
             iconToDeviceRelations.putAll(newRelations);
 
@@ -642,7 +628,7 @@ public class NetworkFragment extends Fragment {
 
                 if (doc != null) svgParser.parseViewBox(doc);
                 Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
-                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
+                Map<String, Set<String>> relations = svgParser.parseRelations(doc, devices);
                 svgParser.parseSelectionLayer(doc);
                 floorPlanBounds = null;
 
@@ -680,7 +666,7 @@ public class NetworkFragment extends Fragment {
 
                 if (doc != null) svgParser.parseViewBox(doc);
                 Map<String, DeviceInfo>  devices   = svgParser.extractDevices(doc);
-                Map<String, Set<String>> relations = svgParser.parseRelations(doc);
+                Map<String, Set<String>> relations = svgParser.parseRelations(doc, devices);
                 svgParser.parseSelectionLayer(doc);
                 floorPlanBounds = null;
 
@@ -858,34 +844,46 @@ public class NetworkFragment extends Fragment {
         refreshColors();
         reRenderSvg();
 
-        final RectF finalBounds = new RectF(areaBounds);
+        focusOnBounds(areaBounds, areaId, true);
+    }
+
+    private void focusOnBounds(RectF bounds, String areaIdToLock, boolean animate) {
         mainHandler.postDelayed(() -> {
             if (binding == null) return;
             Runnable doZoom = () -> {
                 float vW = binding.svgView.getWidth();
                 float vH = binding.svgView.getHeight();
                 if (vW <= 0 || vH <= 0) {
-                    mainHandler.postDelayed(() -> zoomToArea(areaId), 150);
+                    mainHandler.postDelayed(() -> focusOnBounds(bounds, areaIdToLock, animate), 150);
                     return;
                 }
-                float padding     = 8f;
-                RectF padded      = new RectF(finalBounds);
+                float padding = 20f;
+                RectF padded = new RectF(bounds);
                 padded.inset(-padding, -padding);
 
-                float scaleX      = vW / padded.width();
-                float scaleY      = vH / padded.height();
-                float targetScale = Math.min(MAX_ZOOM,
-                        Math.max(minZoom, Math.min(scaleX, scaleY)));
+                float scaleX = vW / padded.width();
+                float scaleY = vH / padded.height();
+                float targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, Math.min(scaleX, scaleY)));
 
-                areaLockedId      = areaId;
-                areaLockedMinZoom = targetScale;
+                if (areaIdToLock != null) {
+                    areaLockedId = areaIdToLock;
+                    areaLockedMinZoom = targetScale;
+                }
 
-                float cx     = padded.centerX() - svgParser.vbX;
-                float cy     = padded.centerY() - svgParser.vbY;
+                float cx = padded.centerX() - svgParser.vbX;
+                float cy = padded.centerY() - svgParser.vbY;
                 float transX = vW / 2f - cx * targetScale;
                 float transY = vH / 2f - cy * targetScale;
 
-                animateToMatrix(targetScale, transX, transY);
+                if (animate) {
+                    animateToMatrix(targetScale, transX, transY);
+                } else {
+                    matrix.reset();
+                    matrix.postScale(targetScale, targetScale);
+                    matrix.postTranslate(transX, transY);
+                    clampMatrix();
+                    binding.svgView.setImageMatrix(matrix);
+                }
             };
 
             if (binding.svgView.getDrawable() != null)
@@ -1374,7 +1372,7 @@ public class NetworkFragment extends Fragment {
             Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
             deviceMap.clear();
             deviceMap.putAll(newDevices);
-            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument, deviceMap);
             iconToDeviceRelations.clear();
             iconToDeviceRelations.putAll(newRelations);
 
@@ -1406,24 +1404,17 @@ public class NetworkFragment extends Fragment {
             // 2. Find and remove Physical Device
             Set<String> physicalIds = iconToDeviceRelations.get(iconId);
             if (physicalIds != null) {
-                Element devGroup = svgParser.findElementById(root, "Devices");
-                for (String pid : physicalIds) {
-                    Element pEl = svgParser.findElementById(devGroup, pid);
-                    if (pEl != null) {
-                        Node pParent = pEl.getParentNode();
-                        if (pParent != null) pParent.removeChild(pEl);
+                Element devGroup = svgParser.findElementById(root, "User Layer");
+                
+                if (devGroup != null) {
+                    for (String pid : physicalIds) {
+                        Element pEl = svgParser.findElementById(devGroup, pid);
+                        if (pEl != null) {
+                            Node pParent = pEl.getParentNode();
+                            if (pParent != null) pParent.removeChild(pEl);
+                        }
                     }
                 }
-            }
-
-            // 3. Update Relation group
-            Element relationGroup = svgParser.findElementById(root, "Relation");
-            if (relationGroup != null) {
-                String text = relationGroup.getTextContent();
-                // Regex to find (iconId : category | physId) or (iconId | physId)
-                String pattern = "\\s*\\(\\s*" + Pattern.quote(iconId) + "\\s*\\|[^)]+\\)";
-                String newText = text.replaceAll(pattern, "");
-                relationGroup.setTextContent(newText);
             }
 
             // 4. Save and Refresh
@@ -1432,7 +1423,7 @@ public class NetworkFragment extends Fragment {
             Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
             deviceMap.clear();
             deviceMap.putAll(newDevices);
-            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument);
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument, deviceMap);
             iconToDeviceRelations.clear();
             iconToDeviceRelations.putAll(newRelations);
 
@@ -1583,7 +1574,24 @@ public class NetworkFragment extends Fragment {
             return;
         }
 
+        // 3. Area check: if background is tapped, focus on area
+        String hitAreaId = findAreaAt(c[0], c[1]);
+        if (hitAreaId != null && !hitAreaId.equals(areaLockedId)) {
+            zoomToArea(hitAreaId);
+            return;
+        }
+
         deselectCurrentDevice();
+    }
+
+    private String findAreaAt(float svgX, float svgY) {
+        if (svgDocument == null) return null;
+        for (Map.Entry<String, Element> entry : svgParser.selectionLayerElements.entrySet()) {
+            if (svgParser.contains(entry.getValue(), svgX, svgY)) {
+                return entry.getKey();
+            }
+        }
+        return null;
     }
     private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
         DeviceInfo device = deviceMap.get(iconId);
@@ -1861,6 +1869,14 @@ public class NetworkFragment extends Fragment {
 
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
+
+        // New structure: RoomName_DeviceName_Count_ElementId_ReceiveId
+        // Example: GBDR_Strip Node_1_13_13 -> DeviceName is parts[1]
+        String[] parts = fullDeviceId.split("_");
+        if (parts.length >= 5) {
+            return parts[1];
+        }
+
         String name = fullDeviceId;
         int ci = name.lastIndexOf(":");
         if (ci != -1) name = name.substring(ci + 1).trim();

@@ -95,8 +95,9 @@ public class SvgParserList {
                 if ("g".equals(tag)) {
                     String id = el.getAttribute("id");
                     if (id != null && (id.equals("Walls") || id.equals("furniture") ||
-                            id.equals("Lights") || id.equals("Icons") ||
-                            id.contains("Walls") || id.contains("Icons"))) {
+                            id.equals("Lights") || id.equals("Technician Layer") ||
+                            id.equals("User Layer") ||
+                            id.contains("Walls") || id.contains("Layer"))) {
                         return true;
                     }
                 }
@@ -123,8 +124,9 @@ public class SvgParserList {
                 String floorId = childEl.getAttribute("id");
                 if (floorId == null || floorId.isEmpty()) continue;
 
-                // Find Icons group inside this floor
-                Element iconsGroup = findElementById(childEl, "Icons");
+                // Find Technician Layer inside this floor
+                Element iconsGroup = findElementById(childEl, "Technician Layer");
+
                 if (iconsGroup != null) {
                     List<String> areaNames = new ArrayList<>();
                     NodeList areaNodes = iconsGroup.getChildNodes();
@@ -133,7 +135,7 @@ public class SvgParserList {
                         if (aNode instanceof Element) {
                             Element aEl = (Element) aNode;
                             String aId = aEl.getAttribute("id");
-                            if (aId != null && !aId.isEmpty() && !"Relation".equals(aId)) {
+                            if (aId != null && !aId.isEmpty()) {
                                 areaNames.add(aId);
                                 // Extract device IDs for this specific area
                                 List<String> deviceIds = extractDeviceIdsFromGroup(aEl);
@@ -158,12 +160,12 @@ public class SvgParserList {
      * Parse single floor/area structure (areas directly under Icons group)
      */
     private static void parseAreasStructure(Element root, LinkedHashMap<String, List<String>> result) {
-        // Find Icons group
-        Element iconsGroup = findElementById(root, "Icons");
+        // Find Technician Layer
+        Element iconsGroup = findElementById(root, "Technician Layer");
 
         if (iconsGroup == null) {
             // Try to find any group that contains device rects
-            android.util.Log.w(TAG, "No Icons group found, scanning for area groups");
+            android.util.Log.w(TAG, "No interactive layer found, scanning for area groups");
             parseAreasFromRoot(root, result);
             return;
         }
@@ -184,9 +186,10 @@ public class SvgParserList {
             if (areaId == null || areaId.isEmpty()) continue;
 
             // Skip known non-area groups
-            if (areaId.equals("Relation") || areaId.equals("Devices") ||
+            if (areaId.equals("User Layer") ||
                     areaId.equals("selection_layer") || areaId.equals("Light") ||
-                    areaId.startsWith("Light") || areaId.equals("Icons")) {
+                    areaId.startsWith("Light") ||
+                    areaId.equals("Technician Layer")) {
                 continue;
             }
 
@@ -284,8 +287,8 @@ public class SvgParserList {
             if ("g".equals(tag)) {
                 String id = el.getAttribute("id");
                 if (id != null && !id.isEmpty() &&
-                        !id.equals("Icons") && !id.equals("Devices") &&
-                        !id.equals("Relation") && !id.equals("selection_layer") &&
+                        !id.equals("Technician Layer") && !id.equals("User Layer") &&
+                        !id.equals("selection_layer") &&
                         !id.equals("Light") && !id.startsWith("Light")) {
 
                     // Check if this group contains device rects

@@ -119,7 +119,7 @@ public class AreaListActivity extends AppCompatActivity {
                 String       areaId    = entry.getKey();
                 List<String> deviceIds = entry.getValue();
 
-                if (areaId.equals("Relation") || areaId.equals("Devices") ||
+                if (areaId.equals("Devices") ||
                         areaId.equals("Icons")   || areaId.equals("selection_layer")) {
                     continue;
                 }

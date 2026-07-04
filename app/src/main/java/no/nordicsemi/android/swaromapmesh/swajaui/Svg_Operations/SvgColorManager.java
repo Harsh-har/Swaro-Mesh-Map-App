@@ -143,7 +143,7 @@ public class SvgColorManager {
     }
     private void snapshotDevicesGroupFills(Document document) {
         if (document == null) return;
-        Element dg = parser.findElementById(document.getDocumentElement(), "Devices");
+        Element dg = parser.findElementById(document.getDocumentElement(), "User Layer");
         if (dg == null) return;
         snapshotFillsRecursive(dg);
     }
@@ -338,7 +338,7 @@ public class SvgColorManager {
 
     public void showOnlyPhysicalDevices(Set<String> activeDeviceIds, Set<String> addressedIds) {
         if (svgDocument == null) return;
-        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "User Layer");
         if (dg == null) return;
         applyColorToAllElements(dg, COLOR_TRANSPARENT);   // sab hide first
         for (String deviceId : activeDeviceIds) {
@@ -358,13 +358,13 @@ public class SvgColorManager {
     /** Shows all elements in the Devices layer. */
     public void showAllPhysicalDevices() {
         if (svgDocument == null) return;
-        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "User Layer");
         if (dg != null) restoreOriginalFillRecursive(dg);
     }
-    /** Hides all elements in the Devices layer. */
+    /** Hides all elements in the User Layer layer. */
     public void hideAllPhysicalDevices() {
         if (svgDocument == null) return;
-        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+        Element dg = parser.findElementById(svgDocument.getDocumentElement(), "User Layer");
         if (dg != null) applyColorToAllElements(dg, COLOR_TRANSPARENT);
     }
 

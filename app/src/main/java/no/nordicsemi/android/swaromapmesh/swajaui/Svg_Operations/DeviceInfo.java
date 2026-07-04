@@ -14,12 +14,16 @@ public class DeviceInfo {
     /** Bounding box in SVG coordinate space */
     public final RectF bounds;
 
-    /** Element ID extracted from <elementId> child node */
+    /** Element ID extracted from ID pattern or <elementId> child node */
     public final String elementId;
     public String receiveId;
 
-    /** Area group ID this device belongs to (e.g. "LivingRoom") */
+    /** Area group ID this device belongs to (e.g. "LivingRoom" or "GBDR") */
     public final String areaId;
+
+    // ── Fields for new ID structure ──────────────────────────────────────
+    public String deviceName;
+    public String deviceCount;
 
     public DeviceInfo(String id, Element element, RectF bounds,
                       String elementId, String areaId) {

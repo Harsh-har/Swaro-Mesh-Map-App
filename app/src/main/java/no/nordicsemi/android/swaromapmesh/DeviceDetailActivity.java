@@ -8,9 +8,7 @@ import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.appcompat.app.AppCompatActivity;
-
 import java.util.List;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityDeviceDetailBinding;
@@ -104,8 +102,27 @@ public class DeviceDetailActivity extends AppCompatActivity {
     // UI helpers
     // =========================================================================
 
+    private String extractDeviceCode(String fullId) {
+        if (fullId == null || fullId.isEmpty()) return "";
+        // New structure: RoomName_DeviceName_Count_ElementId_ReceiveId
+        // Example: GBDR_Strip Node_1_13_13 -> Device Code is GBDR
+        if (fullId.contains("_")) {
+            return fullId.split("_")[0];
+        }
+        return fullId;
+    }
+
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
+
+        // Check for new structure first
+        String[] parts = fullDeviceId.split("_");
+        if (parts.length >= 5) {
+            // RoomName_DeviceName_Count_ElementId_ReceiveId
+            // Return DeviceName (index 1)
+            return parts[1];
+        }
+
         String name = fullDeviceId;
         if (name.contains(":")) {
             name = name.substring(name.lastIndexOf(":") + 1).trim();
@@ -130,13 +147,22 @@ public class DeviceDetailActivity extends AppCompatActivity {
 
         if (pureDeviceName != null && !pureDeviceName.isEmpty()) {
             deviceName = pureDeviceName;
-            binding.tvDeviceIdValue.setText(pureDeviceName);
+        }
+
+        // Show the Device Name (e.g. Strip Node) in the Device ID row
+        binding.tvDeviceIdValue.setText(deviceName != null ? deviceName : deviceId);
+
+        if (getSupportActionBar() != null) {
+            getSupportActionBar().setTitle(deviceName != null ? deviceName : deviceId);
+        }
+
+        if (pureDeviceName != null && !pureDeviceName.isEmpty()) {
+            deviceName = pureDeviceName;
             if (getSupportActionBar() != null) getSupportActionBar().setTitle(pureDeviceName);
         } else if (deviceName != null && !deviceName.isEmpty()) {
-            binding.tvDeviceIdValue.setText(deviceName);
             if (getSupportActionBar() != null) getSupportActionBar().setTitle(deviceName);
         } else {
-            binding.tvDeviceIdValue.setText(deviceId);
+            if (getSupportActionBar() != null) getSupportActionBar().setTitle(deviceId);
         }
 
         binding.tvElementIdValue.setText(
@@ -148,7 +174,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         Log.d(TAG, "populateDeviceInfo: deviceName=" + deviceName
                 + " originalId=" + deviceId
                 + " elementId=" + elementId
-                + " receiveId=" + receiveId        // ← added
+                + " receiveId=" + receiveId
                 + " svgElementIdInt=" + svgElementIdInt);
     }
     private void setupButtons() {
@@ -171,7 +197,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
             intent.putExtra(EXTRA_DEVICE_NAME,            deviceName);
             intent.putExtra(EXTRA_DEVICE_TYPE,            deviceType);
             intent.putExtra(EXTRA_ELEMENT_ID,             elementId);
-            intent.putExtra(EXTRA_RECEIVE_ID,             receiveId); // ← ADD THIS
+            intent.putExtra(EXTRA_RECEIVE_ID,             receiveId);
 
             Log.d(TAG, "Launch provisioning: deviceId=" + deviceId
                     + " deviceName=" + deviceName
@@ -204,7 +230,6 @@ public class DeviceDetailActivity extends AppCompatActivity {
         }
         final String finalSvgDeviceId = svgDeviceId;
 
-        // ── Resolve receiveId — result se update karo agar aaya ho ───────
         String receivedReceiveId = data.getStringExtra(EXTRA_RECEIVE_ID);
         if (receivedReceiveId != null && !receivedReceiveId.isEmpty()) {
             receiveId = receivedReceiveId;
