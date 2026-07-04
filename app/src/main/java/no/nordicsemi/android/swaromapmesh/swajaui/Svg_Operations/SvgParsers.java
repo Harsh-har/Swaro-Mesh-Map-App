@@ -973,18 +973,25 @@ public class SvgParsers {
         return s.toLowerCase().replace(" ", "_").replace("-", "_");
     }
 
-    public boolean isFuzzyMatch(String normId, String normFocus) {
-        if (normId.equals(normFocus)) return true;
-        if (normFocus.contains(normId)) return true;
-        if (normId.contains(normFocus)) return true;
-        String[] idWords = normId.split("_"), focusWords = normFocus.split("_");
-        for (String iw : idWords) {
-            if (iw.length() <= 2) continue;
-            for (String fw : focusWords) {
-                if (fw.length() <= 2) continue;
-                if (iw.equals(fw)) return true;
-            }
-        }
+    /**
+     * A more aggressive normalization for fuzzy matching.
+     * Removes all spaces, underscores, and dashes.
+     */
+    private String superNormalize(String s) {
+        if (s == null) return "";
+        return s.toLowerCase().replaceAll("[\\s_-]+", "");
+    }
+
+    public boolean isFuzzyMatch(String id, String target) {
+        if (id == null || target == null) return false;
+        
+        String sId = superNormalize(id);
+        String sTarget = superNormalize(target);
+
+        if (sId.equals(sTarget)) return true;
+        if (sId.contains(sTarget)) return true;
+        if (sTarget.contains(sId)) return true;
+
         return false;
     }
 }

@@ -400,8 +400,8 @@ public class SvgColorManager {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
 
-            // ✅ Area filter: hide icons outside the focused area
-            if (areaFilterId != null && !areaFilterId.equals(info.areaId)) {
+            // ✅ Area filter: hide icons outside the focused area using fuzzy match
+            if (areaFilterId != null && !parser.isFuzzyMatch(info.areaId, areaFilterId)) {
                 applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
                 continue;
             }

@@ -119,8 +119,14 @@ public class AreaListActivity extends AppCompatActivity {
                 String       areaId    = entry.getKey();
                 List<String> deviceIds = entry.getValue();
 
-                if (areaId.equals("Devices") ||
-                        areaId.equals("Icons")   || areaId.equals("selection_layer")) {
+                String lowerId = areaId.toLowerCase();
+                if (lowerId.contains("devices") ||
+                        lowerId.contains("icons") ||
+                        lowerId.contains("layer") ||
+                        lowerId.contains("selection") ||
+                        lowerId.contains("walls") ||
+                        lowerId.contains("furniture") ||
+                        lowerId.contains("background")) {
                     continue;
                 }
 

@@ -2,6 +2,7 @@ package no.nordicsemi.android.swaromapmesh.swajaui;
 
 import android.content.ContentResolver;
 import android.net.Uri;
+import android.util.Log;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -18,330 +19,189 @@ public class SvgParserList {
 
     private static final String TAG = "SvgParser";
 
-    // ── Called by ImportMap_Activity ──────────────────────────────────────────
     public static ArrayList<String> parseAreaIds(ContentResolver resolver, Uri uri) {
         ArrayList<String> flat = new ArrayList<>();
         LinkedHashMap<String, List<String>> map = parseFloorAreas(resolver, uri);
         for (Map.Entry<String, List<String>> entry : map.entrySet()) {
-            flat.add(entry.getKey());       // floor/area id
-            flat.addAll(entry.getValue());  // device ids inside
+            flat.add(entry.getKey());
+            flat.addAll(entry.getValue());
         }
         return flat;
     }
 
-    // ── Called by AreaListActivity (floor-grouped or area-grouped) ────────────
-    public static LinkedHashMap<String, List<String>> parseFloorAreas(
-            ContentResolver resolver, Uri uri) {
-
+    public static LinkedHashMap<String, List<String>> parseFloorAreas(ContentResolver resolver, Uri uri) {
         LinkedHashMap<String, List<String>> result = new LinkedHashMap<>();
-
         try (InputStream is = resolver.openInputStream(uri)) {
             if (is == null) return result;
-
             Document doc = parseDocument(is);
             if (doc == null) return result;
 
             Element root = doc.getDocumentElement();
+            
+            // 1. Prioritize Technician Layer / Icons (Single Floor logic)
+            Element techLayer = findElementByPossibleIds(root, "Technician Layer", "TechnicianLayer", "Icons");
+            if (techLayer != null) {
+                Log.d(TAG, "Parsing Technician Layer...");
+                parseRoomsFromParent(techLayer, result);
+            }
 
-            // First, try to find floors structure (groups with Walls, furniture, Lights, Icons)
-            boolean hasFloors = false;
+            // 2. Scan root for any groups that might be floors or rooms outside the tech layer
             NodeList rootChildren = root.getChildNodes();
-
             for (int i = 0; i < rootChildren.getLength(); i++) {
-                Node child = rootChildren.item(i);
-                if (!(child instanceof Element)) continue;
+                Node node = rootChildren.item(i);
+                if (!(node instanceof Element)) continue;
+                Element el = (Element) node;
+                String id = el.getAttribute("id");
+                
+                if (id == null || id.isEmpty() || isStructuralGroup(id)) continue;
 
-                Element childEl = (Element) child;
-                String tag = childEl.getTagName().toLowerCase();
-                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-
-                if ("g".equals(tag)) {
-                    String id = childEl.getAttribute("id");
-                    if (id != null && !id.isEmpty() && isFloorGroup(childEl)) {
-                        hasFloors = true;
-                        break;
+                if (isFloorGroup(el)) {
+                    Log.d(TAG, "Found potential floor: " + id);
+                    parseFloor(el, result);
+                } else if (!result.containsKey(id)) {
+                    // It might be a room directly at the root
+                    List<String> devices = extractDeviceIdsFromGroup(el);
+                    if (!devices.isEmpty()) {
+                        Log.d(TAG, "Found root room: " + id);
+                        result.put(id, devices);
                     }
                 }
             }
-
-            if (hasFloors) {
-                // Case 1: Multiple floors - parse floor-wise
-                android.util.Log.d(TAG, "Detected multiple floors structure");
-                parseFloorsStructure(root, result);
-            } else {
-                // Case 2: Single floor / area-based structure - parse areas directly
-                android.util.Log.d(TAG, "Detected single floor/area structure");
-                parseAreasStructure(root, result);
-            }
+            
+            Log.d(TAG, "Final Area Count: " + result.size());
 
         } catch (Exception e) {
-            e.printStackTrace();
+            Log.e(TAG, "Error parsing SVG", e);
         }
-
         return result;
     }
 
-    /**
-     * Check if a group is a floor group (contains Walls, furniture, Lights, or Icons)
-     */
-    private static boolean isFloorGroup(Element group) {
-        NodeList children = group.getChildNodes();
+    private static void parseFloor(Element floorEl, LinkedHashMap<String, List<String>> result) {
+        String floorId = floorEl.getAttribute("id");
+        LinkedHashMap<String, List<String>> rooms = new LinkedHashMap<>();
+        
+        // Inside a floor, look for Technician Layer first
+        Element tech = findElementByPossibleIds(floorEl, "Technician Layer", "Icons");
+        if (tech != null) {
+            parseRoomsFromParent(tech, rooms);
+        } else {
+            // Otherwise scan all children
+            parseRoomsFromParent(floorEl, rooms);
+        }
+        
+        if (!rooms.isEmpty()) {
+            result.put(floorId, new ArrayList<>(rooms.keySet()));
+            result.putAll(rooms);
+        }
+    }
+
+    private static void parseRoomsFromParent(Element parent, LinkedHashMap<String, List<String>> result) {
+        NodeList children = parent.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                Element el = (Element) child;
-                String tag = el.getTagName().toLowerCase();
-                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+            Node node = children.item(i);
+            if (node instanceof Element) {
+                Element el = (Element) node;
+                String tag = normalizeTag(el.getTagName());
                 if ("g".equals(tag)) {
                     String id = el.getAttribute("id");
-                    if (id != null && (id.equals("Walls") || id.equals("furniture") ||
-                            id.equals("Lights") || id.equals("Technician Layer") ||
-                            id.equals("User Layer") ||
-                            id.contains("Walls") || id.contains("Layer"))) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Parse multiple floors structure
-     */
-    private static void parseFloorsStructure(Element root, LinkedHashMap<String, List<String>> result) {
-        NodeList rootChildren = root.getChildNodes();
-
-        for (int i = 0; i < rootChildren.getLength(); i++) {
-            Node child = rootChildren.item(i);
-            if (!(child instanceof Element)) continue;
-
-            Element childEl = (Element) child;
-            String tag = childEl.getTagName().toLowerCase();
-            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-
-            if ("g".equals(tag)) {
-                String floorId = childEl.getAttribute("id");
-                if (floorId == null || floorId.isEmpty()) continue;
-
-                // Find Technician Layer inside this floor
-                Element iconsGroup = findElementById(childEl, "Technician Layer");
-
-                if (iconsGroup != null) {
-                    List<String> areaNames = new ArrayList<>();
-                    NodeList areaNodes = iconsGroup.getChildNodes();
-                    for (int j = 0; j < areaNodes.getLength(); j++) {
-                        Node aNode = areaNodes.item(j);
-                        if (aNode instanceof Element) {
-                            Element aEl = (Element) aNode;
-                            String aId = aEl.getAttribute("id");
-                            if (aId != null && !aId.isEmpty()) {
-                                areaNames.add(aId);
-                                // Extract device IDs for this specific area
-                                List<String> deviceIds = extractDeviceIdsFromGroup(aEl);
-                                if (deviceIds.isEmpty() && hasDeviceRect(aEl)) {
-                                    deviceIds.add(aId);
-                                }
-                                result.put(aId, deviceIds);
-                            }
+                    if (id != null && !id.isEmpty() && !isStructuralGroup(id)) {
+                        List<String> devices = extractDeviceIdsFromGroup(el);
+                        // Add if it has devices OR if it's a leaf group with a Swaro ID
+                        if (!devices.isEmpty() || isSwaroId(id)) {
+                            result.put(id, devices);
+                            Log.d(TAG, "Room Identified: " + id + " (devices=" + devices.size() + ")");
                         }
                     }
-
-                    if (!areaNames.isEmpty()) {
-                        result.put(floorId, areaNames);
-                        android.util.Log.d(TAG, "Floor '" + floorId + "' has " + areaNames.size() + " areas");
-                    }
                 }
             }
         }
     }
 
-    /**
-     * Parse single floor/area structure (areas directly under Icons group)
-     */
-    private static void parseAreasStructure(Element root, LinkedHashMap<String, List<String>> result) {
-        // Find Technician Layer
-        Element iconsGroup = findElementById(root, "Technician Layer");
-
-        if (iconsGroup == null) {
-            // Try to find any group that contains device rects
-            android.util.Log.w(TAG, "No interactive layer found, scanning for area groups");
-            parseAreasFromRoot(root, result);
-            return;
-        }
-
-        // Parse areas from Icons group
-        NodeList areaNodes = iconsGroup.getChildNodes();
-
-        for (int i = 0; i < areaNodes.getLength(); i++) {
-            Node aNode = areaNodes.item(i);
-            if (!(aNode instanceof Element)) continue;
-
-            Element aEl = (Element) aNode;
-            String aTag = aEl.getTagName().toLowerCase();
-            if (aTag.contains(":")) aTag = aTag.substring(aTag.indexOf(':') + 1);
-            if (!"g".equals(aTag)) continue;
-
-            String areaId = aEl.getAttribute("id");
-            if (areaId == null || areaId.isEmpty()) continue;
-
-            // Skip known non-area groups
-            if (areaId.equals("User Layer") ||
-                    areaId.equals("selection_layer") || areaId.equals("Light") ||
-                    areaId.startsWith("Light") ||
-                    areaId.equals("Technician Layer")) {
-                continue;
-            }
-
-            // Extract device IDs from this area
-            List<String> deviceIds = extractDeviceIdsFromGroup(aEl);
-
-            // Also add the area itself if it has no devices but has rect
-            if (deviceIds.isEmpty() && hasDeviceRect(aEl)) {
-                deviceIds.add(areaId);
-            }
-
-            if (!deviceIds.isEmpty()) {
-                result.put(areaId, deviceIds);
-                android.util.Log.d(TAG, "Area '" + areaId + "' has " + deviceIds.size() + " devices");
-            } else {
-                // Still add the area even without devices (for display)
-                result.put(areaId, new ArrayList<>());
-                android.util.Log.d(TAG, "Area '" + areaId + "' has no devices");
-            }
-        }
-
-        // If no areas found, try scanning root for area groups
-        if (result.isEmpty()) {
-            parseAreasFromRoot(root, result);
-        }
-    }
-
-    /**
-     * Extract device IDs from a group (look for rect elements)
-     */
     private static List<String> extractDeviceIdsFromGroup(Element group) {
         List<String> deviceIds = new ArrayList<>();
-
         NodeList children = group.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
             Node child = children.item(i);
             if (!(child instanceof Element)) continue;
-
             Element el = (Element) child;
-            String tag = el.getTagName().toLowerCase();
-            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
+            String tag = normalizeTag(el.getTagName());
+            String id = el.getAttribute("id");
 
             if ("g".equals(tag)) {
-                String id = el.getAttribute("id");
-                // Check if this group has a rect (device indicator)
-                if (hasDeviceRect(el)) {
-                    if (id != null && !id.isEmpty() && !deviceIds.contains(id)) {
-                        deviceIds.add(id);
-                    }
+                if (isSwaroId(id)) {
+                    deviceIds.add(id);
+                } else {
+                    deviceIds.addAll(extractDeviceIdsFromGroup(el));
                 }
-                // Also check deeper
-                deviceIds.addAll(extractDeviceIdsFromGroup(el));
+            } else if (isSwaroId(id)) {
+                deviceIds.add(id);
             }
         }
-
         return deviceIds;
     }
 
-    /**
-     * Check if a group contains a rect (indicating it's a device)
-     */
-    private static boolean hasDeviceRect(Element group) {
+    private static boolean isSwaroId(String id) {
+        if (id == null || id.isEmpty()) return false;
+        // Standard Swaro ID has at least 2 underscores: Area_Type_Index
+        // e.g., KDR_CLF01_1
+        int count = 0;
+        for (char c : id.toCharArray()) if (c == '_') count++;
+        return count >= 2;
+    }
+
+    private static boolean isStructuralGroup(String id) {
+        if (id == null) return true;
+        String low = id.toLowerCase().replace("_", " ").replace("-", " ");
+        return low.contains("layer") || low.contains("walls") || low.contains("furniture") || 
+               low.contains("background") || low.contains("selection") || 
+               low.equals("icons") || low.equals("walls") || low.equals("furniture");
+    }
+
+    private static boolean isFloorGroup(Element group) {
+        String id = group.getAttribute("id");
+        if (id != null && (id.toLowerCase().contains("floor"))) return true;
         NodeList children = group.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                Element el = (Element) child;
-                String tag = el.getTagName().toLowerCase();
-                if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-                if ("rect".equals(tag)) {
-                    return true;
-                }
-                if ("g".equals(tag) && hasDeviceRect(el)) {
-                    return true;
-                }
+            if (children.item(i) instanceof Element) {
+                String cid = ((Element) children.item(i)).getAttribute("id");
+                if (cid != null && (cid.equalsIgnoreCase("Walls") || cid.equalsIgnoreCase("Furniture"))) return true;
             }
         }
         return false;
     }
 
-    /**
-     * Fallback: parse areas directly from root (for single-level structure)
-     */
-    private static void parseAreasFromRoot(Element root, LinkedHashMap<String, List<String>> result) {
-        NodeList children = root.getChildNodes();
-
-        for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (!(child instanceof Element)) continue;
-
-            Element el = (Element) child;
-            String tag = el.getTagName().toLowerCase();
-            if (tag.contains(":")) tag = tag.substring(tag.indexOf(':') + 1);
-
-            if ("g".equals(tag)) {
-                String id = el.getAttribute("id");
-                if (id != null && !id.isEmpty() &&
-                        !id.equals("Technician Layer") && !id.equals("User Layer") &&
-                        !id.equals("selection_layer") &&
-                        !id.equals("Light") && !id.startsWith("Light")) {
-
-                    // Check if this group contains device rects
-                    List<String> deviceIds = extractDeviceIdsFromGroup(el);
-                    if (!deviceIds.isEmpty()) {
-                        result.put(id, deviceIds);
-                        android.util.Log.d(TAG, "Root area '" + id + "' has " + deviceIds.size() + " devices");
-                    } else if (hasDeviceRect(el)) {
-                        result.put(id, new ArrayList<>());
-                        android.util.Log.d(TAG, "Root area '" + id + "' (no devices found)");
-                    }
-                }
-            }
+    private static Element findElementByPossibleIds(Element parent, String... ids) {
+        for (String id : ids) {
+            Element found = findElementById(parent, id);
+            if (found != null) return found;
         }
+        return null;
     }
-
-    // ── Helpers ───────────────────────────────────────────────────────────────
 
     private static Element findElementById(Element parent, String targetId) {
         if (targetId.equals(parent.getAttribute("id"))) return parent;
         NodeList children = parent.getChildNodes();
         for (int i = 0; i < children.getLength(); i++) {
-            Node child = children.item(i);
-            if (child instanceof Element) {
-                Element found = findElementById((Element) child, targetId);
+            if (children.item(i) instanceof Element) {
+                Element found = findElementById((Element) children.item(i), targetId);
                 if (found != null) return found;
             }
         }
         return null;
     }
 
-    private static Document parseDocument(InputStream inputStream) {
-        if (inputStream == null) return null;
+    private static String normalizeTag(String tag) {
+        if (tag == null) return "";
+        int colon = tag.indexOf(':');
+        return (colon >= 0 ? tag.substring(colon + 1) : tag).toLowerCase();
+    }
+
+    private static Document parseDocument(InputStream is) {
         try {
-            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-            factory.setNamespaceAware(false);
-            factory.setValidating(false);
-            try {
-                factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
-                factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
-                factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-            } catch (Exception ignored) {}
-
-            DocumentBuilder builder = factory.newDocumentBuilder();
-            builder.setEntityResolver((pub, sys) ->
-                    new org.xml.sax.InputSource(new java.io.StringReader("")));
-
-            Document doc = builder.parse(inputStream);
-            doc.getDocumentElement().normalize();
-            return doc;
-
+            DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+            dbf.setNamespaceAware(false);
+            return dbf.newDocumentBuilder().parse(is);
         } catch (Exception e) {
-            e.printStackTrace();
             return null;
         }
     }

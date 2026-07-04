@@ -13,6 +13,7 @@ import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.ScannerActivity;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityDeviceDetailBinding;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.utils.DeviceCodes;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -143,26 +144,25 @@ public class DeviceDetailActivity extends AppCompatActivity {
     }
 
     private void populateDeviceInfo() {
-        String pureDeviceName = getIntent().getStringExtra(EXTRA_PURE_DEVICE_NAME);
+        String pureDeviceNameFromIntent = getIntent().getStringExtra(EXTRA_PURE_DEVICE_NAME);
 
-        if (pureDeviceName != null && !pureDeviceName.isEmpty()) {
-            deviceName = pureDeviceName;
+        if (pureDeviceNameFromIntent != null && !pureDeviceNameFromIntent.isEmpty()) {
+            deviceName = pureDeviceNameFromIntent;
         }
 
-        // Show the Device Name (e.g. Strip Node) in the Device ID row
-        binding.tvDeviceIdValue.setText(deviceName != null ? deviceName : deviceId);
+        // Use friendly name from DeviceCodes if available
+        String friendlyName = DeviceCodes.getName(deviceName);
+        if (friendlyName == null) {
+            friendlyName = deviceName;
+        }
+
+        String displayValue = (friendlyName != null && !friendlyName.isEmpty()) ? friendlyName : deviceId;
+
+        // Show the friendly name in the Device Name row
+        binding.tvDeviceIdValue.setText(displayValue);
 
         if (getSupportActionBar() != null) {
-            getSupportActionBar().setTitle(deviceName != null ? deviceName : deviceId);
-        }
-
-        if (pureDeviceName != null && !pureDeviceName.isEmpty()) {
-            deviceName = pureDeviceName;
-            if (getSupportActionBar() != null) getSupportActionBar().setTitle(pureDeviceName);
-        } else if (deviceName != null && !deviceName.isEmpty()) {
-            if (getSupportActionBar() != null) getSupportActionBar().setTitle(deviceName);
-        } else {
-            if (getSupportActionBar() != null) getSupportActionBar().setTitle(deviceId);
+            getSupportActionBar().setTitle(displayValue);
         }
 
         binding.tvElementIdValue.setText(
@@ -172,6 +172,8 @@ public class DeviceDetailActivity extends AppCompatActivity {
                 (receiveId != null && !receiveId.isEmpty()) ? receiveId : "—");
 
         Log.d(TAG, "populateDeviceInfo: deviceName=" + deviceName
+                + " friendlyName=" + friendlyName
+                + " displayValue=" + displayValue
                 + " originalId=" + deviceId
                 + " elementId=" + elementId
                 + " receiveId=" + receiveId

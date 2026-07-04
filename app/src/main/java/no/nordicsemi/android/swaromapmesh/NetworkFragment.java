@@ -829,78 +829,161 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
 
     private void zoomToArea(String areaId) {
+        if (areaId == null || areaId.isEmpty()) return;
+
         RectF areaBounds = svgParser.selectionLayerBounds.get(areaId);
+        String finalAreaId = areaId;
+
+        // 1. Try exact match in areaMap or find element directly
         if (areaBounds == null) {
-            List<String> iconIds = svgParser.areaMap.get(areaId);
-            if (iconIds == null || iconIds.isEmpty()) return;
-            for (String iconId : iconIds) {
-                DeviceInfo info = deviceMap.get(iconId);
-                if (info != null && info.bounds != null) {
-                    if (areaBounds == null) areaBounds = new RectF(info.bounds);
-                    else areaBounds.union(info.bounds);
-                }
+            Element areaEl = svgParser.findElementById(svgDocument.getDocumentElement(), areaId);
+            if (areaEl != null) {
+                areaBounds = svgParser.computeBounds(areaEl);
+                Log.d(TAG, "zoomToArea: Found area element directly by ID: " + areaId);
             }
-            if (areaBounds == null) return;
         }
 
-        Log.d(TAG, "zoomToArea '" + areaId + "' → " + areaBounds);
-        currentFocusAreaId = areaId;
+        if (areaBounds == null) {
+            List<String> iconIds = svgParser.areaMap.get(areaId);
+            if (iconIds != null && !iconIds.isEmpty()) {
+                areaBounds = calculateAreaBoundsFromIcons(iconIds);
+                Log.d(TAG, "zoomToArea: Calculated bounds from " + iconIds.size() + " icons for: " + areaId);
+            }
+        }
+
+        // 2. Fuzzy match fallback
+        if (areaBounds == null) {
+            Log.d(TAG, "zoomToArea: No exact match for '" + areaId + "', trying robust fuzzy match...");
+
+            // Try fuzzy selection layer
+            for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+                if (svgParser.isFuzzyMatch(entry.getKey(), areaId)) {
+                    areaBounds = entry.getValue();
+                    finalAreaId = entry.getKey();
+                    Log.d(TAG, "zoomToArea: Fuzzy match found in selectionLayer: " + finalAreaId);
+                    break;
+                }
+            }
+
+            // Try fuzzy element search
+            if (areaBounds == null) {
+                Element root = svgDocument.getDocumentElement();
+                NodeList allGroups = root.getElementsByTagName("g");
+                for (int i = 0; i < allGroups.getLength(); i++) {
+                    Element el = (Element) allGroups.item(i);
+                    String id = el.getAttribute("id");
+                    if (svgParser.isFuzzyMatch(id, areaId)) {
+                        areaBounds = svgParser.computeBounds(el);
+                        finalAreaId = id;
+                        Log.d(TAG, "zoomToArea: Fuzzy match found room element: " + finalAreaId);
+                        break;
+                    }
+                }
+            }
+
+            // Try fuzzy area map icons fallback
+            if (areaBounds == null) {
+                for (Map.Entry<String, List<String>> entry : svgParser.areaMap.entrySet()) {
+                    if (svgParser.isFuzzyMatch(entry.getKey(), areaId)) {
+                        areaBounds = calculateAreaBoundsFromIcons(entry.getValue());
+                        if (areaBounds != null) {
+                            finalAreaId = entry.getKey();
+                            Log.d(TAG, "zoomToArea: Fuzzy match found icons in areaMap: " + finalAreaId);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (areaBounds == null || areaBounds.isEmpty()) {
+            Log.w(TAG, "zoomToArea: Could not find bounds for '" + areaId + "'");
+            return;
+        }
+
+        Log.d(TAG, "zoomToArea '" + finalAreaId + "' → " + areaBounds);
+        currentFocusAreaId = finalAreaId;
 
         colorManager.dimOtherAreas(
-                areaId,
+                finalAreaId,
                 svgParser.selectionLayerElements,
                 svgParser.selectionLayerBounds,
                 new RectF(areaBounds));
         refreshColors();
         reRenderSvg();
 
-        focusOnBounds(areaBounds, areaId, true);
+        focusOnBounds(areaBounds, finalAreaId, true);
+    }
+
+    private RectF calculateAreaBoundsFromIcons(List<String> iconIds) {
+        if (iconIds == null || iconIds.isEmpty()) return null;
+        RectF bounds = null;
+        for (String iconId : iconIds) {
+            DeviceInfo info = deviceMap.get(iconId);
+            if (info != null && info.bounds != null) {
+                if (bounds == null) bounds = new RectF(info.bounds);
+                else bounds.union(info.bounds);
+            }
+        }
+        return bounds;
     }
 
     private void focusOnBounds(RectF bounds, String areaIdToLock, boolean animate) {
-        mainHandler.postDelayed(() -> {
-            if (binding == null) return;
-            Runnable doZoom = () -> {
-                float vW = binding.svgView.getWidth();
-                float vH = binding.svgView.getHeight();
-                if (vW <= 0 || vH <= 0) {
-                    mainHandler.postDelayed(() -> focusOnBounds(bounds, areaIdToLock, animate), 150);
-                    return;
-                }
-                float padding = 20f;
-                RectF padded = new RectF(bounds);
-                padded.inset(-padding, -padding);
+        if (binding == null) return;
+        
+        Runnable doZoom = () -> {
+            float vW = binding.svgView.getWidth();
+            float vH = binding.svgView.getHeight();
+            if (vW <= 0 || vH <= 0) {
+                mainHandler.postDelayed(() -> focusOnBounds(bounds, areaIdToLock, animate), 150);
+                return;
+            }
+            float padding = 30f; // Slightly more padding
+            RectF padded = new RectF(bounds);
+            padded.inset(-padding, -padding);
 
-                float scaleX = vW / padded.width();
-                float scaleY = vH / padded.height();
-                float targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, Math.min(scaleX, scaleY)));
+            float scaleX = vW / padded.width();
+            float scaleY = vH / padded.height();
+            float targetScale = Math.min(MAX_ZOOM, Math.max(minZoom, Math.min(scaleX, scaleY)));
 
+            float cx = padded.centerX() - svgParser.vbX;
+            float cy = padded.centerY() - svgParser.vbY;
+            float transX = vW / 2f - cx * targetScale;
+            float transY = vH / 2f - cy * targetScale;
+
+            if (animate) {
+                // Clear any existing lock so we can animate scale smoothly
+                areaLockedId = null;
+                areaLockedMinZoom = -1f;
+                
+                animateToMatrix(targetScale, transX, transY);
+                
+                // Lock after animation finishes
+                mainHandler.postDelayed(() -> {
+                    if (areaIdToLock != null) {
+                        areaLockedId = areaIdToLock;
+                        areaLockedMinZoom = targetScale;
+                        clampMatrix();
+                        binding.svgView.setImageMatrix(matrix);
+                    }
+                }, ANIMATION_DURATION + 50);
+            } else {
                 if (areaIdToLock != null) {
                     areaLockedId = areaIdToLock;
                     areaLockedMinZoom = targetScale;
                 }
+                matrix.reset();
+                matrix.postScale(targetScale, targetScale);
+                matrix.postTranslate(transX, transY);
+                clampMatrix();
+                binding.svgView.setImageMatrix(matrix);
+            }
+        };
 
-                float cx = padded.centerX() - svgParser.vbX;
-                float cy = padded.centerY() - svgParser.vbY;
-                float transX = vW / 2f - cx * targetScale;
-                float transY = vH / 2f - cy * targetScale;
-
-                if (animate) {
-                    animateToMatrix(targetScale, transX, transY);
-                } else {
-                    matrix.reset();
-                    matrix.postScale(targetScale, targetScale);
-                    matrix.postTranslate(transX, transY);
-                    clampMatrix();
-                    binding.svgView.setImageMatrix(matrix);
-                }
-            };
-
-            if (binding.svgView.getDrawable() != null)
-                binding.svgView.post(doZoom);
-            else
-                mainHandler.postDelayed(() -> binding.svgView.post(doZoom), 200);
-        }, 300);
+        if (binding.svgView.getDrawable() != null)
+            binding.svgView.post(doZoom);
+        else
+            mainHandler.postDelayed(() -> binding.svgView.post(doZoom), 200);
     }
 
     private void exitAreaZoom() {
@@ -1020,10 +1103,13 @@ public class NetworkFragment extends Fragment {
                 fitFloorPlanToView(false);
                 binding.svgView.invalidate();
                 if (applyDomChanges) reRenderSvg();
+                
+                // If there's a pending area from navigation, zoom to it now
                 if (pendingFocusAreaId != null) {
                     final String focusId = pendingFocusAreaId;
                     pendingFocusAreaId = null;
-                    mainHandler.postDelayed(() -> zoomToArea(focusId), 400);
+                    // Short delay to ensure everything is stable
+                    mainHandler.postDelayed(() -> zoomToArea(focusId), 150);
                 }
             });
         } catch (Exception e) {
@@ -1571,7 +1657,8 @@ public class NetworkFragment extends Fragment {
         if (hitIconId != null) {
             if (currentFocusAreaId != null) {
                 DeviceInfo info = deviceMap.get(hitIconId);
-                if (info == null || !currentFocusAreaId.equals(info.areaId)) return;
+                // Use fuzzy match for area verification during tap
+                if (info == null || !svgParser.isFuzzyMatch(info.areaId, currentFocusAreaId)) return;
             }
             onDeviceTapped(hitIconId);
             return;
