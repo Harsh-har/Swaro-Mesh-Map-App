@@ -166,5 +166,12 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
+        <!-- DEVICE FILTER -->
+        <include
+            android:id="@+id/container_device_filter"
+            layout="@layout/layout_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
     </LinearLayout>
 </ScrollView>

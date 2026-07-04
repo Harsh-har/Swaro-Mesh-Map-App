@@ -798,13 +798,17 @@ public class NetworkFragment extends Fragment {
     // ══════════════════════════════════════════════════════════════════════
 
     private void refreshColors() {
+        SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        boolean showProvisioned = prefs.getBoolean("show_device_filter", false);
+
         colorManager.refreshAllColors(
                 deviceMap,
                 getProvisionedSet(),
                 getAddressedSet(),
                 selectedDeviceId,
                 iconToDeviceRelations,
-                currentFocusAreaId
+                currentFocusAreaId,
+                showProvisioned
         );
     }
 

@@ -160,6 +160,29 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
+        // DEVICE FILTER - ADD THIS SECTION
+        binding.containerDeviceFilter.image
+                .setBackground(ContextCompat.getDrawable(requireContext(),
+                        R.drawable.ic_settings));
+        binding.containerDeviceFilter.title.setText("Device Filter");
+        binding.containerDeviceFilter.text.setVisibility(View.VISIBLE);
+        binding.containerDeviceFilter.text.setText("Show all devices after provisioning");
+        binding.containerDeviceFilter.actionChangeTestMode.setVisibility(View.VISIBLE);
+
+        SharedPreferences appPrefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        boolean isDeviceFilterEnabled = appPrefs.getBoolean("show_device_filter", false);
+        binding.containerDeviceFilter.actionChangeTestMode.setChecked(isDeviceFilterEnabled);
+
+        binding.containerDeviceFilter.actionChangeTestMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            appPrefs.edit().putBoolean("show_device_filter", isChecked).apply();
+            Log.d(TAG, "Device Filter toggled: " + isChecked);
+            mViewModel.forceSvgRefresh(); // Notify that SVG needs re-rendering
+        });
+
+        binding.containerDeviceFilter.getRoot().setOnClickListener(v -> {
+            binding.containerDeviceFilter.actionChangeTestMode.toggle();
+        });
+
 
 
         // LiveData observers

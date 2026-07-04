@@ -392,7 +392,8 @@ public class SvgColorManager {
                                  Set<String> addressedIds,
                                  String selectedDeviceId,
                                  Map<String, Set<String>> iconToDeviceRelations,
-                                 String areaFilterId) {
+                                 String areaFilterId,
+                                 boolean showProvisionedDevices) {
         if (deviceMap.isEmpty()) return;
         Set<String> devicesToShow = new HashSet<>();
 
@@ -413,8 +414,12 @@ public class SvgColorManager {
                     || provisionedIds.contains(id.trim().toLowerCase().replaceAll("\\s+", "_")));
 
             if (provisioned) {
-                // ✅ Hide icon and add its related physical devices to show list
-                applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
+                if (showProvisionedDevices) {
+                    restoreIconGroupColor(info.element);
+                } else {
+                    // ✅ Hide icon and add its related physical devices to show list
+                    applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
+                }
                 Set<String> related = iconToDeviceRelations.get(id);
                 if (related != null) devicesToShow.addAll(related);
             } else if (id.equals(selectedDeviceId)) {
