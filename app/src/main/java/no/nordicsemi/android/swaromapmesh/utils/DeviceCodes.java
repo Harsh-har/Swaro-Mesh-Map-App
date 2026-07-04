@@ -16,7 +16,7 @@ public class DeviceCodes {
     private static final Map<String, String> NAME_TO_CODE = new HashMap<>();
 
     static {
-        CODE_TO_NAME.put(LC_NODE, "Lc Node");
+        CODE_TO_NAME.put(LC_NODE, "LC Node");
         CODE_TO_NAME.put(STRIP_NODE, "Strip Node");
         CODE_TO_NAME.put(CONTROL_NODE, "Control Node");
         CODE_TO_NAME.put(RELAY_NODE, "Relay Node");
@@ -41,23 +41,40 @@ public class DeviceCodes {
      * Returns true if the device name matches the filter code or its associated friendly name.
      */
     public static boolean matches(String deviceName, String filterCode) {
-        if (filterCode == null || filterCode.isEmpty()) return true;
+        if (filterCode == null || filterCode.isEmpty() || filterCode.equalsIgnoreCase("All Device")) return true;
         if (deviceName == null) return false;
 
         String lowerDeviceName = deviceName.toLowerCase();
         String lowerFilterCode = filterCode.toLowerCase();
 
-        // Direct match with code
+        // ── 1. Always allow generic mesh nodes so they are never filtered out during provisioning ──
+        if (lowerDeviceName.contains("nrf mesh") || lowerDeviceName.contains("mesh node") || lowerDeviceName.equals("unknown")) {
+            return true;
+        }
+
+        // ── 2. Direct match with filter string (code or name) ──
         if (lowerDeviceName.contains(lowerFilterCode)) return true;
 
-        // Match with friendly name associated with the code
+        // ── 3. Check if filterCode is a known code (e.g. PSD02) ──
         String friendlyName = CODE_TO_NAME.get(filterCode);
         if (friendlyName != null && lowerDeviceName.contains(friendlyName.toLowerCase())) {
             return true;
         }
 
-        // Special case: if filterCode is "PSD02", it should also match "LC Node" (case insensitive)
-        // This is already handled by the logic above.
+        // ── 4. Check if filterCode is a friendly name (e.g. "LC Node") ──
+        String codeForName = NAME_TO_CODE.get(lowerFilterCode);
+        if (codeForName != null && lowerDeviceName.contains(codeForName.toLowerCase())) {
+            return true;
+        }
+
+        // ── 5. Partial code match (e.g. "PSD" matches any device advertising "PSD02") ──
+        for (Map.Entry<String, String> entry : CODE_TO_NAME.entrySet()) {
+            String code = entry.getKey().toLowerCase();
+            String name = entry.getValue();
+            if (code.startsWith(lowerFilterCode)) {
+                if (name != null && lowerDeviceName.contains(name.toLowerCase())) return true;
+            }
+        }
 
         return false;
     }

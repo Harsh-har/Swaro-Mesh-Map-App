@@ -128,6 +128,10 @@ public class DeviceDetailActivity extends AppCompatActivity {
         if (name.contains(":")) {
             name = name.substring(name.lastIndexOf(":") + 1).trim();
         }
+
+        // Don't strip numbers if it's a known device code (e.g., PSD02)
+        if (DeviceCodes.getName(name) != null) return name;
+
         name = name.replaceAll("\\s*\\d+$", "")
                 .replaceAll("\\d+$", "")
                 .replaceAll("\\s+", " ")
