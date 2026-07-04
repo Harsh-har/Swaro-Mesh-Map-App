@@ -62,6 +62,7 @@ import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.DeviceInfo;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgParsers;
+import no.nordicsemi.android.swaromapmesh.utils.DeviceCodes;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -138,7 +139,7 @@ public class NetworkFragment extends Fragment {
     private boolean wasMultiTouch = false;
 
     private boolean mIsAddDeviceMode = false;
-    private String mSelectedCategory = "Control Node";
+    private String mSelectedCategory = DeviceCodes.CONTROL_NODE;
     private float mNewDeviceX, mNewDeviceY;
 
     // ══════════════════════════════════════════════════════════════════════
@@ -185,7 +186,16 @@ public class NetworkFragment extends Fragment {
     }
 
     private void showCategorySelectionDialog() {
-        String[] categories = {"Control Node", "Strip Node", "LC Node", "AC Node", "Relay Node", "Fan Node", "Switch Plate", "Manual Entry..."};
+        String[] categories = {
+                DeviceCodes.CONTROL_NODE,
+                DeviceCodes.STRIP_NODE,
+                DeviceCodes.LC_NODE,
+                DeviceCodes.AC_NODE,
+                DeviceCodes.RELAY_NODE,
+                DeviceCodes.FAN_NODE,
+                "Switch Plate",
+                "Manual Entry..."
+        };
         new MaterialAlertDialogBuilder(requireContext())
                 .setTitle("Select Device Category")
                 .setItems(categories, (dialog, which) -> {

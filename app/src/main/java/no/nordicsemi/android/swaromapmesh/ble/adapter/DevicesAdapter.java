@@ -29,6 +29,7 @@ import java.util.Set;
 import no.nordicsemi.android.swaromapmesh.R;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.databinding.DeviceItemBinding;
+import no.nordicsemi.android.swaromapmesh.utils.DeviceCodes;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerLiveData;
 
 public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHolder> {
@@ -180,8 +181,7 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
     private boolean matchesNameFilter(@NonNull ExtendedBluetoothDevice device,
                                       @NonNull String nameFilter) {
         if (nameFilter.isEmpty()) return true;
-        return device.getName() != null
-                && device.getName().toLowerCase().contains(nameFilter.toLowerCase());
+        return DeviceCodes.matches(device.getName(), nameFilter);
     }
 
     /**
