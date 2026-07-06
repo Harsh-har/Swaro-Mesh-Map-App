@@ -415,6 +415,20 @@ public final class ClientServerElementStore {
         return new HashSet<>(raw); // defensive copy
     }
 
+    /** Returns all known MAC addresses from the store for fast auto-connect. */
+    public static Set<String> getKnownMacs() {
+        Set<String> macs = new HashSet<>();
+        if (!checkInit("getKnownMacs")) return macs;
+        SharedPreferences prefs = getPrefs();
+        for (String key : getProvisionedKeys()) {
+            String mac = prefs.getString(PRE_SVR_MAC + key, null);
+            if (mac != null && !mac.isEmpty()) {
+                macs.add(mac.toUpperCase());
+            }
+        }
+        return macs;
+    }
+
     public static void markProvisioned(String deviceId) {
         if (!checkInit("markProvisioned") || isEmpty(deviceId, "markProvisioned")) return;
         String key = normalize(deviceId);

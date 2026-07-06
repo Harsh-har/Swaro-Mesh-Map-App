@@ -40,6 +40,7 @@ import no.nordicsemi.android.swaromapmesh.node.NodeConfigurationActivity;
 import no.nordicsemi.android.swaromapmesh.node.adapter.NodeAdapter;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
+import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 import no.nordicsemi.android.swaromapmesh.widgets.ItemTouchHelperAdapter;
 import no.nordicsemi.android.swaromapmesh.widgets.RemovableItemTouchHelperCallback;
@@ -53,8 +54,8 @@ public class GroupsFragment extends Fragment implements
         ItemTouchHelperAdapter,
         DialogFragmentDeleteNode.DialogFragmentDeleteNodeListener {
 
-    private static final String TAG                    = "NetworkFragment";
-    private static final long   AUTO_PROXY_SCAN_WINDOW = 5000L;
+    private static final String TAG                    = "GroupsFragment";
+    private static final long   AUTO_PROXY_SCAN_WINDOW = 2000L;
 
     private FragmentGroupsBinding binding;
     private SharedViewModel       mViewModel;
@@ -106,7 +107,18 @@ public class GroupsFragment extends Fragment implements
         itemTouchHelper.attachToRecyclerView(recyclerViewNodes);
         recyclerViewNodes.setAdapter(mNodeAdapter);
 
-        // Observe nodes — trigger auto-connect when data first arrives
+        // ✅ FAST START: Trigger auto-connect immediately if we have cached MACs
+        final Set<String> cachedMacs = ClientServerElementStore.getKnownMacs();
+        if (!cachedMacs.isEmpty() && !mAutoConnectTriggeredThisSession) {
+            final Boolean isConnected = mViewModel.isConnectedToProxy().getValue();
+            if (!Boolean.TRUE.equals(isConnected)) {
+                mAutoConnectTriggeredThisSession = true;
+                Log.d(TAG, "Fast-start: triggering auto-connect with " + cachedMacs.size() + " cached MACs");
+                startProxyScan(cachedMacs);
+            }
+        }
+
+        // Observe nodes — backup trigger if fast-start was skipped or we have new nodes
         mViewModel.getNodes().observe(getViewLifecycleOwner(), nodes -> {
             final boolean hasNodes = nodes != null && !nodes.isEmpty();
             noNetworksView.setVisibility(hasNodes ? View.GONE : View.VISIBLE);
