@@ -32,6 +32,7 @@ import no.nordicsemi.android.swaromapmesh.NodeKey;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.swajaui.AutoPublicationHelper;
+import no.nordicsemi.android.swaromapmesh.mqtt.MqttManager;
 import no.nordicsemi.android.swaromapmesh.transport.ConfigModelPublicationStatus;
 import no.nordicsemi.android.swaromapmesh.transport.Element;
 import no.nordicsemi.android.swaromapmesh.transport.MeshMessage;
@@ -65,6 +66,7 @@ public class SharedViewModel extends BaseViewModel
     // ── Repositories ───────────────────────────────────────────────────────
     private final ScannerRepository      mScannerRepository;
     private final FeedbackManager        mFeedbackManager;
+    private final MqttManager             mMqttManager;
     private final SingleLiveEvent<String> networkExportState = new SingleLiveEvent<>();
 
     // ── LiveData ───────────────────────────────────────────────────────────
@@ -101,12 +103,14 @@ public class SharedViewModel extends BaseViewModel
             @NonNull final NrfMeshRepository nrfMeshRepository,
             @NonNull final ScannerRepository scannerRepository,
             @NonNull final FeedbackManager feedbackManager,
+            @NonNull final MqttManager mqttManager,
             @ApplicationContext @NonNull final Context context
     ) {
         super(nrfMeshRepository);
 
         mContext = context;
         mFeedbackManager = feedbackManager;
+        mMqttManager = mqttManager;
         ClientServerElementStore.init(context);
 
         mScannerRepository = scannerRepository;
@@ -1186,6 +1190,14 @@ public class SharedViewModel extends BaseViewModel
 
     public LiveData<List<ExtendedBluetoothDevice>> getAllUnprovisionedDevices() {
         return allUnprovisionedDevices;
+    }
+
+    public LiveData<Boolean> getMqttConnected() {
+        return mMqttManager.getIsConnected();
+    }
+
+    public void reconnectMqtt() {
+        mMqttManager.connect();
     }
 
     public List<ExtendedBluetoothDevice> getAllUnprovisionedDevicesValue() {

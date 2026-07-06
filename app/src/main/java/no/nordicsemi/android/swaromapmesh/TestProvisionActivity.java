@@ -23,7 +23,9 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+import javax.inject.Inject;
 import dagger.hilt.android.AndroidEntryPoint;
+import no.nordicsemi.android.swaromapmesh.mqtt.MqttManager;
 import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
 import no.nordicsemi.android.swaromapmesh.transport.GenericLightSet;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
@@ -74,7 +76,10 @@ public class TestProvisionActivity extends AppCompatActivity {
     private final AtomicInteger   tidCounter             = new AtomicInteger(0);
     private final AtomicInteger   genericLightTidCounter = new AtomicInteger(0);
     private int                   mUnicastAddress        = -1;
-    private MqttClient            mqttClient;
+
+    @Inject
+    MqttManager mqttManager;
+
     private final ExecutorService mqttExecutor           = Executors.newSingleThreadExecutor();
 
     // =========================================================================
@@ -337,23 +342,21 @@ public class TestProvisionActivity extends AppCompatActivity {
             final String payloadOn  = MqttSettingsActivity.buildOnCommand(elementId, onValue);
             final String payloadOff = MqttSettingsActivity.buildOffCommand(elementId);
 
-            Log.d(TAG, "MQTT → " + finalHost + ":" + finalPort + " topic=" + finalTopic);
+            Log.d(TAG, "MQTT Topic=" + finalTopic + " payload=" + payloadOn);
 
             btnTestMqtt.setEnabled(false);
-            Toast.makeText(this, "Sending Command 1... (ON value: " + onValue + ")",
-                    Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Sending ON command...", Toast.LENGTH_SHORT).show();
 
             mqttExecutor.execute(() -> {
-                boolean ok = publishMqtt(finalHost, finalPort, finalUser, finalPass,
-                        finalTopic, payloadOn);
-                if (!ok) return;
+                mqttManager.publish(finalTopic, payloadOn);
                 try { Thread.sleep(3000); }
                 catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-                runOnUiThread(() ->
-                        Toast.makeText(this, "Sending Command 2...", Toast.LENGTH_SHORT).show());
-                publishMqtt(finalHost, finalPort, finalUser, finalPass, finalTopic, payloadOff);
+
+                runOnUiThread(() -> Toast.makeText(this, "Sending OFF command...", Toast.LENGTH_SHORT).show());
+                mqttManager.publish(finalTopic, payloadOff);
+
                 runOnUiThread(() -> {
-                    Toast.makeText(this, "Both commands sent successfully!", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Commands sent!", Toast.LENGTH_SHORT).show();
                     btnTestMqtt.postDelayed(() -> btnTestMqtt.setEnabled(true), 500);
                 });
             });
@@ -573,47 +576,6 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvMqttTopic.setText(finalTopic);
     }
 
-    private boolean publishMqtt(String host, int port,
-                                String username, String password,
-                                String topic, String payload) {
-        String clientId  = "mesh-android-" + System.currentTimeMillis();
-        String brokerUri = "tcp://" + host + ":" + port;
-        try {
-            if (mqttClient != null && mqttClient.isConnected()) mqttClient.disconnect();
-            mqttClient = new MqttClient(brokerUri, clientId, new MemoryPersistence());
-            MqttConnectOptions opts = new MqttConnectOptions();
-            opts.setCleanSession(true);
-            opts.setConnectionTimeout(10);
-            opts.setKeepAliveInterval(30);
-            if (!username.isEmpty()) {
-                opts.setUserName(username);
-                opts.setPassword(password.toCharArray());
-            }
-            mqttClient.setCallback(new MqttCallback() {
-                @Override public void connectionLost(Throwable cause) {}
-                @Override public void messageArrived(String t, MqttMessage m) {}
-                @Override public void deliveryComplete(IMqttDeliveryToken token) {
-                    Log.d(TAG, "MQTT delivery complete: " + payload);
-                }
-            });
-            mqttClient.connect(opts);
-            MqttMessage msg = new MqttMessage(payload.getBytes());
-            msg.setQos(1);
-            msg.setRetained(false);
-            mqttClient.publish(topic, msg);
-            mqttClient.disconnect();
-            return true;
-        } catch (MqttException e) {
-            Log.e(TAG, "MQTT publish failed", e);
-            runOnUiThread(() -> {
-                Toast.makeText(this, "MQTT Error: " + e.getMessage(),
-                        Toast.LENGTH_LONG).show();
-                btnTestMqtt.setEnabled(true);
-            });
-            return false;
-        }
-    }
-
     // =========================================================================
     // Misc helpers
     // =========================================================================
@@ -678,10 +640,5 @@ public class TestProvisionActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         mqttExecutor.shutdown();
-        try {
-            if (mqttClient != null && mqttClient.isConnected()) mqttClient.disconnect();
-        } catch (MqttException e) {
-            Log.e(TAG, "MQTT disconnect error", e);
-        }
     }
 }
