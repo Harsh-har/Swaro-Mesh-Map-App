@@ -188,24 +188,54 @@ public class SvgParsers {
             String[] parts = id.split("_");
             if (parts.length >= 5) {
                 // Prioritize parsing from ID string as per new requirement
+                // Format: Area_Category_Count_EID_RID
                 receiveId = parts[parts.length - 1];
                 elementId = parts[parts.length - 2];
                 deviceCount = parts[parts.length - 3];
+                deviceName = parts[parts.length - 4]; // Category Code
 
-                // Device name might be one or more parts depending on underscores
-                // If parts.length == 5, deviceName is parts[1]
-                // If more parts, join middle parts as device name
-                StringBuilder nameBuilder = new StringBuilder();
-                for (int i = 1; i < parts.length - 3; i++) {
-                    if (i > 1) nameBuilder.append("_");
-                    nameBuilder.append(parts[i]);
+                // Join remaining parts at the beginning as the Area ID
+                StringBuilder areaBuilder = new StringBuilder();
+                for (int i = 0; i < parts.length - 4; i++) {
+                    if (i > 0) areaBuilder.append("_");
+                    areaBuilder.append(parts[i]);
                 }
-                deviceName = nameBuilder.toString();
-
-                parsedAreaId = parts[0];
+                parsedAreaId = areaBuilder.toString();
+            } else if (parts.length >= 2) {
+                // Handle semi-structured IDs like Area_Code or Area_Code_Count
+                // Try to see if the last or middle part is a known count
+                String lastPart = parts[parts.length - 1];
+                if (lastPart.matches("\\d+")) {
+                    deviceCount = lastPart;
+                    if (parts.length >= 3) {
+                        deviceName = parts[parts.length - 2];
+                        StringBuilder areaBuilder = new StringBuilder();
+                        for (int i = 0; i < parts.length - 2; i++) {
+                            if (i > 0) areaBuilder.append("_");
+                            areaBuilder.append(parts[i]);
+                        }
+                        parsedAreaId = areaBuilder.toString();
+                    }
+                } else {
+                    // Area_Code
+                    deviceName = lastPart;
+                    StringBuilder areaBuilder = new StringBuilder();
+                    for (int i = 0; i < parts.length - 1; i++) {
+                        if (i > 0) areaBuilder.append("_");
+                        areaBuilder.append(parts[i]);
+                    }
+                    parsedAreaId = areaBuilder.toString();
+                }
+            } else if (id.contains(":")) {
+                // Handle manual devices or legacy format with ":"
+                // manual_Name_Timestamp:Code or Area:Code
+                String[] colonParts = id.split(":");
+                if (colonParts.length > 0) {
+                    deviceName = colonParts[colonParts.length - 1];
+                }
             }
         } catch (Exception e) {
-            Log.w(TAG, "Error parsing ID pattern for: " + id);
+            Log.w(TAG, "Error parsing ID pattern for: " + id, e);
         }
 
         // Fallback to metadata if ID parsing didn't find values
@@ -220,7 +250,7 @@ public class SvgParsers {
             receiveId = extractReceiveId(el);
         }
 
-        Log.d(TAG, "Parsed Device: id=" + id + " name=" + deviceName + " elementId=" + elementId + " receiveId=" + receiveId + " area=" + parsedAreaId);
+        Log.d(TAG, "Parsed Device: id=" + id + " name=" + deviceName + " elementId=" + elementId + " receiveId=" + receiveId + " area=" + parsedAreaId + " count=" + deviceCount);
 
         DeviceInfo info = new DeviceInfo(id, el, bounds, elementId, parsedAreaId);
         info.receiveId = receiveId;

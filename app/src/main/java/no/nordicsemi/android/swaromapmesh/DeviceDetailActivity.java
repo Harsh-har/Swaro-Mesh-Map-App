@@ -116,18 +116,23 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
 
-        // Check for new structure first
+        // Check for new structure first: Area_Code_Count_EID_RID
         String[] parts = fullDeviceId.split("_");
         if (parts.length >= 5) {
-            // RoomName_DeviceName_Count_ElementId_ReceiveId
-            // Return DeviceName (index 1)
-            String name = parts[1];
-            String friendly = DeviceCodes.getName(name);
-            if (friendly != null) name = friendly;
-            return name;
+            // Category code is the 4th part from the end
+            String code = parts[parts.length - 4];
+            String count = parts[parts.length - 3];
+            String friendly = DeviceCodes.getName(code);
+            if (friendly == null) friendly = code;
+
+            // Only append count if it's a number
+            if (count.matches("\\d+")) {
+                return friendly + " " + count;
+            }
+            return friendly;
         }
 
-        // Handle manual devices
+        // Handle manual devices: manual_Name_Timestamp
         if (fullDeviceId.startsWith("manual_")) {
             String name = fullDeviceId.substring("manual_".length());
             name = name.replaceAll("_\\d+$", "");

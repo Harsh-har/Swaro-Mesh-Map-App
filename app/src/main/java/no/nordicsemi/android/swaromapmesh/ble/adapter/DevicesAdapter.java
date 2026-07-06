@@ -258,9 +258,17 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
         final ExtendedBluetoothDevice device     = mDisplayedDevices.get(position);
         final String                  deviceName = device.getName();
 
-        holder.deviceName.setText(TextUtils.isEmpty(deviceName)
+        String displayedName = TextUtils.isEmpty(deviceName)
                 ? holder.deviceName.getContext().getString(R.string.unknown_device)
-                : deviceName);
+                : deviceName;
+
+        // If filtering by a specific map icon (e.g. "LC Node 5"), show the target count in the scan list
+        String count = DeviceCodes.extractCount(mCurrentNameFilter);
+        if (count != null && DeviceCodes.matches(deviceName, mCurrentNameFilter)) {
+            displayedName += " (Target #" + count + ")";
+        }
+
+        holder.deviceName.setText(displayedName);
 
         holder.deviceAddress.setText(device.getAddress());
 

@@ -19,6 +19,8 @@ import java.io.FileOutputStream;
 import java.io.OutputStream;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
@@ -52,12 +54,20 @@ public class DeviceOperations {
     public void showCategorySelectionDialog() {
         String[] codes = {
                 DeviceCodes.CONTROL_NODE,
+                DeviceCodes.WARDROBE_SENSOR,
+                DeviceCodes.HIDDEN_OCCUPANCY_SENSOR,
+                DeviceCodes.OCCUPANCY_SENSOR,
                 DeviceCodes.STRIP_NODE,
                 DeviceCodes.LC_NODE,
                 DeviceCodes.AC_NODE,
                 DeviceCodes.RELAY_NODE,
+                DeviceCodes.TEMPERATURE_NODE,
+                DeviceCodes.AQI_NODE,
+                DeviceCodes.SWITCH_PLATE,
+                DeviceCodes.SINGLE_KNOB_NODE,
+                DeviceCodes.CLASSIC_SWITCHPLATE,
                 DeviceCodes.FAN_NODE,
-                "Switch Plate"
+                DeviceCodes.EXHAUST_NODE
         };
 
         String[] displayNames = new String[codes.length + 1];
@@ -112,8 +122,41 @@ public class DeviceOperations {
 
         final EditText receiveIdInput = new EditText(context);
         receiveIdInput.setHint("Receive ID (Integer)");
+        receiveIdInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
         layout.addView(receiveIdInput);
 
+        // ── Auto-fill Values ─────────────────────────────────────────────
+        calculateAndSetAutoValues(selectedCategory, deviceMap, svgParser, nameInput, elementIdInput, receiveIdInput);
+
+        // Add listeners to keep the name in sync with the IDs if it follows the pattern
+        android.text.TextWatcher syncWatcher = new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) {}
+            @Override public void afterTextChanged(android.text.Editable s) {
+                String currentName = nameInput.getText().toString();
+                String[] parts = currentName.split("_");
+                if (parts.length >= 5) {
+                    String eid = elementIdInput.getText().toString();
+                    String rid = receiveIdInput.getText().toString();
+                    
+                    // Rebuild the name preserving all parts except the last two (EID and RID)
+                    StringBuilder sb = new StringBuilder();
+                    for (int i = 0; i < parts.length - 2; i++) {
+                        if (i > 0) sb.append("_");
+                        sb.append(parts[i]);
+                    }
+                    sb.append("_").append(eid).append("_").append(rid);
+                    
+                    String newName = sb.toString();
+                    if (!currentName.equals(newName)) {
+                        nameInput.setText(newName);
+                    }
+                }
+            }
+        };
+        elementIdInput.addTextChangedListener(syncWatcher);
+        receiveIdInput.addTextChangedListener(syncWatcher);
+        
         new MaterialAlertDialogBuilder(context)
                 .setTitle("Enter Device Info")
                 .setView(layout)
@@ -149,6 +192,123 @@ public class DeviceOperations {
                 .show();
     }
 
+    private void calculateAndSetAutoValues(String selectedCategory, Map<String, DeviceInfo> deviceMap, SvgParsers svgParser, EditText nameInput, EditText eidInput, EditText ridInput) {
+        try {
+            // 1. Determine Current Area
+            float[] iconCoords = callback.getDraggableIconCoords();
+            float[] svgCoords = callback.touchToSvgCoords(iconCoords[0], iconCoords[1]);
+            float x = svgCoords[0];
+            float y = svgCoords[1];
+
+            String areaId = callback.getCurrentFocusAreaId();
+            if (areaId == null) {
+                for (Map.Entry<String, RectF> entry : svgParser.selectionLayerBounds.entrySet()) {
+                    if (entry.getValue().contains(x, y)) {
+                        areaId = entry.getKey();
+                        break;
+                    }
+                }
+            }
+            if (areaId == null) areaId = "AddedDevices";
+
+            // 2. Scan Existing Devices for Max Count and Max IDs
+            int maxCount = 0;
+            int maxGlobalId = 0;
+
+            String targetCode = selectedCategory;
+            String possibleCode = DeviceCodes.getCode(selectedCategory);
+            if (possibleCode != null) targetCode = possibleCode;
+
+            String targetName = DeviceCodes.getName(targetCode);
+            if (targetName == null) targetName = targetCode;
+
+            for (DeviceInfo info : deviceMap.values()) {
+                // Track count within the SAME area and SAME category
+                // Normalize area IDs (some use short codes like GBDR, others full names like Guest_Bedroom_GBDR)
+                String normArea = areaId.replace(" ", "_").toLowerCase();
+                String normInfoArea = info.areaId != null ? info.areaId.replace(" ", "_").toLowerCase() : "";
+
+                boolean areaMatch = normArea.equals(normInfoArea) ||
+                                   normArea.endsWith("_" + normInfoArea) ||
+                                   normInfoArea.endsWith("_" + normArea);
+
+                if (areaMatch) {
+                    // Normalize the device name/code for comparison
+                    String infoNameOrCode = info.deviceName != null ? info.deviceName.trim() : "";
+                    String idLower = info.id.toLowerCase();
+
+                    // Check if category matches using multiple strategies
+                    // 1. Explicitly parsed deviceName (code or name)
+                    // 2. String contains match in the full ID string
+                    boolean codeMatch = targetCode.equalsIgnoreCase(infoNameOrCode) ||
+                                       idLower.contains("_" + targetCode.toLowerCase() + "_") ||
+                                       idLower.contains(":" + targetCode.toLowerCase());
+
+                    boolean nameMatch = targetName.equalsIgnoreCase(infoNameOrCode.replace("_", " ")) ||
+                                       idLower.contains(targetName.toLowerCase().replace(" ", "_"));
+
+                    if (codeMatch || nameMatch) {
+                        try {
+                            int c = 1; // Assume at least 1 if any match found
+                            if (info.deviceCount != null && !info.deviceCount.trim().isEmpty()) {
+                                c = Integer.parseInt(info.deviceCount.trim());
+                            } else {
+                                // Try extracting count from the ID string manually if parsing failed
+                                // Format: ..._Count_EID_RID
+                                String[] parts = info.id.split("_");
+                                if (parts.length >= 3) {
+                                    String possibleCount = parts[parts.length - 3];
+                                    if (possibleCount.matches("\\d+")) {
+                                        c = Integer.parseInt(possibleCount);
+                                    }
+                                }
+                            }
+                            if (c > maxCount) maxCount = c;
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                // Track global maximum Element/Receive ID
+                try {
+                    if (info.elementId != null && !info.elementId.isEmpty()) {
+                        int eid = Integer.parseInt(info.elementId);
+                        if (eid > maxGlobalId) maxGlobalId = eid;
+                    }
+                } catch (Exception ignored) {}
+                try {
+                    if (info.receiveId != null && !info.receiveId.isEmpty()) {
+                        int rid = Integer.parseInt(info.receiveId);
+                        if (rid > maxGlobalId) maxGlobalId = rid;
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // 3. Calculate New Values
+            int nextCount = maxCount + 1;
+
+            // Determine increment step based on category
+            // Strip Node (PSS04) usually increments by 4
+            int step = 1;
+            if (targetCode.contains("PSS04") || targetCode.toLowerCase().contains("strip")) {
+                step = 4;
+            }
+
+            int nextId = (maxGlobalId == 0) ? 1 : maxGlobalId + step;
+
+            // 4. Pre-fill Inputs
+            // New Requirement: Suggestion format: Area_CategoryCode_Count_EID_RID
+            // Example: GBDR_PSS04_3_17_17
+            String suggestedName = areaId.replace(" ", "_") + "_" + targetCode + "_" + nextCount + "_" + nextId + "_" + nextId;
+
+            nameInput.setText(suggestedName);
+            eidInput.setText(String.valueOf(nextId));
+            ridInput.setText(String.valueOf(nextId));
+
+        } catch (Exception e) {
+            Log.e(TAG, "Error calculating auto values", e);
+        }
+    }
+
     public void addNewDeviceToSvg(Document svgDocument, SvgParsers svgParser, String category, String name, String eid, String rid, float x, float y) {
         if (svgDocument == null) return;
 
@@ -165,7 +325,28 @@ public class DeviceOperations {
             }
             if (areaId == null) areaId = "AddedDevices";
 
-            String deviceId = "manual_" + name.replace(" ", "_").replace(":", "_") + "_" + System.currentTimeMillis();
+            // If the name follows our pattern Area_Category_Count_EID_RID, extract the count part
+            String countPart = "1";
+            String[] nameParts = name.split("_");
+            if (nameParts.length >= 5) {
+                countPart = nameParts[nameParts.length - 3];
+            } else {
+                // Fallback for custom names: Friendly Name Count (e.g. Strip Node 3)
+                Pattern p = Pattern.compile("(\\d+)$");
+                Matcher m = p.matcher(name);
+                if (m.find()) {
+                    countPart = m.group(1);
+                }
+            }
+
+            // Construct standardized ID for SVG using code if available
+            String catLabel = category;
+            String lookupCode = DeviceCodes.getCode(category);
+            if (lookupCode != null) catLabel = lookupCode;
+            catLabel = catLabel.replace(" ", "_");
+
+            // Final deviceId must follow the pattern Area_Category_Count_EID_RID
+            String deviceId = areaId.replace(" ", "_") + "_" + catLabel + "_" + countPart + "_" + eid + "_" + rid;
 
             Element iconsGroup = svgParser.findElementById(root, "Technician Layer");
             if (iconsGroup == null) {
@@ -183,7 +364,8 @@ public class DeviceOperations {
             }
 
             Element iconEl = svgDocument.createElement("g");
-            iconEl.setAttribute("id", deviceId + ":" + category);
+            // Always use the constructed deviceId from our pattern
+            iconEl.setAttribute("id", deviceId);
             iconEl.setAttribute("data-manual", "true");
             iconEl.setAttribute("data-manual-added", "true");
             iconEl.setAttribute("transform", "translate(" + (x - svgParser.vbX) + " " + (y - svgParser.vbY) + ")");
@@ -374,6 +556,14 @@ public class DeviceOperations {
                 }
             }
 
+            // Update the element ID attribute if it follows the pattern Area_Category_Count_EID_RID
+            String oldId = iconEl.getAttribute("id");
+            String[] parts = oldId.split("_");
+            if (parts.length >= 5) {
+                String newId = parts[0] + "_" + parts[1] + "_" + parts[2] + "_" + newEid + "_" + newRid;
+                iconEl.setAttribute("id", newId);
+            }
+
             if (!eidUpdated || (!ridUpdated && !newRid.isEmpty())) {
                 Element metadata = null;
                 NodeList metaList = iconEl.getElementsByTagName("metadata");
@@ -441,14 +631,20 @@ public class DeviceOperations {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
 
         // 1. Handle new structure: RoomName_DeviceName_Count_ElementId_ReceiveId
-        // Example: GBDR_Strip Node_1_13_13
+        // Example: GBDR_PSS04_1_13_13 or Guest_Bedroom_GBDR_CN01_2_15_15
         String[] parts = fullDeviceId.split("_");
         if (parts.length >= 5) {
-            String name = parts[1];
-            String friendly = DeviceCodes.getName(name);
-            if (friendly != null) name = friendly;
-            
-            return name;
+            // Category code is the 4th part from the end
+            String code = parts[parts.length - 4];
+            String count = parts[parts.length - 3];
+            String friendly = DeviceCodes.getName(code);
+            if (friendly == null) friendly = code;
+
+            // Only append count if it's a number
+            if (count.matches("\\d+")) {
+                return friendly + " " + count;
+            }
+            return friendly;
         }
 
         // 2. Handle manual devices: manual_Name_Timestamp
