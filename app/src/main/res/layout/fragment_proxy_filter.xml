@@ -12,81 +12,18 @@
         android:layout_height="wrap_content"
         android:orientation="vertical">
 
-        <!-- FILTER HEADER CARD with Large Toggle -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/proxy_filter_header_card"
+        <!-- HEADER - WORKING LIKE DEVICE FILTER -->
+        <include
+            android:id="@+id/header"
+            layout="@layout/layout_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:layout_marginStart="16dp"
-            android:layout_marginEnd="16dp"
-            android:layout_marginBottom="8dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="4dp"
-            android:background="?attr/colorSurface">
+            android:layout_marginTop="8dp" />
 
-            <androidx.constraintlayout.widget.ConstraintLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:padding="10dp">
-
-                <!-- HEADER TEXT -->
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/filter_header_title"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:text="@string/title_filter_control"
-                    android:textSize="20sp"
-                    android:textStyle="bold"
-                    android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
-                    app:layout_constraintEnd_toStartOf="@+id/switch_enable_filter"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toTopOf="parent" />
-
-                <com.google.android.material.textview.MaterialTextView
-                    android:id="@+id/filter_header_subtitle"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:text="@string/subtitle_filter_control"
-                    android:textSize="14sp"
-                    android:textColor="@color/material_grey_600"
-                    app:layout_constraintEnd_toStartOf="@+id/switch_enable_filter"
-                    app:layout_constraintStart_toStartOf="parent"
-                    app:layout_constraintTop_toBottomOf="@id/filter_header_title" />
-
-                <!-- LARGE TOGGLE SWITCH -->
-                <com.google.android.material.switchmaterial.SwitchMaterial
-                    android:id="@+id/switch_enable_filter"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:checked="true"
-                    app:layout_constraintBottom_toBottomOf="parent"
-                    app:layout_constraintEnd_toEndOf="parent"
-                    app:layout_constraintTop_toTopOf="parent" />
-
-                <!-- STATUS INDICATOR -->
-<!--                <com.google.android.material.textview.MaterialTextView-->
-<!--                    android:id="@+id/filter_status"-->
-<!--                    android:layout_width="wrap_content"-->
-<!--                    android:layout_height="wrap_content"-->
-<!--                    android:layout_marginTop="8dp"-->
-<!--                    android:text="@string/filter_enabled"-->
-<!--                    android:textSize="12sp"-->
-<!--                    android:textColor="@color/green_500"-->
-<!--                    android:visibility="visible"-->
-<!--                    app:layout_constraintEnd_toEndOf="parent"-->
-<!--                    app:layout_constraintStart_toStartOf="parent"-->
-<!--                    app:layout_constraintTop_toBottomOf="@id/switch_enable_filter" />-->
-
-            </androidx.constraintlayout.widget.ConstraintLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- ADDRESS FILTER CARD (Same as before but adjusted) -->
+        <!-- ADDRESS FILTER CARD -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/proxy_filter_address_card"
             android:layout_width="match_parent"
-            android:visibility="gone"
             android:layout_height="wrap_content"
             android:layout_marginStart="16dp"
             android:layout_marginEnd="16dp"

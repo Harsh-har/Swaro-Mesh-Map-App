@@ -121,7 +121,18 @@ public class DeviceDetailActivity extends AppCompatActivity {
         if (parts.length >= 5) {
             // RoomName_DeviceName_Count_ElementId_ReceiveId
             // Return DeviceName (index 1)
-            return parts[1];
+            String name = parts[1];
+            String friendly = DeviceCodes.getName(name);
+            if (friendly != null) name = friendly;
+            return name;
+        }
+
+        // Handle manual devices
+        if (fullDeviceId.startsWith("manual_")) {
+            String name = fullDeviceId.substring("manual_".length());
+            name = name.replaceAll("_\\d+$", "");
+            name = name.replace("_", " ");
+            return name.trim();
         }
 
         String name = fullDeviceId;

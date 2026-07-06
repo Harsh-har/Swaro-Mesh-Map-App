@@ -439,12 +439,33 @@ public class DeviceOperations {
 
     public String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
+
+        // 1. Handle new structure: RoomName_DeviceName_Count_ElementId_ReceiveId
+        // Example: GBDR_Strip Node_1_13_13
         String[] parts = fullDeviceId.split("_");
-        if (parts.length >= 5) return parts[1];
+        if (parts.length >= 5) {
+            String name = parts[1];
+            String friendly = DeviceCodes.getName(name);
+            if (friendly != null) name = friendly;
+            
+            return name;
+        }
+
+        // 2. Handle manual devices: manual_Name_Timestamp
+        if (fullDeviceId.startsWith("manual_")) {
+            String name = fullDeviceId.substring("manual_".length());
+            // Remove timestamp at the end if present
+            name = name.replaceAll("_\\d+$", "");
+            // Replace underscores with spaces
+            name = name.replace("_", " ");
+            return name.trim();
+        }
+
+        // 3. Fallback logic for legacy or simple IDs
         String name = fullDeviceId;
         int ci = name.lastIndexOf(":");
         if (ci != -1) name = name.substring(ci + 1).trim();
-        
+
         // Don't strip numbers if it's a known device code (e.g., PSD02)
         if (DeviceCodes.getName(name) != null) return name;
 

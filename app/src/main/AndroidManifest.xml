@@ -46,6 +46,9 @@
             android:name=".RssiFilterActivity"
             android:exported="false" />
         <activity
+            android:name=".ProxyFilterActivity"
+            android:exported="false" />
+        <activity
             android:name=".swajaui.AreaClientListActivity"
             android:exported="false" />
         <activity

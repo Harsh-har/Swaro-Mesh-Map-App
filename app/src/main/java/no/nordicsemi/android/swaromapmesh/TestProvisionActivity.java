@@ -27,6 +27,7 @@ import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
 import no.nordicsemi.android.swaromapmesh.transport.GenericLightSet;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
+import no.nordicsemi.android.swaromapmesh.utils.DeviceCodes;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -111,9 +112,24 @@ public class TestProvisionActivity extends AppCompatActivity {
         etAddress          = findViewById(R.id.et_address);
 
         // ── Static text ───────────────────────────────────────────────────
-        tvDeviceId.setText(deviceId != null ? deviceId : "N/A");
+        String pureName = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME);
+        tvDeviceId.setText(pureName != null ? pureName : (deviceId != null ? deviceId : "N/A"));
         tvElementId.setText(elementId != null ? elementId : "N/A");
-        tvRelationDeviceId.setText(relationDeviceName != null ? relationDeviceName : "N/A");
+
+        String displayRelationName = relationDeviceName;
+        if (relationDeviceName != null) {
+            String[] rParts = relationDeviceName.split("_");
+            if (rParts.length >= 5) {
+                String rName = rParts[1];
+                String rFriendly = DeviceCodes.getName(rName);
+                if (rFriendly != null) rName = rFriendly;
+                displayRelationName = rName;
+            } else if (relationDeviceName.startsWith("manual_")) {
+                displayRelationName = relationDeviceName.substring("manual_".length())
+                        .replaceAll("_\\d+$", "").replace("_", " ").trim();
+            }
+        }
+        tvRelationDeviceId.setText(displayRelationName != null ? displayRelationName : "N/A");
 
         // ── Receive ID ────────────────────────────────────────────────────
         String intentReceiveId = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID);

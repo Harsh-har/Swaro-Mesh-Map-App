@@ -20,14 +20,6 @@
         tools:ignore="AlwaysShowAction"/>
 
     <item
-        android:id="@+id/action_proxy"
-        android:enabled="true"
-        android:icon="@drawable/ic_proxy"
-        android:title="@string/action_proxy"
-        app:showAsAction="always"
-        tools:ignore="AlwaysShowAction"/>
-
-    <item
         android:id="@+id/action_settings"
         android:enabled="true"
         android:icon="@drawable/ic_settings"

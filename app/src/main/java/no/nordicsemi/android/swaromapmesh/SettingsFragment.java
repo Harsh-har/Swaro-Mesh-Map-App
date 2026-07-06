@@ -160,11 +160,32 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
+        // PROXY FILTER - ADD THIS SECTION
+        binding.containerProxyFilter.image
+                .setBackground(ContextCompat.getDrawable(requireContext(),
+                        R.drawable.ic_proxy));
+        binding.containerProxyFilter.title.setText("Auto Proxy Filter");
+        binding.containerProxyFilter.text.setVisibility(View.VISIBLE);
+        binding.containerProxyFilter.text.setText("Configure proxy inclusion/exclusion lists");
+        
+        binding.containerProxyFilter.actionChangeTestMode.setVisibility(View.VISIBLE);
+        binding.containerProxyFilter.actionChangeTestMode.setChecked(mViewModel.isProxyEnabled());
+        binding.containerProxyFilter.actionChangeTestMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            mViewModel.setProxyEnabled(isChecked);
+            Log.d(TAG, "Proxy Filter toggled: " + isChecked);
+        });
+
+        binding.containerProxyFilter.getRoot().setOnClickListener(v -> {
+            Log.d(TAG, "Proxy Filter clicked");
+            Intent intent = new Intent(requireContext(), ProxyFilterActivity.class);
+            startActivity(intent);
+        });
+
         // DEVICE FILTER - ADD THIS SECTION
         binding.containerDeviceFilter.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_settings));
-        binding.containerDeviceFilter.title.setText("Device Filter");
+        binding.containerDeviceFilter.title.setText("Show Device Filter");
         binding.containerDeviceFilter.text.setVisibility(View.VISIBLE);
         binding.containerDeviceFilter.text.setText("Show all devices after provisioning");
         binding.containerDeviceFilter.actionChangeTestMode.setVisibility(View.VISIBLE);

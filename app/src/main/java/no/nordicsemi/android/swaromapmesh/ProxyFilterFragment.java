@@ -10,6 +10,7 @@ import java.util.List;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.content.ContextCompat;
 import androidx.fragment.app.Fragment;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.DefaultItemAnimator;
@@ -21,6 +22,7 @@ import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textview.MaterialTextView;
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.adapter.FilterAddressAdapter;
+import no.nordicsemi.android.swaromapmesh.MeshNetwork;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentProxyFilterBinding;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentError;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentFilterAddAddress;
@@ -63,13 +65,22 @@ public class ProxyFilterFragment extends Fragment implements
         final FragmentProxyFilterBinding binding =
                 FragmentProxyFilterBinding.inflate(getLayoutInflater());
 
+        // Setup Header (Working like Device Filter)
+        binding.header.image.setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_proxy));
+        binding.header.title.setText(R.string.title_filter_control);
+        binding.header.text.setVisibility(View.VISIBLE);
+        binding.header.text.setText(R.string.subtitle_filter_control);
+        binding.header.actionChangeTestMode.setVisibility(View.VISIBLE);
+        
         // UI
-        final SwitchMaterial switchEnableFilter = binding.switchEnableFilter;
+        final SwitchMaterial switchEnableFilter = binding.header.actionChangeTestMode;
         final MaterialButton actionAddFilterAddress = binding.actionAddAddress;
         final MaterialButton actionClearFilterAddress = binding.actionClearAddresses;
 
         final MaterialTextView noAddressesAdded = binding.noAddresses;
         final RecyclerView recyclerViewAddresses = binding.recyclerViewFilterAddresses;
+        
+        binding.header.getRoot().setOnClickListener(v -> switchEnableFilter.toggle());
 
         if (savedInstanceState != null) {
             clearAddressPressed = savedInstanceState.getBoolean(CLEAR_ADDRESS_PRESSED, false);
@@ -93,6 +104,7 @@ public class ProxyFilterFragment extends Fragment implements
 
         // Set initial switch state
         switchEnableFilter.setChecked(isFilterEnabled);
+        binding.proxyFilterAddressCard.setVisibility(isFilterEnabled ? View.VISIBLE : View.GONE);
 
         // Switch Toggle
         switchEnableFilter.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -100,6 +112,8 @@ public class ProxyFilterFragment extends Fragment implements
 
             //  this will control your auto-proxy-connect logic in NetworkFragment
             mViewModel.setProxyEnabled(isChecked);
+            
+            binding.proxyFilterAddressCard.setVisibility(isChecked ? View.VISIBLE : View.GONE);
 
             if (!isChecked) {
                 // Disable UI

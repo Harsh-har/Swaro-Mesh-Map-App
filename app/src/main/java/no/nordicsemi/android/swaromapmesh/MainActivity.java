@@ -41,7 +41,6 @@ public class MainActivity extends AppCompatActivity implements
 
     private NetworkFragment       mNetworkFragment;
     private GroupsFragment        mGroupsFragment;
-    private ProxyFilterFragment   mProxyFilterFragment;
     private Fragment              mSettingsFragment;
     private ActivityMainBinding   binding;
     private BottomNavigationView  bottomNavigationView;
@@ -122,7 +121,6 @@ public class MainActivity extends AppCompatActivity implements
 
         mNetworkFragment       = (NetworkFragment)       getSupportFragmentManager().findFragmentById(R.id.fragment_network);
         mGroupsFragment        = (GroupsFragment)        getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
-        mProxyFilterFragment   = (ProxyFilterFragment)   getSupportFragmentManager().findFragmentById(R.id.fragment_proxy);
         mSettingsFragment      =                         getSupportFragmentManager().findFragmentById(R.id.fragment_settings);
 
         bottomNavigationView = findViewById(R.id.bottom_navigation_view);
@@ -244,22 +242,14 @@ public class MainActivity extends AppCompatActivity implements
         if (item.getItemId() == R.id.action_network) {
             ft.show(mNetworkFragment)
                     .hide(mGroupsFragment)
-                    .hide(mProxyFilterFragment)
                     .hide(mSettingsFragment);
         }else if (item.getItemId() == R.id.action_groups) {
             ft.hide(mNetworkFragment)
                     .show(mGroupsFragment)
-                    .hide(mProxyFilterFragment)
-                    .hide(mSettingsFragment);
-        } else if (item.getItemId() == R.id.action_proxy) {
-            ft.hide(mNetworkFragment)
-                    .hide(mGroupsFragment)
-                    .show(mProxyFilterFragment)
                     .hide(mSettingsFragment);
         } else if (item.getItemId() == R.id.action_settings) {
             ft.hide(mNetworkFragment)
                     .hide(mGroupsFragment)
-                    .hide(mProxyFilterFragment)
                     .show(mSettingsFragment);
         }
 
@@ -282,8 +272,6 @@ public class MainActivity extends AppCompatActivity implements
         }
         else if (mGroupsFragment != null && mGroupsFragment.isVisible()) {
             currentFragment = mGroupsFragment;
-        } else if (mProxyFilterFragment != null && mProxyFilterFragment.isVisible()) {
-            currentFragment = mProxyFilterFragment;
         } else if (mSettingsFragment != null && mSettingsFragment.isVisible()) {
             currentFragment = mSettingsFragment;
         }
