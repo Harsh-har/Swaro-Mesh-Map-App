@@ -36,11 +36,14 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     private static final String TAG = "DevicesAdapter";
 
-    // Signal strength threshold constants (percentage)
-    public static final int SIGNAL_DEFAULT = 0;   // No RSSI filter
-    public static final int SIGNAL_20      = 10;
-    public static final int SIGNAL_60      = 34;
-    public static final int SIGNAL_100     = 40;
+    // Signal strength threshold constants (raw RSSI dBm)
+    public static final int SIGNAL_ALL         = -100; // No RSSI filter (show everything)
+    public static final int SIGNAL_WEAK        = -90;
+    public static final int SIGNAL_MEDIUM      = -75;
+    public static final int SIGNAL_STRONG      = -60;
+    public static final int SIGNAL_VERY_STRONG = -45;
+
+    public static final int SIGNAL_DEFAULT = SIGNAL_ALL;
 
     // All devices from scanner (unfiltered source of truth)
     private final List<ExtendedBluetoothDevice> mAllDevices;
@@ -186,18 +189,19 @@ public class DevicesAdapter extends RecyclerView.Adapter<DevicesAdapter.ViewHold
 
     /**
      * Returns true if the device RSSI percentage meets the minimum threshold.
-     * SIGNAL_DEFAULT (0) matches everything.
+     * SIGNAL_DEFAULT matches everything.
      *
-     * Formula: rssiPercent = 100 * (127 + rssi) / (127 + 20)
-     *   threshold 20%  →  rssi >= -107
-     *   threshold 60%  →  rssi >= -68
-     *   threshold 100% →  rssi >= -20
+     * Thresholds:
+     *   SIGNAL_WEAK        (-90 dBm)
+     *   SIGNAL_MEDIUM      (-75 dBm)
+     *   SIGNAL_STRONG      (-60 dBm)
+     *   SIGNAL_VERY_STRONG (-45 dBm)
      */
     private boolean matchesSignalFilter(@NonNull ExtendedBluetoothDevice device,
                                         int signalThreshold) {
-        if (signalThreshold == SIGNAL_DEFAULT) return true;
-        int rssiPercent = calculateRssiPercent((int) Math.round(getSmoothedRssi(device)));
-        return rssiPercent >= signalThreshold;
+        if (signalThreshold == SIGNAL_ALL) return true;
+        double smoothedRssi = getSmoothedRssi(device);
+        return smoothedRssi >= (double) signalThreshold;
     }
 
     /**

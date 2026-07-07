@@ -160,14 +160,14 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
-        // PROXY FILTER - ADD THIS SECTION
+        // PROXY FILTER
         binding.containerProxyFilter.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_proxy));
         binding.containerProxyFilter.title.setText("Auto Proxy Filter");
         binding.containerProxyFilter.text.setVisibility(View.VISIBLE);
-        binding.containerProxyFilter.text.setText("Configure proxy inclusion/exclusion lists");
-        
+        binding.containerProxyFilter.text.setText("Enable or disable automatic proxy filtering");
+
         binding.containerProxyFilter.actionChangeTestMode.setVisibility(View.VISIBLE);
         binding.containerProxyFilter.actionChangeTestMode.setChecked(mViewModel.isProxyEnabled());
         binding.containerProxyFilter.actionChangeTestMode.setOnCheckedChangeListener((buttonView, isChecked) -> {
@@ -176,9 +176,7 @@ public class SettingsFragment extends Fragment implements
         });
 
         binding.containerProxyFilter.getRoot().setOnClickListener(v -> {
-            Log.d(TAG, "Proxy Filter clicked");
-            Intent intent = new Intent(requireContext(), ProxyFilterActivity.class);
-            startActivity(intent);
+            binding.containerProxyFilter.actionChangeTestMode.toggle();
         });
 
         // DEVICE FILTER - ADD THIS SECTION

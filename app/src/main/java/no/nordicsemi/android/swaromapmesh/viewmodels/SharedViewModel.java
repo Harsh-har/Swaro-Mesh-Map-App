@@ -1235,9 +1235,17 @@ public class SharedViewModel extends BaseViewModel
         StringBuilder sb = new StringBuilder();
         if (!getSelectedDeviceValue().equals(DEFAULT_SELECTED_DEVICE))
             sb.append("Device: ").append(getSelectedDeviceValue());
-        if (getSignalThresholdValue() == DevicesAdapter.SIGNAL_100) {
+
+        int threshold = getSignalThresholdValue();
+        if (threshold != DevicesAdapter.SIGNAL_ALL) {
             if (sb.length() > 0) sb.append(" | ");
-            sb.append("Signal ≥ 100%");
+            String label = "Signal: ";
+            if (threshold == DevicesAdapter.SIGNAL_VERY_STRONG) label += "Very Strong";
+            else if (threshold == DevicesAdapter.SIGNAL_STRONG) label += "Strong";
+            else if (threshold == DevicesAdapter.SIGNAL_MEDIUM) label += "Medium";
+            else if (threshold == DevicesAdapter.SIGNAL_WEAK) label += "Weak";
+            else label += threshold + " dBm";
+            sb.append(label);
         }
         return sb.length() > 0 ? "Filter: " + sb : "No filter active";
     }

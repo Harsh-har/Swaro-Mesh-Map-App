@@ -48,18 +48,16 @@ public class RssiFilterActivity extends AppCompatActivity {
         setInitialSelection(selectedSignal);
 
         rgSignalStrength.setOnCheckedChangeListener((group, checkedId) -> {
-            // TODO: re-enable once SIGNAL_VERY_CLOSE / SIGNAL_50 exist in DevicesAdapter
-            // if (checkedId == R.id.rbSignalVeryClose)
-            //     selectedSignal = DevicesAdapter.SIGNAL_VERY_CLOSE;
-            // else
-            if (checkedId == R.id.rbSignal100)
-                selectedSignal = DevicesAdapter.SIGNAL_100;
-                // else if (checkedId == R.id.rbSignal50)
-                //     selectedSignal = DevicesAdapter.SIGNAL_50;
-            else if (checkedId == R.id.rbSignal20)
-                selectedSignal = DevicesAdapter.SIGNAL_20;
+            if (checkedId == R.id.rbSignalVeryStrong)
+                selectedSignal = DevicesAdapter.SIGNAL_VERY_STRONG;
+            else if (checkedId == R.id.rbSignalStrong)
+                selectedSignal = DevicesAdapter.SIGNAL_STRONG;
+            else if (checkedId == R.id.rbSignalMedium)
+                selectedSignal = DevicesAdapter.SIGNAL_MEDIUM;
+            else if (checkedId == R.id.rbSignalWeak)
+                selectedSignal = DevicesAdapter.SIGNAL_WEAK;
             else
-                selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
+                selectedSignal = DevicesAdapter.SIGNAL_ALL;
         });
 
         btnApply.setOnClickListener(v -> {
@@ -68,26 +66,22 @@ public class RssiFilterActivity extends AppCompatActivity {
         });
 
         btnReset.setOnClickListener(v -> {
-            // TODO: was incorrectly resetting to SIGNAL_VERY_CLOSE — restored
-            // to SIGNAL_DEFAULT (no filter) until intended Reset behavior is confirmed.
-            selectedSignal = DevicesAdapter.SIGNAL_DEFAULT;
+            selectedSignal = DevicesAdapter.SIGNAL_ALL;
             mSharedViewModel.setSignalThreshold(selectedSignal);
             setInitialSelection(selectedSignal);
         });
     }
 
     private void setInitialSelection(int value) {
-        // TODO: re-enable once SIGNAL_VERY_CLOSE / SIGNAL_50 exist in DevicesAdapter
-        // if (value == DevicesAdapter.SIGNAL_VERY_CLOSE)
-        //     rgSignalStrength.check(R.id.rbSignalVeryClose);
-        // else
-        if (value == DevicesAdapter.SIGNAL_100)
-            rgSignalStrength.check(R.id.rbSignal100);
-            // else if (value == DevicesAdapter.SIGNAL_50)
-            //     rgSignalStrength.check(R.id.rbSignal50);
-        else if (value == DevicesAdapter.SIGNAL_20)
-            rgSignalStrength.check(R.id.rbSignal20);
+        if (value == DevicesAdapter.SIGNAL_VERY_STRONG)
+            rgSignalStrength.check(R.id.rbSignalVeryStrong);
+        else if (value == DevicesAdapter.SIGNAL_STRONG)
+            rgSignalStrength.check(R.id.rbSignalStrong);
+        else if (value == DevicesAdapter.SIGNAL_MEDIUM)
+            rgSignalStrength.check(R.id.rbSignalMedium);
+        else if (value == DevicesAdapter.SIGNAL_WEAK)
+            rgSignalStrength.check(R.id.rbSignalWeak);
         else
-            rgSignalStrength.check(R.id.rbSignalDefault);
+            rgSignalStrength.check(R.id.rbSignalAll);
     }
 }

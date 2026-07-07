@@ -65,46 +65,46 @@
         android:paddingStart="16dp"
         android:paddingEnd="16dp">
 
-        <!-- Very Close ~0.5m (-45 dBm) — NOW DEFAULT -->
+        <!-- Very Strong (-45 dBm or better) -->
         <RadioButton
-            android:id="@+id/rbSignalVeryClose"
+            android:id="@+id/rbSignalVeryStrong"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Very Close (~0.5m)"
-            android:textColor="@android:color/white"
-            android:checked="true"/>
-
-        <!-- Strong ~1m (-55 dBm) -->
-        <RadioButton
-            android:id="@+id/rbSignal100"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Strong (~1m)"
+            android:text="Very Strong (Very Close)"
             android:textColor="@android:color/white"/>
 
-        <!-- Medium ~2-3m (-70 dBm) -->
+        <!-- Strong (-60 dBm or better) -->
         <RadioButton
-            android:id="@+id/rbSignal50"
+            android:id="@+id/rbSignalStrong"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Medium (~2-3m)"
+            android:text="Strong (Nearby)"
             android:textColor="@android:color/white"/>
 
-        <!-- Weak ~5m (-85 dBm) -->
+        <!-- Medium (-75 dBm or better) -->
         <RadioButton
-            android:id="@+id/rbSignal20"
+            android:id="@+id/rbSignalMedium"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Weak (~5m)"
+            android:text="Medium"
+            android:textColor="@android:color/white"/>
+
+        <!-- Weak (-90 dBm or better) -->
+        <RadioButton
+            android:id="@+id/rbSignalWeak"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Weak"
             android:textColor="@android:color/white"/>
 
         <!-- No Filter -->
         <RadioButton
-            android:id="@+id/rbSignalDefault"
+            android:id="@+id/rbSignalAll"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Default (No Filter)"
-            android:textColor="@android:color/white"/>
+            android:text="Show All"
+            android:textColor="@android:color/white"
+            android:checked="true"/>
 
     </RadioGroup>
 
