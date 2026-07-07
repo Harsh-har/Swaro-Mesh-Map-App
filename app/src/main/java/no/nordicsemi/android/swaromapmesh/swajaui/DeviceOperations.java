@@ -449,48 +449,15 @@ public class DeviceOperations {
                 String areaPrefix = areaId.replace(" ", "_");
 
                 for (int i = 1; i <= lightsCount; i++) {
-                    // Standard light ID: Area_Category_Count_Index_EID
-                    // This ID will be used for both the interactive Technician icon and User Layer visualization
-                    String lightId = areaPrefix + "_" + catLabel + "_" + countPart + "_" + i + "_" + eid;
+                    // Standard light ID: Area_Category_Count_Index_EID_RID
+                    String techLightId = areaPrefix + "_" + catLabel + "_" + countPart + "_" + i + "_" + eid + "_" + rid;
                     
                     // Initial position: Spread them out slightly around the main icon
                     float offsetX = (i - 1) * 20 - ((lightsCount - 1) * 10f);
                     float relX = x + offsetX;
                     float relY = y;
                     
-                    // Local coords for Technician Light
-                    float[] lTechPts = {relX, relY};
-                    inv.mapPoints(lTechPts);
-
-                    // 1. Add to Technician Layer (Interactive icon)
-                    // Adding to Technician Layer makes the light draggable and interactive in the app
-                    Element techLight = svgDocument.createElement("g");
-                    // Light ID pattern: Area_Category_Count_Index_EID_RID
-                    // Using 6 parts ensures EID and RID are parsed correctly from the end
-                    String techLightId = areaPrefix + "_" + catLabel + "_" + countPart + "_" + i + "_" + eid + "_" + rid;
-                    techLight.setAttribute("id", techLightId); 
-                    techLight.setAttribute("data-manual", "true");
-                    techLight.setAttribute("data-manual-added", "true");
-                    techLight.setAttribute("transform", "translate(" + techPts[0] + " " + techPts[1] + ")");
-
-                    // Make it look like a light (orange circle)
-                    Element techCircle = svgDocument.createElement("circle");
-                    techCircle.setAttribute("r", "3");
-                    techCircle.setAttribute("fill", "#fb0");
-                    techCircle.setAttribute("stroke", "#000");
-                    techCircle.setAttribute("stroke-width", "0.5");
-                    techLight.appendChild(techCircle);
-
-                    // Add metadata for element ID so it's recognized as a device
-                    Element meta = svgDocument.createElement("metadata");
-                    Element lEidNode = svgDocument.createElement("elementId");
-                    lEidNode.setTextContent(eid);
-                    meta.appendChild(lEidNode);
-                    techLight.appendChild(meta);
-
-                    areaGroup.appendChild(techLight);
-
-                    // 2. Add to User Layer (Final visualization)
+                    // Add to User Layer (Final visualization)
                     float[] lUserPts = {relX, relY};
                     devInv.mapPoints(lUserPts);
 
@@ -500,7 +467,15 @@ public class DeviceOperations {
                     userLight.setAttribute("cx", String.valueOf(lUserPts[0]));
                     userLight.setAttribute("cy", String.valueOf(lUserPts[1]));
                     userLight.setAttribute("r", "1.29");
-                    userLight.setAttribute("style", "fill:#fb0;");
+                    userLight.setAttribute("style", "fill:#bl3b3b3;");
+                    
+                    // Add metadata for element ID so it's recognized as a device
+                    Element meta = svgDocument.createElement("metadata");
+                    Element lEidNode = svgDocument.createElement("elementId");
+                    lEidNode.setTextContent(eid);
+                    meta.appendChild(lEidNode);
+                    userLight.appendChild(meta);
+
                     devAreaGroup.appendChild(userLight);
                 }
                 Log.d(TAG, "Added " + lightsCount + " LC Node lights to BOTH layers in area: " + areaId);
@@ -513,7 +488,7 @@ public class DeviceOperations {
                 physEl.setAttribute("cx", String.valueOf(lUserPts[0]));
                 physEl.setAttribute("cy", String.valueOf(lUserPts[1]));
                 physEl.setAttribute("r", "3");
-                physEl.setAttribute("style", "fill:#b3b3b3;");
+                physEl.setAttribute("style", "fil:#bl3b3b3;");
                 devAreaGroup.appendChild(physEl);
             }
 
