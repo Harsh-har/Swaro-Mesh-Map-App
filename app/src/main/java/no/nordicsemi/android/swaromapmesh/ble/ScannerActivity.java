@@ -279,9 +279,6 @@ public class ScannerActivity extends AppCompatActivity implements
         // RecyclerView
         final RecyclerView recyclerViewDevices = binding.recyclerViewBleDevices;
         recyclerViewDevices.setLayoutManager(new LinearLayoutManager(this));
-        recyclerViewDevices.addItemDecoration(
-                new DividerItemDecoration(recyclerViewDevices.getContext(),
-                        DividerItemDecoration.VERTICAL));
 
         final SimpleItemAnimator itemAnimator =
                 (SimpleItemAnimator) recyclerViewDevices.getItemAnimator();

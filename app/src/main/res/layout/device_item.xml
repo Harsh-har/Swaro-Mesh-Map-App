@@ -1,110 +1,122 @@
 <?xml version="1.0" encoding="utf-8"?>
 
-<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/device_container"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:minHeight="72dp"
-    android:background="?attr/selectableItemBackground"
+    android:layout_marginHorizontal="12dp"
+    android:layout_marginVertical="6dp"
     android:clickable="true"
     android:focusable="true"
-    android:paddingStart="@dimen/activity_horizontal_margin"
-    android:paddingTop="@dimen/item_padding_top"
-    android:paddingEnd="@dimen/activity_horizontal_margin"
-    android:paddingBottom="@dimen/item_padding_bottom"
-    tools:ignore="ContentDescription">
+    app:cardCornerRadius="12dp"
+    app:cardElevation="2dp"
+    app:rippleColor="#20FFFFFF">
 
-    <ImageView
-        android:id="@+id/icon"
-        android:layout_width="48dp"
-        android:layout_height="48dp"
-        android:layout_centerVertical="true"
-        android:padding="@dimen/mesh_list_icon_padding"
-        app:srcCompat="@drawable/networkmesh" />
-
-    <!-- Grouping name and address to prevent layout shifts -->
-    <LinearLayout
-        android:id="@+id/details_container"
+    <RelativeLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_toEndOf="@id/icon"
-        android:layout_toStartOf="@+id/action_container"
-        android:layout_centerVertical="true"
-        android:layout_marginStart="@dimen/activity_horizontal_margin"
-        android:layout_marginEnd="8dp"
-        android:orientation="vertical">
+        android:minHeight="88dp"
+        android:paddingStart="16dp"
+        android:paddingTop="12dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="12dp">
 
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/device_name"
-            android:layout_width="wrap_content"
+        <ImageView
+            android:id="@+id/icon"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_centerVertical="true"
+            android:padding="@dimen/mesh_list_icon_padding"
+            app:srcCompat="@drawable/networkmesh" />
+
+        <LinearLayout
+            android:id="@+id/details_container"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:ellipsize="end"
-            android:singleLine="true"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Headline5"
-            tools:text="Nordic_Blinky" />
+            android:layout_centerVertical="true"
+            android:layout_marginStart="16dp"
+            android:layout_marginEnd="8dp"
+            android:layout_toEndOf="@id/icon"
+            android:layout_toStartOf="@+id/action_container"
+            android:orientation="vertical">
 
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/device_address"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            tools:text="AA:BB:CC:DD:EE:FF" />
-    </LinearLayout>
-    <LinearLayout
-        android:id="@+id/action_container"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_toStartOf="@+id/rssi"
-        android:layout_centerVertical="true"
-        android:layout_marginEnd="8dp"
-        android:gravity="center_horizontal"
-        android:orientation="vertical">
-
-        <FrameLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/action_identify"
-                style="@style/Widget.MaterialComponents.Button.TextButton"
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/device_name"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="#EF8D02"
-                android:minWidth="0dp"
-                android:minHeight="48dp"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp"
-                android:text="@string/identify_action"
-                android:textColor="#ffbb00" />
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Headline6"
+                android:textColor="@color/white"
+                tools:text="Nordic_Blinky" />
 
-            <ProgressBar
-                android:id="@+id/identify_progress"
-                style="?android:attr/progressBarStyleSmall"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:layout_gravity="center"
-                android:visibility="gone"
-                tools:visibility="gone" />
-        </FrameLayout>
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/device_address"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                android:textColor="#BDBDBD"
+                tools:text="AA:BB:CC:DD:EE:FF" />
+        </LinearLayout>
 
-        <com.google.android.material.textview.MaterialTextView
-            android:id="@+id/rssi_value"
+        <LinearLayout
+            android:id="@+id/action_container"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
-            android:textColor="?android:textColorSecondary"
-            tools:text="-60 dBm" />
+            android:layout_centerVertical="true"
+            android:layout_marginEnd="8dp"
+            android:layout_toStartOf="@+id/rssi"
+            android:gravity="center_horizontal"
+            android:orientation="vertical">
 
-    </LinearLayout>
+            <FrameLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:padding="4dp">
 
-    <ImageView
-        android:id="@+id/rssi"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_alignParentEnd="true"
-        android:layout_centerVertical="true"
-        android:src="@drawable/ic_signal_bar"
-        tools:src="@drawable/ic_signal_3_bar" />
-</RelativeLayout>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/action_identify"
+                    style="@style/Widget.MaterialComponents.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:backgroundTint="#EF8D02"
+                    android:minWidth="80dp"
+                    android:minHeight="48dp"
+                    android:paddingStart="16dp"
+                    android:paddingEnd="16dp"
+                    android:text="@string/identify_action"
+                    android:textColor="#FFFFFF"
+                    app:cornerRadius="8dp" />
+
+                <ProgressBar
+                    android:id="@+id/identify_progress"
+                    style="?android:attr/progressBarStyleSmall"
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="center"
+                    android:visibility="gone"
+                    tools:visibility="gone" />
+            </FrameLayout>
+
+            <com.google.android.material.textview.MaterialTextView
+                android:id="@+id/rssi_value"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="@style/TextAppearance.MaterialComponents.Caption"
+                android:textColor="#BDBDBD"
+                tools:text="-60 dBm" />
+
+        </LinearLayout>
+
+        <ImageView
+            android:id="@+id/rssi"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_alignParentEnd="true"
+            android:layout_centerVertical="true"
+            android:src="@drawable/ic_signal_bar"
+            tools:src="@drawable/ic_signal_3_bar" />
+    </RelativeLayout>
+</com.google.android.material.card.MaterialCardView>
