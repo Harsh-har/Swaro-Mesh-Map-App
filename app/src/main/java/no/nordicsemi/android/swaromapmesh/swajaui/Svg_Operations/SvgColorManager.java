@@ -144,6 +144,9 @@ public class SvgColorManager {
     private void snapshotDevicesGroupFills(Document document) {
         if (document == null) return;
         Element dg = parser.findElementById(document.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementFuzzy(document.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementById(document.getDocumentElement(), "Devices");
+        
         if (dg == null) return;
         snapshotFillsRecursive(dg);
     }
@@ -339,10 +342,15 @@ public class SvgColorManager {
     public void showOnlyPhysicalDevices(Set<String> activeDeviceIds, Set<String> addressedIds) {
         if (svgDocument == null) return;
         Element dg = parser.findElementById(svgDocument.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementFuzzy(svgDocument.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+        
         if (dg == null) return;
         applyColorToAllElements(dg, COLOR_TRANSPARENT);   // sab hide first
         for (String deviceId : activeDeviceIds) {
             Element deviceEl = parser.findElementById(dg, deviceId);
+            if (deviceEl == null) deviceEl = parser.findElementFuzzy(dg, deviceId);
+            
             if (deviceEl != null) {
                 restoreIconGroupColor(deviceEl); // Remove display:none if it was hidden as an icon
 
@@ -359,12 +367,18 @@ public class SvgColorManager {
     public void showAllPhysicalDevices() {
         if (svgDocument == null) return;
         Element dg = parser.findElementById(svgDocument.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementFuzzy(svgDocument.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+        
         if (dg != null) restoreOriginalFillRecursive(dg);
     }
     /** Hides all elements in the User Layer layer. */
     public void hideAllPhysicalDevices() {
         if (svgDocument == null) return;
         Element dg = parser.findElementById(svgDocument.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementFuzzy(svgDocument.getDocumentElement(), "User Layer");
+        if (dg == null) dg = parser.findElementById(svgDocument.getDocumentElement(), "Devices");
+
         if (dg != null) applyColorToAllElements(dg, COLOR_TRANSPARENT);
     }
 
@@ -391,15 +405,31 @@ public class SvgColorManager {
                                  Set<String> provisionedIds,
                                  Set<String> addressedIds,
                                  String selectedDeviceId,
+                                 String movingDeviceId,
                                  Map<String, Set<String>> iconToDeviceRelations,
                                  String areaFilterId,
                                  boolean showProvisionedDevices) {
         if (deviceMap.isEmpty()) return;
         Set<String> devicesToShow = new HashSet<>();
+        
+        // ── Step 1: Identify all provisioned binding keys ──────────────────
+        Set<String> provisionedKeys = new HashSet<>();
+        if (provisionedIds != null) {
+            for (String pid : provisionedIds) {
+                String key = parser.extractRelationKey(pid);
+                if (key != null) provisionedKeys.add(key);
+            }
+        }
 
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String     id   = entry.getKey();
             DeviceInfo info = entry.getValue();
+
+            // ✅ Hide the icon if it's currently being moved (draggable overlay will represent it)
+            if (id.equals(movingDeviceId)) {
+                applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
+                continue;
+            }
 
             // ✅ Area filter: hide icons outside the focused area using fuzzy match
             if (areaFilterId != null && !parser.isFuzzyMatch(info.areaId, areaFilterId)) {
@@ -407,21 +437,26 @@ public class SvgColorManager {
                 continue;
             }
 
-            // ✅ normalize id before lookup — case mismatch fix
+            // ✅ Robust Provisioned Check: check direct ID OR shared binding key
+            String bindingKey = parser.extractRelationKey(id);
             boolean provisioned = provisionedIds != null
                     && (provisionedIds.contains(id.trim().toLowerCase())
                     || (info.elementId != null && provisionedIds.contains(info.elementId.trim().toLowerCase()))
-                    || provisionedIds.contains(id.trim().toLowerCase().replaceAll("\\s+", "_")));
+                    || provisionedIds.contains(id.trim().toLowerCase().replaceAll("\\s+", "_"))
+                    || (bindingKey != null && provisionedKeys.contains(bindingKey)));
 
             if (provisioned) {
-                if (showProvisionedDevices) {
-                    restoreIconGroupColor(info.element);
-                } else {
-                    // ✅ Hide icon and add its related physical devices to show list
-                    applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
-                }
+                // If provisioned, we ALWAYS reveal the physical User Layer devices
                 Set<String> related = iconToDeviceRelations.get(id);
                 if (related != null) devicesToShow.addAll(related);
+
+                if (showProvisionedDevices) {
+                    // Filter ON: Show Technician Icon as well
+                    restoreIconGroupColor(info.element);
+                } else {
+                    // Filter OFF: Hide Technician Icon (Standard user view)
+                    applyColorToIconGroup(info.element, COLOR_TRANSPARENT);
+                }
             } else if (id.equals(selectedDeviceId)) {
                 applyColorToIconGroup(info.element, COLOR_SELECTED);
             } else {
@@ -433,6 +468,15 @@ public class SvgColorManager {
         if (devicesToShow.isEmpty()) {
             hideAllPhysicalDevices();
         } else {
+            // If we are moving a device, don't show its physical counterpart either to avoid double visuals
+            if (movingDeviceId != null) {
+                Set<String> movingPhysicalIds = iconToDeviceRelations.get(movingDeviceId);
+                if (movingPhysicalIds != null) {
+                    for (String pid : movingPhysicalIds) devicesToShow.remove(pid);
+                }
+                // If the movingDeviceId itself is a physical device ID, hide it from SVG
+                devicesToShow.remove(movingDeviceId);
+            }
             showOnlyPhysicalDevices(devicesToShow, addressedIds);
         }
     }

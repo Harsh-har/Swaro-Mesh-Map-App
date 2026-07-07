@@ -1,6 +1,7 @@
 package no.nordicsemi.android.swaromapmesh.swajaui;
 
 import android.content.Context;
+import android.graphics.Matrix;
 import android.graphics.RectF;
 import android.util.Log;
 import android.widget.EditText;
@@ -111,6 +112,18 @@ public class DeviceOperations {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 20);
 
+        final boolean isLcNode = selectedCategory.equals(DeviceCodes.LC_NODE) || 
+                                selectedCategory.equalsIgnoreCase("LC Node") || 
+                                selectedCategory.equalsIgnoreCase("PSD02");
+
+        final EditText lightsCountInput = new EditText(context);
+        if (isLcNode) {
+            lightsCountInput.setHint("Number of Connected Lights");
+            lightsCountInput.setInputType(android.text.InputType.TYPE_CLASS_NUMBER);
+            lightsCountInput.setText("2");
+            layout.addView(lightsCountInput);
+        }
+
         final EditText nameInput = new EditText(context);
         nameInput.setHint("Device Name");
         layout.addView(nameInput);
@@ -185,7 +198,16 @@ public class DeviceOperations {
                     float[] iconCoords = callback.getDraggableIconCoords();
                     float[] svgCoords = callback.touchToSvgCoords(iconCoords[0], iconCoords[1]);
 
-                    addNewDeviceToSvg(svgDocument, svgParser, selectedCategory, name, eid, rid, svgCoords[0], svgCoords[1]);
+                    int lightsCount = 0;
+                    if (isLcNode) {
+                        try {
+                            String countStr = lightsCountInput.getText().toString().trim();
+                            lightsCount = countStr.isEmpty() ? 0 : Integer.parseInt(countStr);
+                        } catch (Exception e) {
+                            lightsCount = 2;
+                        }
+                    }
+                    addNewDeviceToSvg(svgDocument, svgParser, selectedCategory, name, eid, rid, svgCoords[0], svgCoords[1], lightsCount);
                     callback.exitAddMode();
                 })
                 .setNegativeButton("Cancel", null)
@@ -309,7 +331,7 @@ public class DeviceOperations {
         }
     }
 
-    public void addNewDeviceToSvg(Document svgDocument, SvgParsers svgParser, String category, String name, String eid, String rid, float x, float y) {
+    public void addNewDeviceToSvg(Document svgDocument, SvgParsers svgParser, String category, String name, String eid, String rid, float x, float y, int lightsCount) {
         if (svgDocument == null) return;
 
         try {
@@ -363,12 +385,19 @@ public class DeviceOperations {
                 iconsGroup.appendChild(areaGroup);
             }
 
+            // ── Calculate local coordinates relative to parent group ──
+            Matrix parentMatrix = svgParser.getCumulativeTransform(areaGroup);
+            Matrix inv = new Matrix();
+            parentMatrix.invert(inv);
+            float[] techPts = {x, y};
+            inv.mapPoints(techPts);
+
             Element iconEl = svgDocument.createElement("g");
             // Always use the constructed deviceId from our pattern
             iconEl.setAttribute("id", deviceId);
             iconEl.setAttribute("data-manual", "true");
             iconEl.setAttribute("data-manual-added", "true");
-            iconEl.setAttribute("transform", "translate(" + (x - svgParser.vbX) + " " + (y - svgParser.vbY) + ")");
+            iconEl.setAttribute("transform", "translate(" + techPts[0] + " " + techPts[1] + ")");
 
             Element metadata = svgDocument.createElement("metadata");
             Element eidNode = svgDocument.createElement("elementId");
@@ -394,6 +423,7 @@ public class DeviceOperations {
             areaGroup.appendChild(iconEl);
 
             Element devicesGroup = svgParser.findElementById(root, "User Layer");
+            if (devicesGroup == null) devicesGroup = svgParser.findElementFuzzy(root, "User Layer");
             if (devicesGroup == null) {
                 devicesGroup = svgDocument.createElement("g");
                 devicesGroup.setAttribute("id", "User Layer");
@@ -401,28 +431,91 @@ public class DeviceOperations {
             }
 
             Element devAreaGroup = svgParser.findElementById(devicesGroup, areaId);
-            if (devAreaGroup == null) {
-                NodeList devChildren = devicesGroup.getChildNodes();
-                for (int i = 0; i < devChildren.getLength(); i++) {
-                    if (devChildren.item(i) instanceof Element) {
-                        devAreaGroup = (Element) devChildren.item(i);
-                        break;
-                    }
-                }
-            }
+            if (devAreaGroup == null) devAreaGroup = svgParser.findElementFuzzy(devicesGroup, areaId);
+            
             if (devAreaGroup == null) {
                 devAreaGroup = svgDocument.createElement("g");
-                devAreaGroup.setAttribute("id", areaId + "_Dev");
+                devAreaGroup.setAttribute("id", areaId);
                 devicesGroup.appendChild(devAreaGroup);
             }
 
-            Element physEl = svgDocument.createElement("circle");
-            physEl.setAttribute("id", deviceId + "_phys");
-            physEl.setAttribute("cx", String.valueOf(x));
-            physEl.setAttribute("cy", String.valueOf(y));
-            physEl.setAttribute("r", "3");
-            physEl.setAttribute("style", "fill:#b3b3b3;");
-            devAreaGroup.appendChild(physEl);
+            // Calculate local coordinates for User Layer parent
+            Matrix devParentMatrix = svgParser.getCumulativeTransform(devAreaGroup);
+            Matrix devInv = new Matrix();
+            devParentMatrix.invert(devInv);
+
+            if (lightsCount > 0 && (catLabel.equals(DeviceCodes.LC_NODE) || catLabel.equalsIgnoreCase("PSD02"))) {
+                // Add specified number of connected lights for LC Node to BOTH Layers
+                String areaPrefix = areaId.replace(" ", "_");
+
+                for (int i = 1; i <= lightsCount; i++) {
+                    // Standard light ID: Area_Category_Count_Index_EID
+                    // This ID will be used for both the interactive Technician icon and User Layer visualization
+                    String lightId = areaPrefix + "_" + catLabel + "_" + countPart + "_" + i + "_" + eid;
+                    
+                    // Initial position: Spread them out slightly around the main icon
+                    float offsetX = (i - 1) * 20 - ((lightsCount - 1) * 10f);
+                    float relX = x + offsetX;
+                    float relY = y;
+                    
+                    // Local coords for Technician Light
+                    float[] lTechPts = {relX, relY};
+                    inv.mapPoints(lTechPts);
+
+                    // 1. Add to Technician Layer (Interactive icon)
+                    // Adding to Technician Layer makes the light draggable and interactive in the app
+                    Element techLight = svgDocument.createElement("g");
+                    // Light ID pattern: Area_Category_Count_Index_EID_RID
+                    // Using 6 parts ensures EID and RID are parsed correctly from the end
+                    String techLightId = areaPrefix + "_" + catLabel + "_" + countPart + "_" + i + "_" + eid + "_" + rid;
+                    techLight.setAttribute("id", techLightId); 
+                    techLight.setAttribute("data-manual", "true");
+                    techLight.setAttribute("data-manual-added", "true");
+                    techLight.setAttribute("transform", "translate(" + techPts[0] + " " + techPts[1] + ")");
+
+                    // Make it look like a light (orange circle)
+                    Element techCircle = svgDocument.createElement("circle");
+                    techCircle.setAttribute("r", "3");
+                    techCircle.setAttribute("fill", "#fb0");
+                    techCircle.setAttribute("stroke", "#000");
+                    techCircle.setAttribute("stroke-width", "0.5");
+                    techLight.appendChild(techCircle);
+
+                    // Add metadata for element ID so it's recognized as a device
+                    Element meta = svgDocument.createElement("metadata");
+                    Element lEidNode = svgDocument.createElement("elementId");
+                    lEidNode.setTextContent(eid);
+                    meta.appendChild(lEidNode);
+                    techLight.appendChild(meta);
+
+                    areaGroup.appendChild(techLight);
+
+                    // 2. Add to User Layer (Final visualization)
+                    float[] lUserPts = {relX, relY};
+                    devInv.mapPoints(lUserPts);
+
+                    Element userLight = svgDocument.createElement("circle");
+                    // Use the same 6-part ID with _phys suffix
+                    userLight.setAttribute("id", techLightId + "_phys"); 
+                    userLight.setAttribute("cx", String.valueOf(lUserPts[0]));
+                    userLight.setAttribute("cy", String.valueOf(lUserPts[1]));
+                    userLight.setAttribute("r", "1.29");
+                    userLight.setAttribute("style", "fill:#fb0;");
+                    devAreaGroup.appendChild(userLight);
+                }
+                Log.d(TAG, "Added " + lightsCount + " LC Node lights to BOTH layers in area: " + areaId);
+            } else {
+                float[] lUserPts = {x, y};
+                devInv.mapPoints(lUserPts);
+
+                Element physEl = svgDocument.createElement("circle");
+                physEl.setAttribute("id", deviceId + "_phys");
+                physEl.setAttribute("cx", String.valueOf(lUserPts[0]));
+                physEl.setAttribute("cy", String.valueOf(lUserPts[1]));
+                physEl.setAttribute("r", "3");
+                physEl.setAttribute("style", "fill:#b3b3b3;");
+                devAreaGroup.appendChild(physEl);
+            }
 
             saveSvgToInternal(svgDocument);
             callback.onDataChanged();
@@ -607,9 +700,11 @@ public class DeviceOperations {
             Set<String> physicalIds = iconToDeviceRelations.get(iconId);
             if (physicalIds != null) {
                 Element devGroup = svgParser.findElementById(root, "User Layer");
+                if (devGroup == null) devGroup = svgParser.findElementFuzzy(root, "User Layer");
                 if (devGroup != null) {
                     for (String pid : physicalIds) {
                         Element pEl = svgParser.findElementById(devGroup, pid);
+                        if (pEl == null) pEl = svgParser.findElementFuzzy(devGroup, pid);
                         if (pEl != null) {
                             Node pParent = pEl.getParentNode();
                             if (pParent != null) pParent.removeChild(pEl);
@@ -627,29 +722,122 @@ public class DeviceOperations {
         }
     }
 
-    public String extractPureDeviceName(String fullDeviceId) {
-        if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
+    public void moveDeviceInSvg(String elementId, float x, float y, Document svgDocument, SvgParsers svgParser) {
+        if (svgDocument == null) return;
+        try {
+            Element root = svgDocument.getDocumentElement();
+            Element el = svgParser.findElementById(root, elementId);
+            if (el == null) el = svgParser.findElementFuzzy(root, elementId);
+            
+            if (el != null) {
+                // 1. Calculate current absolute center
+                RectF currentBounds = svgParser.computeBounds(el);
+                if (currentBounds == null || currentBounds.isEmpty()) return;
+                
+                float dx = x - currentBounds.centerX();
+                float dy = y - currentBounds.centerY();
 
-        // 1. Handle new structure: RoomName_DeviceName_Count_ElementId_ReceiveId
-        // Example: GBDR_PSS04_1_13_13 or Guest_Bedroom_GBDR_CN01_2_15_15
-        String[] parts = fullDeviceId.split("_");
-        if (parts.length >= 5) {
-            // Category code is the 4th part from the end
-            String code = parts[parts.length - 4];
-            String count = parts[parts.length - 3];
-            String friendly = DeviceCodes.getName(code);
-            if (friendly == null) friendly = code;
+                // 2. Calculate local delta relative to parent group
+                Node parent = el.getParentNode();
+                if (parent instanceof Element) {
+                    Matrix parentMatrix = svgParser.getCumulativeTransform((Element) parent);
+                    Matrix inv = new Matrix();
+                    parentMatrix.invert(inv);
+                    
+                    // Transform absolute delta (dx, dy) into parent-local delta
+                    float[] deltaVector = {dx, dy};
+                    inv.mapVectors(deltaVector);
+                    float ldx = deltaVector[0];
+                    float ldy = deltaVector[1];
 
-            // Only append count if it's a number
-            if (count.matches("\\d+")) {
-                return friendly + " " + count;
+                    String tag = el.getTagName().toLowerCase().replace("svg:", "");
+                    if ("circle".equals(tag)) {
+                        float oldCx = 0, oldCy = 0;
+                        try {
+                            String cxS = el.getAttribute("cx").replaceAll("[^0-9.-]", "");
+                            String cyS = el.getAttribute("cy").replaceAll("[^0-9.-]", "");
+                            if (!cxS.isEmpty()) oldCx = Float.parseFloat(cxS);
+                            if (!cyS.isEmpty()) oldCy = Float.parseFloat(cyS);
+                        } catch (Exception ignored) {}
+                        el.setAttribute("cx", String.valueOf(oldCx + ldx));
+                        el.setAttribute("cy", String.valueOf(oldCy + ldy));
+                    } else if ("rect".equals(tag)) {
+                        float oldX = 0, oldY = 0;
+                        try {
+                            String xS = el.getAttribute("x").replaceAll("[^0-9.-]", "");
+                            String yS = el.getAttribute("y").replaceAll("[^0-9.-]", "");
+                            if (!xS.isEmpty()) oldX = Float.parseFloat(xS);
+                            if (!yS.isEmpty()) oldY = Float.parseFloat(yS);
+                        } catch (Exception ignored) {}
+                        el.setAttribute("x", String.valueOf(oldX + ldx));
+                        el.setAttribute("y", String.valueOf(oldY + ldy));
+                    } else {
+                        // For groups and others, apply translate on top of existing transform
+                        String currentTransform = el.getAttribute("transform");
+                        String newTranslate = "translate(" + ldx + " " + ldy + ")";
+                        
+                        if (currentTransform != null && !currentTransform.isEmpty()) {
+                            // Prepend the new translate to ensure it's applied correctly
+                            el.setAttribute("transform", newTranslate + " " + currentTransform);
+                        } else {
+                            el.setAttribute("transform", newTranslate);
+                        }
+                    }
+                }
+                
+                saveSvgToInternal(svgDocument);
+                callback.onDataChanged();
+                Toast.makeText(context, "Position updated", Toast.LENGTH_SHORT).show();
             }
-            return friendly;
+        } catch (Exception e) {
+            Log.e(TAG, "Error moving element", e);
+            Toast.makeText(context, "Failed to move element", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    public String extractPureDeviceName(String fullId) {
+        if (fullId == null || fullId.isEmpty()) return "";
+
+        String id = fullId;
+        if (id.endsWith("_phys")) id = id.substring(0, id.length() - 5);
+
+        // 1. Handle structure: Area_Category_Count_Index_EID_RID (6 parts)
+        // Or: Area_Category_Count_EID_RID (5 parts)
+        String[] parts = id.split("_");
+        int len = parts.length;
+        
+        if (len >= 3) {
+            // Category code is the first non-numeric part searching from the right, 
+            // after skipping at least the EID and RID.
+            int catIdx = -1;
+            int numericBlockCount = 0;
+            for (int i = len - 1; i >= 0; i--) {
+                if (parts[i].matches("\\d+")) {
+                    numericBlockCount++;
+                } else if (numericBlockCount >= 2) { // Found non-numeric after EID/RID
+                    catIdx = i;
+                    break;
+                }
+            }
+
+            if (catIdx != -1) {
+                String code = parts[catIdx].toUpperCase();
+                String friendly = DeviceCodes.getName(code);
+                
+                if (friendly != null) {
+                    // Instance Count is immediately after category
+                    String count = "";
+                    if (catIdx + 1 < len && parts[catIdx + 1].matches("\\d+")) {
+                        count = " " + parts[catIdx + 1];
+                    }
+                    return friendly + count;
+                }
+            }
         }
 
         // 2. Handle manual devices: manual_Name_Timestamp
-        if (fullDeviceId.startsWith("manual_")) {
-            String name = fullDeviceId.substring("manual_".length());
+        if (id.startsWith("manual_")) {
+            String name = id.substring("manual_".length());
             // Remove timestamp at the end if present
             name = name.replaceAll("_\\d+$", "");
             // Replace underscores with spaces
@@ -658,7 +846,7 @@ public class DeviceOperations {
         }
 
         // 3. Fallback logic for legacy or simple IDs
-        String name = fullDeviceId;
+        String name = id;
         int ci = name.lastIndexOf(":");
         if (ci != -1) name = name.substring(ci + 1).trim();
 
@@ -666,6 +854,6 @@ public class DeviceOperations {
         if (DeviceCodes.getName(name) != null) return name;
 
         name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").replaceAll("\\s+", " ").trim();
-        return name.isEmpty() ? (fullDeviceId.contains(":") ? fullDeviceId.substring(fullDeviceId.indexOf(":") + 1).trim() : fullDeviceId) : name;
+        return name.isEmpty() ? (id.contains(":") ? id.substring(id.indexOf(":") + 1).trim() : id) : name;
     }
 }

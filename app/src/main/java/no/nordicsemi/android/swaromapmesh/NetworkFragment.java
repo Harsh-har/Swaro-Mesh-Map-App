@@ -140,6 +140,8 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
     private boolean wasMultiTouch = false;
 
     private boolean mIsAddDeviceMode = false;
+    private boolean mIsMoveMode = false;
+    private String mMovingDeviceId = null;
     private String mSelectedCategory = DeviceCodes.CONTROL_NODE;
 
     private DeviceOperations deviceOperations;
@@ -174,13 +176,32 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
 
     private void setupAddDeviceLogic() {
         binding.fabAddDevice.setOnClickListener(v -> deviceOperations.showCategorySelectionDialog());
-        binding.btnCancelAdd.setOnClickListener(v -> exitAddDeviceMode());
-        binding.btnSaveDevice.setOnClickListener(v -> deviceOperations.showDeviceInfoDialog(mSelectedCategory, deviceMap, svgDocument, svgParser));
+        binding.btnCancelAdd.setOnClickListener(v -> {
+            if (mIsMoveMode) exitMoveMode();
+            else exitAddDeviceMode();
+        });
+        binding.btnSaveDevice.setOnClickListener(v -> {
+            if (mIsMoveMode) {
+                float[] iconCoords = getDraggableIconCoords();
+                float[] svgCoords = touchToSvgCoords(iconCoords[0], iconCoords[1]);
+                deviceOperations.moveDeviceInSvg(mMovingDeviceId, svgCoords[0], svgCoords[1], svgDocument, svgParser);
+                exitMoveMode();
+            } else {
+                deviceOperations.showDeviceInfoDialog(mSelectedCategory, deviceMap, svgDocument, svgParser);
+            }
+        });
 
         binding.draggableIcon.setOnTouchListener((v, event) -> {
             if (event.getAction() == MotionEvent.ACTION_MOVE) {
-                v.setX(event.getRawX() - v.getWidth() / 2f);
-                v.setY(event.getRawY() - v.getHeight() / 2f);
+                View parent = (View) v.getParent();
+                if (parent == null) return true;
+                
+                int[] loc = new int[2];
+                parent.getLocationOnScreen(loc);
+                
+                // Set position relative to parent container, centered on touch
+                v.setX(event.getRawX() - loc[0] - v.getWidth() / 2f);
+                v.setY(event.getRawY() - loc[1] - v.getHeight() / 2f);
             } else if (event.getAction() == MotionEvent.ACTION_UP) {
                 v.performClick();
             }
@@ -217,9 +238,15 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
     @Override
     public float[] getDraggableIconCoords() {
         if (binding == null) return new float[]{0, 0};
+        // Get center of icon relative to the container
         float centerX = binding.draggableIcon.getX() + binding.draggableIcon.getWidth() / 2f;
         float centerY = binding.draggableIcon.getY() + binding.draggableIcon.getHeight() / 2f;
-        return new float[]{centerX, centerY};
+        
+        // Convert to be relative to the svgView (which is the coordinate system touchToSvgCoords expects)
+        float relativeX = centerX - binding.svgView.getLeft();
+        float relativeY = centerY - binding.svgView.getTop();
+        
+        return new float[]{relativeX, relativeY};
     }
 
     @Override
@@ -250,6 +277,18 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         binding.addDeviceToolbar.setVisibility(View.GONE);
         binding.draggableIcon.setVisibility(View.GONE);
         binding.fabAddDevice.setVisibility(View.VISIBLE);
+    }
+
+    private void exitMoveMode() {
+        mIsMoveMode = false;
+        mMovingDeviceId = null;
+        binding.addDeviceToolbar.setVisibility(View.GONE);
+        binding.draggableIcon.setVisibility(View.GONE);
+        binding.fabAddDevice.setVisibility(View.VISIBLE);
+        
+        // Restore original visibility in SVG
+        refreshColors();
+        reRenderSvg();
     }
 
     private void observeViewModel() {
@@ -581,6 +620,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
                 getProvisionedSet(),
                 getAddressedSet(),
                 selectedDeviceId,
+                mMovingDeviceId,
                 iconToDeviceRelations,
                 currentFocusAreaId,
                 showProvisioned
@@ -780,7 +820,29 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
     // ══════════════════════════════════════════════════════════════════════
 
     private boolean isProvisioned(String deviceId) {
-        return ClientServerElementStore.isProvisioned(deviceId);
+
+        if (ClientServerElementStore.isProvisioned(deviceId)) return true;
+        
+        // Smarter check: check if any version of this device (shared binding key) is provisioned
+        String bindingKey = svgParser.extractRelationKey(deviceId);
+        if (bindingKey == null) return false;
+        
+        for (String pid : ClientServerElementStore.getProvisionedKeys()) {
+            if (bindingKey.equals(svgParser.extractRelationKey(pid))) return true;
+        }
+        return false;
+    }
+
+    private String getTrueProvisionedId(String deviceId) {
+        if (ClientServerElementStore.isProvisioned(deviceId)) return deviceId;
+        
+        String bindingKey = svgParser.extractRelationKey(deviceId);
+        if (bindingKey == null) return deviceId;
+        
+        for (String pid : ClientServerElementStore.getProvisionedKeys()) {
+            if (bindingKey.equals(svgParser.extractRelationKey(pid))) return pid;
+        }
+        return deviceId;
     }
 
     private Set<String> getProvisionedSet() {
@@ -1050,34 +1112,49 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         if (svgDocument == null) return;
         float[] c = touchToSvgCoords(touchX, touchY);
 
-        String hitIconId = findDeviceAt(c[0], c[1]);
-        if (hitIconId == null) return;
+        String hitId = findDeviceAt(c[0], c[1]);
+        boolean isTechnician = true;
+        RectF bounds = null;
 
-        DeviceInfo device = deviceMap.get(hitIconId);
-        if (device == null) return;
+        if (hitId != null) {
+            bounds = deviceMap.get(hitId).bounds;
+        } else {
+            RelationHitResult relationHit = findRelationDeviceAt(c[0], c[1]);
+            if (relationHit != null) {
+                hitId = relationHit.tappedDeviceId;
+                isTechnician = false;
+                Element el = svgParser.findElementById(svgDocument.getDocumentElement(), hitId);
+                if (el != null) bounds = svgParser.computeBounds(el);
+            }
+        }
 
-        boolean isProvisioned = isProvisioned(hitIconId);
-        boolean isManual = device.element.hasAttribute("data-manual")
-                || device.element.hasAttribute("data-manual-added")
-                || hitIconId.startsWith("manual_")
-                || hitIconId.contains("new_device");
-
-        Log.d(TAG, "handleSvgLongPress: id=" + hitIconId + " isManual=" + isManual + " isProvisioned=" + isProvisioned);
+        if (hitId == null || bounds == null) return;
 
         // ── Haptic feedback ───────────────────────────────────────────────
         binding.svgView.performHapticFeedback(
                 android.view.HapticFeedbackConstants.LONG_PRESS);
 
         List<String> options = new java.util.ArrayList<>();
-        if (isProvisioned) options.add("Reset Node");
-        options.add("Edit Device");           // available for ALL devices
-        if (!isProvisioned) options.add("Delete from Map");
+        if (isTechnician) {
+            if (isProvisioned(hitId)) options.add("Reset Node");
+            options.add("Edit Device");
+        }
+        
+        options.add("Move Device");
+        
+        if (isTechnician && !isProvisioned(hitId)) {
+            options.add("Delete from Map");
+        }
+        
         options.add("Cancel");
 
-        if (options.size() <= 1) return; // Only Cancel
+        if (options.size() <= 1) return;
 
+        final String finalHitId = hitId;
+        final RectF finalBounds = bounds;
+        
         new MaterialAlertDialogBuilder(requireContext())
-                .setTitle(deviceOperations.extractPureDeviceName(hitIconId))
+                .setTitle(isTechnician ? deviceOperations.extractPureDeviceName(finalHitId) : "User Layer Element")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     String choice = options.get(which);
                     if ("Reset Node".equals(choice)) {
@@ -1087,15 +1164,36 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
                             Toast.makeText(requireContext(), "Connect to proxy first", Toast.LENGTH_SHORT).show();
                             return;
                         }
-                        openNodeConfigForReset(hitIconId, device);
+                        openNodeConfigForReset(finalHitId, deviceMap.get(finalHitId));
                     } else if ("Edit Device".equals(choice)) {
-                        deviceOperations.showEditDeviceDialog(hitIconId, device, deviceMap, svgDocument);
+                        deviceOperations.showEditDeviceDialog(finalHitId, deviceMap.get(finalHitId), deviceMap, svgDocument);
+                    } else if ("Move Device".equals(choice)) {
+                        mIsMoveMode = true;
+                        mMovingDeviceId = finalHitId;
+                        
+                        // Hide original in SVG while moving
+                        refreshColors();
+                        reRenderSvg();
+
+                        binding.addDeviceToolbar.setVisibility(View.VISIBLE);
+                        binding.draggableIcon.setVisibility(View.VISIBLE);
+                        binding.fabAddDevice.setVisibility(View.GONE);
+                        
+                        // Wait for layout to get width/height for correct centering
+                        binding.draggableIcon.post(() -> {
+                            if (binding == null || mMovingDeviceId == null) return;
+                            float[] svgPos = {finalBounds.centerX(), finalBounds.centerY()};
+                            float[] screenPos = svgToTouchCoords(svgPos[0], svgPos[1]);
+                            
+                            float containerX = screenPos[0] + binding.svgView.getLeft();
+                            float containerY = screenPos[1] + binding.svgView.getTop();
+                            
+                            binding.draggableIcon.setX(containerX - binding.draggableIcon.getWidth() / 2f);
+                            binding.draggableIcon.setY(containerY - binding.draggableIcon.getHeight() / 2f);
+                        });
+                        
                     } else if ("Delete from Map".equals(choice)) {
-                        if (isProvisioned(hitIconId)) {
-                            Toast.makeText(requireContext(), "Cannot delete provisioned device", Toast.LENGTH_SHORT).show();
-                        } else {
-                            deviceOperations.deleteDeviceFromSvg(hitIconId, deviceMap, iconToDeviceRelations, svgDocument, svgParser);
-                        }
+                        deviceOperations.deleteDeviceFromSvg(finalHitId, deviceMap, iconToDeviceRelations, svgDocument, svgParser);
                     }
                 })
                 .show();
@@ -1341,7 +1439,17 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         return null;
     }
     private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
-        DeviceInfo device = deviceMap.get(iconId);
+        String trueId = getTrueProvisionedId(iconId);
+        // Case-insensitive search in deviceMap
+        DeviceInfo device = null;
+        for (String key : deviceMap.keySet()) {
+            if (key.equalsIgnoreCase(trueId)) {
+                device = deviceMap.get(key);
+                break;
+            }
+        }
+        
+        if (device == null) device = deviceMap.get(iconId); // Fallback
         if (device == null) return;
 
         SharedPreferences prefs = requireContext()
@@ -1350,11 +1458,19 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String displayName = deviceOperations.extractPureDeviceName(iconId);
+        String displayName = deviceOperations.extractPureDeviceName(device.id);
 
         if (isProvisioned(iconId)) {
+            // If the main node is provisioned, ensure its SVG Element ID is saved for the Test screen
+            if (device.elementId != null) {
+                try {
+                    int svgId = Integer.parseInt(device.elementId.trim());
+                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(device.id, svgId);
+                } catch (NumberFormatException ignored) {}
+            }
+            
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        device.id);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
@@ -1364,7 +1480,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
             startActivity(intent);
         } else {
             Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        iconId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        device.id);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
@@ -1452,15 +1568,24 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         }
 
         return (bestIconId != null) ? new RelationHitResult(bestIconId, bestDeviceId) : null;
-    }    public float[] touchToSvgCoords(float touchX, float touchY) {
+    }    public float[] touchToSvgCoords(float localX, float localY) {
         Matrix inverse = new Matrix();
-        if (!matrix.invert(inverse)) return new float[]{touchX, touchY};
-        float[] pt = {touchX, touchY};
+        if (!matrix.invert(inverse)) return new float[]{localX, localY};
+        
+        float[] pt = {localX, localY};
         inverse.mapPoints(pt);
         float finalX = svgParser.vbX + pt[0];
         float finalY = svgParser.vbY + pt[1];
         Log.v(TAG, "touchToSvgCoords: ptInDrawable=(" + pt[0] + "," + pt[1] + ") vb=(" + svgParser.vbX + "," + svgParser.vbY + ") -> finalSvg=(" + finalX + "," + finalY + ")");
         return new float[]{finalX, finalY};
+    }
+
+    public float[] svgToTouchCoords(float svgX, float svgY) {
+        float drawableX = svgX - svgParser.vbX;
+        float drawableY = svgY - svgParser.vbY;
+        float[] pt = {drawableX, drawableY};
+        matrix.mapPoints(pt);
+        return pt;
     }
 
     private String findDeviceAt(float svgX, float svgY) {
@@ -1541,7 +1666,9 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
     // ══════════════════════════════════════════════════════════════════════
 
     private void onDeviceTapped(String deviceId) {
-        DeviceInfo device = deviceMap.get(deviceId);
+        String trueId = getTrueProvisionedId(deviceId);
+        DeviceInfo device = deviceMap.get(trueId);
+        if (device == null) device = deviceMap.get(deviceId); // Fallback
 
         deselectCurrentDevice();
         selectedDeviceId = deviceId;
@@ -1561,24 +1688,24 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String      displayName    = deviceOperations.extractPureDeviceName(deviceId);
-        Set<String> relatedDevices = iconToDeviceRelations.containsKey(deviceId)
-                ? iconToDeviceRelations.get(deviceId) : new HashSet<>();
+        String      displayName    = deviceOperations.extractPureDeviceName(trueId);
+        Set<String> relatedDevices = iconToDeviceRelations.containsKey(trueId)
+                ? iconToDeviceRelations.get(trueId) : new HashSet<>();
         String      relationDevName = relatedDevices.isEmpty()
                 ? null : relatedDevices.iterator().next();
 
-        Log.d(TAG, "isProvisioned check: deviceId=" + deviceId
-                + " result=" + isProvisioned(deviceId));
+        Log.d(TAG, "isProvisioned check: deviceId=" + trueId
+                + " result=" + isProvisioned(trueId));
 
         if (isProvisioned(deviceId)) {
             if (device != null && device.elementId != null) {
                 try {
                     int svgId = Integer.parseInt(device.elementId.trim());
-                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
+                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(trueId, svgId);
                 } catch (NumberFormatException ignored) {}
             }
             Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
+            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        trueId);
             intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
             intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
@@ -1595,8 +1722,8 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
             try {
                 int svgId = Integer.parseInt(device.elementId.trim());
                 if (svgId >= 0) {
-                    ClientServerElementStore.saveServerSvgElementId(deviceId, svgId);
-                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved device=" + deviceId + " svgId=" + svgId);
+                    ClientServerElementStore.saveServerSvgElementId(trueId, svgId);
+                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved device=" + trueId + " svgId=" + svgId);
                 }
             } catch (NumberFormatException e) {
                 Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
@@ -1604,7 +1731,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         }
 
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
-        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        deviceId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        trueId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,

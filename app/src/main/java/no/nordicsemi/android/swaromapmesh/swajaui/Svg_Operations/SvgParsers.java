@@ -187,20 +187,33 @@ public class SvgParsers {
         try {
             String[] parts = id.split("_");
             if (parts.length >= 5) {
-                // Prioritize parsing from ID string as per new requirement
-                // Format: Area_Category_Count_EID_RID
+                // Prioritize parsing from ID string
+                // Normal Device: Area_Category_Count_EID_RID (5 parts)
+                // LC Light: Area_Category_Count_Index_EID_RID (6 parts)
+                // In both cases, RID is the last part, EID is the second to last.
                 receiveId = parts[parts.length - 1];
                 elementId = parts[parts.length - 2];
-                deviceCount = parts[parts.length - 3];
-                deviceName = parts[parts.length - 4]; // Category Code
-
-                // Join remaining parts at the beginning as the Area ID
-                StringBuilder areaBuilder = new StringBuilder();
-                for (int i = 0; i < parts.length - 4; i++) {
-                    if (i > 0) areaBuilder.append("_");
-                    areaBuilder.append(parts[i]);
+                
+                // Working backwards to find the Category and Count
+                int catIdx = -1;
+                for (int i = parts.length - 3; i >= 0; i--) {
+                    if (!parts[i].matches("\\d+")) {
+                        catIdx = i;
+                        break;
+                    }
                 }
-                parsedAreaId = areaBuilder.toString();
+                
+                if (catIdx != -1) {
+                    deviceName = parts[catIdx];
+                    deviceCount = parts[catIdx + 1];
+                    
+                    StringBuilder areaBuilder = new StringBuilder();
+                    for (int i = 0; i < catIdx; i++) {
+                        if (i > 0) areaBuilder.append("_");
+                        areaBuilder.append(parts[i]);
+                    }
+                    parsedAreaId = areaBuilder.toString();
+                }
             } else if (parts.length >= 2) {
                 // Handle semi-structured IDs like Area_Code or Area_Code_Count
                 // Try to see if the last or middle part is a known count
@@ -273,9 +286,12 @@ public class SvgParsers {
 
         Element root = document.getDocumentElement();
         Element devicesGroup = findElementById(root, "User Layer");
+        if (devicesGroup == null) devicesGroup = findElementFuzzy(root, "User Layer");
+        if (devicesGroup == null) devicesGroup = findElementById(root, "Devices");
+        
         if (devicesGroup == null) return relations;
 
-        // 1. Collect all valid IDs from the Devices layer
+        // 1. Collect all valid IDs from the Devices/User layer
         List<String> physicalDeviceIds = new ArrayList<>();
         collectAllIds(devicesGroup, physicalDeviceIds);
 
@@ -300,7 +316,7 @@ public class SvgParsers {
 
     private void collectAllIds(Element element, List<String> idList) {
         String id = element.getAttribute("id");
-        if (id != null && !id.isEmpty() && id.contains("_")) {
+        if (id != null && !id.isEmpty()) {
             idList.add(id);
         }
         NodeList children = element.getChildNodes();
@@ -313,22 +329,54 @@ public class SvgParsers {
     }
 
     /**
-     * Extracts a matching key from ID structure: Room_Type_Total_Count_EID(_RID)
-     * Key = Room + ":" + Type + ":" + EID
+     * Extracts a matching key from ID structure to relate Technician Icons to User Layer Devices.
+     * Uses Area, Category, and Instance Count to create a unique binding key.
      */
-    private String extractRelationKey(String fullId) {
-        if (fullId == null) return null;
-        String[] parts = fullId.split("_");
-        if (parts.length < 5) return null;
-
-        String room = parts[0];
-        String type = parts[1];
+    public String extractRelationKey(String fullId) {
+        if (fullId == null || fullId.isEmpty()) return null;
         
-        // ElementId is usually index 4. In case of 6 parts (RID at end), it's still index 4.
-        // But to be safe for varied counts, we look at the second to last if length > 5, or last if 5.
-        String eid = (parts.length > 5) ? parts[4] : parts[parts.length - 1];
+        String id = fullId;
+        if (id.endsWith("_phys")) {
+            id = id.substring(0, id.length() - 5);
+        }
+        
+        String[] parts = id.split("_");
+        if (parts.length < 2) return id.toLowerCase().trim();
 
-        return (room + ":" + type + ":" + eid).toLowerCase().trim();
+        // Find the Category code (the last non-numeric part before the ID block)
+        int catIdx = -1;
+        for (int i = parts.length - 1; i >= 0; i--) {
+            if (!parts[i].matches("\\d+")) {
+                catIdx = i;
+                break;
+            }
+        }
+
+        if (catIdx == -1) return id.toLowerCase().trim();
+
+        try {
+            String category = parts[catIdx];
+            
+            // The part immediately following category is the unique Instance Count/Sequence
+            String count = "";
+            if (catIdx + 1 < parts.length && parts[catIdx + 1].matches("\\d+")) {
+                count = parts[catIdx + 1];
+            }
+            
+            // Everything before the category is the Area/Room identifier
+            StringBuilder areaBuilder = new StringBuilder();
+            for (int i = 0; i < catIdx; i++) {
+                if (i > 0) areaBuilder.append("_");
+                areaBuilder.append(parts[i]);
+            }
+            String area = areaBuilder.toString();
+            
+            String key = (area + ":" + category + ":" + count).toLowerCase().trim();
+            Log.v(TAG, "extractRelationKey: " + fullId + " -> " + key);
+            return key;
+        } catch (Exception e) {
+            return id.toLowerCase().trim();
+        }
     }
 
     public void parseSelectionLayer(Document document) {
@@ -937,7 +985,7 @@ public class SvgParsers {
             px = x; py = y;
         }
     }
-    private Matrix getCumulativeTransform(Element element) {
+    public Matrix getCumulativeTransform(Element element) {
         Matrix m = new Matrix();
         if (element == null) return m;
         Node parent = element.getParentNode();
