@@ -3,7 +3,6 @@ package no.nordicsemi.android.swaromapmesh;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.LayoutInflater;
@@ -12,10 +11,8 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 
 import java.util.Date;
-import java.util.Set;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -25,8 +22,6 @@ import androidx.lifecycle.ViewModelProvider;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.FragmentSettingsBinding;
-import no.nordicsemi.android.swaromapmesh.databinding.LayoutContainerBinding;
-import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentError;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentMeshExportMsg;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentMeshImport;
 import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentMeshImportMsg;
@@ -35,8 +30,8 @@ import no.nordicsemi.android.swaromapmesh.dialog.DialogFragmentResetNetwork;
 import no.nordicsemi.android.swaromapmesh.export.ExportNetworkActivity;
 import no.nordicsemi.android.swaromapmesh.keys.AppKeysActivity;
 import no.nordicsemi.android.swaromapmesh.keys.NetKeysActivity;
+import no.nordicsemi.android.swaromapmesh.mqtt.MqttSettingsActivity;
 import no.nordicsemi.android.swaromapmesh.provisioners.ProvisionersActivity;
-import no.nordicsemi.android.swaromapmesh.scenes.ScenesActivity;
 import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;

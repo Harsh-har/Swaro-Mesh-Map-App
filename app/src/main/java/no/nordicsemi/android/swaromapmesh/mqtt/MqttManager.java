@@ -22,7 +22,6 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 
 import dagger.hilt.android.qualifiers.ApplicationContext;
-import no.nordicsemi.android.swaromapmesh.MqttSettingsActivity;
 
 @Singleton
 public class MqttManager {

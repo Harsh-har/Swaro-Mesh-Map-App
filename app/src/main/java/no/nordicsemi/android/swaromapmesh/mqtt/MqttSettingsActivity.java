@@ -1,4 +1,4 @@
-package no.nordicsemi.android.swaromapmesh;
+package no.nordicsemi.android.swaromapmesh.mqtt;
 
 import android.content.Context;
 import android.content.SharedPreferences;
@@ -9,7 +9,6 @@ import android.util.Log;
 import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -20,7 +19,6 @@ import javax.inject.Inject;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMqttSettingsBinding;
-import no.nordicsemi.android.swaromapmesh.mqtt.MqttManager;
 
 @AndroidEntryPoint
 public class MqttSettingsActivity extends AppCompatActivity {
@@ -155,27 +153,28 @@ public class MqttSettingsActivity extends AppCompatActivity {
         }
     }
 
-    public static String extractDeviceTypeKey(String relationDeviceName) {
-        if (relationDeviceName == null || relationDeviceName.isEmpty()) return "";
-        String[] parts = relationDeviceName.split("_");
-        if (parts.length >= 2) return parts[1].trim().toLowerCase();
-        return "";
-    }
-
-    public static String getOnValueForType(String typeKey) {
-        switch (typeKey) {
-            case "s": case "st": case "d": return "80";
-            case "f": return "8";
-            case "ex": return "4";
-            case "b": return "70";
-            case "r": return "1";
-            case "ac": return "20";
-            default: return "1";
+    public static String getOnValueForName(String name) {
+        if (name == null) return "1";
+        String lower = name.toLowerCase();
+        
+        if (lower.contains("lc node") || lower.contains("strip node") || lower.contains("dimmer")) {
+            return "80";
+        } else if (lower.contains("fan node")) {
+            return "8";
+        } else if (lower.contains("exhaust node")) {
+            return "4";
+        } else if (lower.contains("ac node")) {
+            return "20";
+        } else if (lower.contains("relay node") || lower.contains("switch")) {
+            return "1";
+        } else if (lower.contains("control node")) {
+            return "70";
         }
+        return "1";
     }
 
     public static String getOnValue(SharedPreferences prefs, String relationDeviceName) {
-        return getOnValueForType(extractDeviceTypeKey(relationDeviceName));
+        return getOnValueForName(relationDeviceName);
     }
 
     public static String buildOnCommand(String elementId, String onValue) {

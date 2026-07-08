@@ -78,7 +78,7 @@
             android:excludeFromRecents="true"
             android:exported="false" />
         <activity
-            android:name=".MqttSettingsActivity"
+            android:name=".mqtt.MqttSettingsActivity"
             android:exported="false" />
         <activity
             android:name=".TestProvisionActivity"

@@ -168,7 +168,7 @@
 //        if (internalSvg.exists()) {
 //            loadSvgFromUri(Uri.fromFile(internalSvg));
 //        } else {
-//            loadSvgFromAssets("lalitesh.svg");
+//            loadSvgFromAssets("office.svg");
 //        }
 //    }
 //

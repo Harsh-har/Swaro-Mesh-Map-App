@@ -4,32 +4,35 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.util.Log;
+import android.view.View;
+import android.widget.ImageButton;
+import android.widget.SeekBar;
+import android.widget.TextView;
 import android.widget.Toast;
+
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.lifecycle.ViewModelProvider;
+
+import com.google.android.material.button.MaterialButton;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textview.MaterialTextView;
-import com.google.android.material.button.MaterialButton;
-import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
-import org.eclipse.paho.client.mqttv3.MqttCallback;
-import org.eclipse.paho.client.mqttv3.MqttClient;
-import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
-import org.eclipse.paho.client.mqttv3.MqttException;
-import org.eclipse.paho.client.mqttv3.MqttMessage;
-import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
-import java.util.Arrays;
+
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
+
 import javax.inject.Inject;
+
 import dagger.hilt.android.AndroidEntryPoint;
-import no.nordicsemi.android.swaromapmesh.mqtt.MqttManager;
 import no.nordicsemi.android.swaromapmesh.ble.MeshCommandManager;
+import no.nordicsemi.android.swaromapmesh.mqtt.MqttManager;
+import no.nordicsemi.android.swaromapmesh.mqtt.MqttSettingsActivity;
 import no.nordicsemi.android.swaromapmesh.transport.GenericLightSet;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.DeviceCodes;
+import no.nordicsemi.android.swaromapmesh.utils.DeviceValueManager;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -45,11 +48,9 @@ public class TestProvisionActivity extends AppCompatActivity {
     private static final int LONG_CMD_COMMAND  = 3;
     private static final int LONG_DATA_1       = 11;
     private static final int LONG_DATA_2       = 1;
-    private static final int LONG_DATA_DEFAULT = 0;
 
     private static final int MAX_TID = 255;
 
-    // ── Instance variables ────────────────────────────────────────────────
     private String deviceId;
     private String elementId;
     private String svgName;
@@ -65,26 +66,24 @@ public class TestProvisionActivity extends AppCompatActivity {
     private MaterialTextView  tvUnicastAddress;
     private MaterialTextView  tvMqttTopic;
     private MaterialTextView  tvRelationDeviceId;
-    private MaterialButton    btnTestBle;
-    private MaterialButton    btnTestMqtt;
     private MaterialButton    btnSaveAddress;
     private TextInputEditText etAddress;
 
-    private SharedPreferences devicePrefs;
+    private SeekBar bleBrightnessSeek, mqttBrightnessSeek;
+    private View bleBrightnessFill, mqttBrightnessFill;
+    private TextView bleBrightnessLabel, mqttBrightnessLabel;
+    private ImageButton bleDecrement, bleIncrement, mqttDecrement, mqttIncrement;
 
-    private SharedViewModel       mViewModel;
-    private final AtomicInteger   tidCounter             = new AtomicInteger(0);
-    private final AtomicInteger   genericLightTidCounter = new AtomicInteger(0);
-    private int                   mUnicastAddress        = -1;
+    private SharedPreferences devicePrefs;
+    private SharedViewModel   mViewModel;
+    private final AtomicInteger tidCounter             = new AtomicInteger(0);
+    private final AtomicInteger genericLightTidCounter = new AtomicInteger(0);
+    private int               mUnicastAddress        = -1;
 
     @Inject
     MqttManager mqttManager;
 
-    private final ExecutorService mqttExecutor           = Executors.newSingleThreadExecutor();
-
-    // =========================================================================
-    // Lifecycle
-    // =========================================================================
+    private final ExecutorService mqttExecutor = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -111,12 +110,25 @@ public class TestProvisionActivity extends AppCompatActivity {
         tvUnicastAddress   = findViewById(R.id.tv_unicast_address);
         tvMqttTopic        = findViewById(R.id.tv_mqtttopic);
         tvRelationDeviceId = findViewById(R.id.tv_relation_device_id);
-        btnTestBle         = findViewById(R.id.btn_testble);
-        btnTestMqtt        = findViewById(R.id.btn_testmqqt);
         btnSaveAddress     = findViewById(R.id.btn_save_address);
         etAddress          = findViewById(R.id.et_address);
 
-        // ── Static text ───────────────────────────────────────────────────
+        bleBrightnessSeek  = findViewById(R.id.bleBrightnessSeek);
+        bleBrightnessFill  = findViewById(R.id.bleBrightnessFill);
+        bleBrightnessLabel = findViewById(R.id.bleBrightnessLabel);
+        bleDecrement       = findViewById(R.id.bleDecrement);
+        bleIncrement       = findViewById(R.id.bleIncrement);
+
+        mqttBrightnessSeek  = findViewById(R.id.mqttBrightnessSeek);
+        mqttBrightnessFill  = findViewById(R.id.mqttBrightnessFill);
+        mqttBrightnessLabel = findViewById(R.id.mqttBrightnessLabel);
+        mqttDecrement       = findViewById(R.id.mqttDecrement);
+        mqttIncrement       = findViewById(R.id.mqttIncrement);
+
+        // ── SharedPreferences init ────────────────────────────────────────
+        devicePrefs = getSharedPreferences(PREFS_DEVICE_ADDR, MODE_PRIVATE);
+
+        // ── Populate Device Details ───────────────────────────────────────
         String pureName = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME);
         tvDeviceId.setText(pureName != null ? pureName : (deviceId != null ? deviceId : "N/A"));
         tvElementId.setText(elementId != null ? elementId : "N/A");
@@ -151,24 +163,15 @@ public class TestProvisionActivity extends AppCompatActivity {
             ClientServerElementStore.saveReceiveIdOnly(normalizedId, intentReceiveId);
         }
 
-        // ── SharedPreferences init ────────────────────────────────────────
-        devicePrefs = getSharedPreferences(PREFS_DEVICE_ADDR, MODE_PRIVATE);
-
-        // ── Prefill saved address ─────────────────────────────────────────
-        // Priority 1: devicePrefs (PREFS_DEVICE_ADDR)
+        // ── Prefill saved address for LC Node ─────────────────────────────
         String savedAddress = devicePrefs.getString(getAddressKey(), "");
-
-        // Priority 2: mesh_prefs fallback (restored after import)
         if (savedAddress.isEmpty()) {
             savedAddress = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                     .getString("address_" + getStoreKey(), "");
-
-            // If found in mesh_prefs, sync back to devicePrefs
             if (!savedAddress.isEmpty()) {
                 devicePrefs.edit().putString(getAddressKey(), savedAddress).apply();
             }
         }
-
         if (!savedAddress.isEmpty()) {
             etAddress.setText(savedAddress);
         }
@@ -176,11 +179,41 @@ public class TestProvisionActivity extends AppCompatActivity {
         updateMqttTopicDisplay(relationDeviceName);
         updateStatus();
 
-        // ── Show Address input & Save button only for LC Node devices ─────
-        android.view.View layoutAddress = findViewById(R.id.layout_address);
-        boolean isLcNode = isLcNodeDevice(deviceId);
+        // ── Visibility Logic for LC Node Address ──────────────────────────
+        View layoutAddress = findViewById(R.id.layout_address);
+        View cardOperations = findViewById(R.id.card_operations);
+        boolean isLcNode = isLcNodeDevice(deviceId) || isLcNodeDevice(relationDeviceName) || isLcNodeDevice(pureName);
+        boolean isControlNode = isControlNodeDevice(deviceId) || isControlNodeDevice(relationDeviceName) || isControlNodeDevice(pureName);
+        
+        Log.d(TAG, "Visibility Logic: deviceId=" + deviceId + ", relation=" + relationDeviceName + ", pureName=" + pureName + " => isLcNode=" + isLcNode + ", isControlNode=" + isControlNode);
+        
+        if (cardOperations != null) {
+            cardOperations.setVisibility(isControlNode ? View.GONE : View.VISIBLE);
+        }
+        
+        if (layoutAddress != null) {
+            layoutAddress.setVisibility(isLcNode ? View.VISIBLE : View.GONE);
+        }
+        if (btnSaveAddress != null) {
+            btnSaveAddress.setVisibility(isLcNode ? View.VISIBLE : View.GONE);
+        }
 
-        // ── Auto-fill address for LC Node if not already set ──────────────
+        // ── Slider setup ──────────────────────────────────────────────────
+        int savedBleBrightness = devicePrefs.getInt("ble_brightness_" + getStoreKey(), 100);
+        int savedMqttBrightness = devicePrefs.getInt("mqtt_brightness_" + getStoreKey(), 100);
+
+        bleBrightnessSeek.setProgress(savedBleBrightness);
+        mqttBrightnessSeek.setProgress(savedMqttBrightness);
+
+        setupSlider(bleBrightnessSeek, bleBrightnessFill, bleBrightnessLabel, true);
+        setupSlider(mqttBrightnessSeek, mqttBrightnessFill, mqttBrightnessLabel, false);
+
+        bleDecrement.setOnClickListener(v -> adjustProgress(bleBrightnessSeek, -10));
+        bleIncrement.setOnClickListener(v -> adjustProgress(bleBrightnessSeek, 10));
+        mqttDecrement.setOnClickListener(v -> adjustProgress(mqttBrightnessSeek, -10));
+        mqttIncrement.setOnClickListener(v -> adjustProgress(mqttBrightnessSeek, 10));
+
+        // ── Auto-fill address for LC Node if empty ────────────────────────
         if (savedAddress.isEmpty() && isLcNode && relationDeviceName != null) {
             String autoAddress = extractAddressFromRelation(relationDeviceName);
             if (autoAddress != null) {
@@ -188,10 +221,26 @@ public class TestProvisionActivity extends AppCompatActivity {
             }
         }
 
-        layoutAddress.setVisibility(isLcNode
-                ? android.view.View.VISIBLE : android.view.View.GONE);
-        btnSaveAddress.setVisibility(isLcNode
-                ? android.view.View.VISIBLE : android.view.View.GONE);
+        // ── Save Address button ───────────────────────────────────────────
+        if (btnSaveAddress != null) {
+            btnSaveAddress.setOnClickListener(v -> {
+                String addrStr = etAddress.getText() != null ? etAddress.getText().toString().trim() : "";
+                if (addrStr.isEmpty()) {
+                    Toast.makeText(this, "Please enter an address!", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                try {
+                    int userAddress = Integer.parseInt(addrStr);
+                    if (userAddress < 1 || userAddress > 8) {
+                        Toast.makeText(this, "Address 1-8 only", Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    saveAndSendAddress(addrStr, userAddress);
+                } catch (NumberFormatException e) {
+                    Toast.makeText(this, "Invalid address", Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
 
         // ── Node observer ─────────────────────────────────────────────────
         mViewModel.getNodes().observe(this, nodes -> {
@@ -201,313 +250,7 @@ public class TestProvisionActivity extends AppCompatActivity {
             }
             loadAddressesFromNodes(nodes);
         });
-
-        // ── Save Address button ───────────────────────────────────────────
-        btnSaveAddress.setOnClickListener(v -> {
-            String addrStr = etAddress.getText() != null
-                    ? etAddress.getText().toString().trim() : "";
-
-            if (addrStr.isEmpty()) {
-                Toast.makeText(this, "Please enter an address!", Toast.LENGTH_SHORT).show();
-                etAddress.requestFocus();
-                return;
-            }
-
-            int userAddress;
-            try {
-                userAddress = Integer.parseInt(addrStr);
-                if (userAddress < 1 || userAddress > 8) {
-                    Toast.makeText(this, "Address must be between 1 and 8", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-            } catch (NumberFormatException e) {
-                Toast.makeText(this, "Invalid address!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (!isProvisioned(deviceId)) {
-                Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (mUnicastAddress == -1) {
-                Toast.makeText(this, "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            // ── Confirm dialog if address already saved ───────────────────
-            String existingAddr = devicePrefs.getString(getAddressKey(), "");
-            if (!existingAddr.isEmpty() && !existingAddr.equals(addrStr)) {
-                final int finalUserAddress = userAddress;
-                new androidx.appcompat.app.AlertDialog.Builder(this)
-                        .setTitle("Address Change")
-                        .setMessage("Address is already set to " + existingAddr
-                                + ".\nDo you want to change it to " + addrStr + "?")
-                        .setPositiveButton("Yes, Change", (dialog, which) ->
-                                saveAndSendAddress(addrStr, finalUserAddress))
-                        .setNegativeButton("Cancel", (dialog, which) -> dialog.dismiss())
-                        .show();
-                return;
-            }
-
-            saveAndSendAddress(addrStr, userAddress);
-        });
-
-        // ── BLE Test button ───────────────────────────────────────────────
-        btnTestBle.setOnClickListener(v -> {
-            if (!isProvisioned(deviceId)) {
-                Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            if (mUnicastAddress == -1) {
-                Toast.makeText(this, "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-
-            if (isLcNodeDevice(deviceId)) {
-                String savedAddr = devicePrefs.getString(getAddressKey(), "");
-                if (savedAddr.isEmpty()) {
-                    Toast.makeText(this, "Please assign an address first!", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                int userAddress;
-                try {
-                    userAddress = Integer.parseInt(savedAddr);
-                    if (userAddress < 1 || userAddress > 8) {
-                        Toast.makeText(this, "Saved address is invalid (must be 1-8)!", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                } catch (NumberFormatException e) {
-                    Toast.makeText(this, "Saved address is invalid!", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-                int bleCommand = 50 + userAddress;
-                MeshCommandManager.sendOnThenOff(
-                        this, mViewModel, tidCounter,
-                        mUnicastAddress, relationDeviceName, bleCommand);
-                Toast.makeText(this,
-                        "Short CMD → cmd=" + bleCommand + " (addr=" + userAddress + ")",
-                        Toast.LENGTH_SHORT).show();
-
-            } else {
-                MeshCommandManager.sendOnThenOff(
-                        this, mViewModel, tidCounter,
-                        mUnicastAddress, relationDeviceName);
-                Toast.makeText(this, "Sending ON → OFF...", Toast.LENGTH_SHORT).show();
-            }
-
-            btnTestBle.setEnabled(false);
-            btnTestBle.postDelayed(() -> btnTestBle.setEnabled(true), 2100);
-        });
-
-        // ── MQTT Test button ──────────────────────────────────────────────
-        btnTestMqtt.setOnClickListener(v -> {
-            if (!isProvisioned(deviceId)) {
-                Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
-                return;
-            }
-            SharedPreferences mqttPrefs = getSharedPreferences(
-                    MqttSettingsActivity.PREFS_MQTT, Context.MODE_PRIVATE);
-
-            final String finalHost  = mqttPrefs.getString(MqttSettingsActivity.KEY_BROKER_HOST, "");
-            final int    finalPort  = mqttPrefs.getInt(MqttSettingsActivity.KEY_BROKER_PORT, 1883);
-            final String finalUser  = mqttPrefs.getString(MqttSettingsActivity.KEY_USERNAME, "");
-            final String finalPass  = mqttPrefs.getString(MqttSettingsActivity.KEY_PASSWORD, "");
-            final String finalTopic = getMqttTopicForPublish();
-
-            if (finalTopic == null || finalTopic.isEmpty()) {
-                Toast.makeText(this, "Topic could not be built! Please check SVG name.",
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (finalHost.isEmpty()) {
-                Toast.makeText(this,
-                        "MQTT not configured! Go to Settings → MQTT Configuration",
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (elementId == null || elementId.isEmpty()) {
-                Toast.makeText(this, "Element ID not found for this device!",
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-            String onValue = MqttSettingsActivity.getOnValue(mqttPrefs, relationDeviceName);
-            if (onValue.isEmpty()) {
-                Toast.makeText(this,
-                        "ON value could not be resolved for device: " + deviceId,
-                        Toast.LENGTH_LONG).show();
-                return;
-            }
-
-            final String payloadOn  = MqttSettingsActivity.buildOnCommand(elementId, onValue);
-            final String payloadOff = MqttSettingsActivity.buildOffCommand(elementId);
-
-            Log.d(TAG, "MQTT Topic=" + finalTopic + " payload=" + payloadOn);
-
-            btnTestMqtt.setEnabled(false);
-            Toast.makeText(this, "Sending ON command...", Toast.LENGTH_SHORT).show();
-
-            mqttExecutor.execute(() -> {
-                mqttManager.publish(finalTopic, payloadOn);
-                try { Thread.sleep(3000); }
-                catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }
-
-                runOnUiThread(() -> Toast.makeText(this, "Sending OFF command...", Toast.LENGTH_SHORT).show());
-                mqttManager.publish(finalTopic, payloadOff);
-
-                runOnUiThread(() -> {
-                    Toast.makeText(this, "Commands sent!", Toast.LENGTH_SHORT).show();
-                    btnTestMqtt.postDelayed(() -> btnTestMqtt.setEnabled(true), 500);
-                });
-            });
-        });
     }
-
-    // =========================================================================
-    // Key helpers — SINGLE SOURCE OF TRUTH
-    // =========================================================================
-
-    /**
-     * Returns the store key used in mesh_prefs.
-     * Always prefers relationDeviceName, falls back to deviceId.
-     */
-    private String getStoreKey() {
-        if (relationDeviceName != null && !relationDeviceName.trim().isEmpty()) {
-            return relationDeviceName.trim().toLowerCase();
-        }
-        return deviceId != null ? deviceId.trim().toLowerCase() : "unknown";
-    }
-
-    /**
-     * Returns the key used in devicePrefs (device_address_prefs).
-     * Kept consistent with getStoreKey() so both prefs always agree.
-     */
-    private String getAddressKey() {
-        return "address_" + getStoreKey();
-    }
-
-    // =========================================================================
-    // Save & Send
-    // =========================================================================
-
-    private void saveAndSendAddress(String addrStr, int userAddress) {
-        final String storeKey = getStoreKey();
-
-        // ── 1. Save to devicePrefs (device_address_prefs) ────────────────
-        devicePrefs.edit()
-                .putString(getAddressKey(), addrStr)
-                .apply();
-
-        // ── 2. Save to mesh_prefs (for export/import) ─────────────────────
-        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit()
-                .putInt("lc_address_" + storeKey, userAddress)
-                .putString("address_" + storeKey, addrStr)
-                .apply();
-
-        // ── 3. Hide keyboard ───────────────────────────────────────────────
-        etAddress.clearFocus();
-        android.view.inputmethod.InputMethodManager imm =
-                (android.view.inputmethod.InputMethodManager)
-                        getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null) imm.hideSoftInputFromWindow(etAddress.getWindowToken(), 0);
-
-        // ── 4. Toast ───────────────────────────────────────────────────────
-        Toast.makeText(this,
-                "Address saved: " + addrStr + " → Sending command...",
-                Toast.LENGTH_SHORT).show();
-
-        // ── 5. Send BLE command ────────────────────────────────────────────
-        sendLongCommand(userAddress);
-
-        // ── 6. Button debounce ─────────────────────────────────────────────
-        btnSaveAddress.setEnabled(false);
-        btnSaveAddress.postDelayed(() -> btnSaveAddress.setEnabled(true), 2100);
-    }
-
-    /**
-     * Returns true if deviceId contains "LC Node" (case-insensitive)
-     * after the last ':' separator.
-     * e.g. "Area1 : LC Node 3"  → true
-     *      "Area1 : Dimmer 2"   → false
-     */
-    private boolean isLcNodeDevice(String id) {
-        if (id == null) return false;
-        String part = id;
-        int colon = id.lastIndexOf(":");
-        if (colon != -1) {
-            part = id.substring(colon + 1).trim();
-        }
-        return part.toLowerCase().contains("lc node");
-    }
-
-    // =========================================================================
-    // Long Command
-    // =========================================================================
-
-    private void sendLongCommand(int userAddress) {
-        ApplicationKey appKey = getFirstAppKey();
-        if (appKey == null) {
-            Toast.makeText(this, "No AppKey found in network!", Toast.LENGTH_SHORT).show();
-            return;
-        }
-
-        int[] data = new int[8];
-        data[0] = LONG_DATA_1;        // 11
-        data[1] = LONG_DATA_2;        // 1
-        data[2] = userAddress;        // user input
-        data[3] = LONG_DATA_DEFAULT;  // 0
-        data[4] = LONG_DATA_DEFAULT;  // 0
-        data[5] = LONG_DATA_DEFAULT;  // 0
-        data[6] = LONG_DATA_DEFAULT;  // 0
-        data[7] = LONG_DATA_DEFAULT;  // 0
-
-        int tid = getNextLightTid();
-
-        Log.d(TAG, "══ sendLongCommand ══");
-        Log.d(TAG, String.format("  Dest UnicastAddr : 0x%04X", mUnicastAddress));
-        Log.d(TAG, String.format("  Length           : %d",     LONG_CMD_LENGTH));
-        Log.d(TAG, String.format("  Command          : %d (0x%02X)", LONG_CMD_COMMAND, LONG_CMD_COMMAND));
-        Log.d(TAG, String.format("  Data             : %s",     Arrays.toString(data)));
-        Log.d(TAG, String.format("  TID              : %d",     tid));
-        Log.d(TAG, "════════════════════");
-
-        try {
-            GenericLightSet msg = new GenericLightSet(
-                    appKey, LONG_CMD_LENGTH, LONG_CMD_COMMAND, data, tid);
-            mViewModel.getMeshManagerApi().createMeshPdu(mUnicastAddress, msg);
-            Toast.makeText(this,
-                    String.format("Long command sent → addr=0x%04X data3=%d TID=%d",
-                            mUnicastAddress, userAddress, tid),
-                    Toast.LENGTH_LONG).show();
-        } catch (Exception e) {
-            Log.e(TAG, "sendLongCommand failed", e);
-            Toast.makeText(this, "Send failed: " + e.getMessage(),
-                    Toast.LENGTH_SHORT).show();
-        }
-    }
-
-    // ── TID counter ───────────────────────────────────────────────────────
-    private int getNextLightTid() {
-        int c = genericLightTidCounter.getAndIncrement();
-        if (c > MAX_TID) { genericLightTidCounter.set(0); c = 0; }
-        return c;
-    }
-
-    // ── AppKey helper ─────────────────────────────────────────────────────
-    private ApplicationKey getFirstAppKey() {
-        try {
-            List<ApplicationKey> keys = mViewModel.getNetworkLiveData().getAppKeys();
-            if (keys != null && !keys.isEmpty()) return keys.get(0);
-        } catch (Exception e) {
-            Log.e(TAG, "getFirstAppKey error", e);
-        }
-        return null;
-    }
-
-    // =========================================================================
-    // Address loading
-    // =========================================================================
 
     private void loadAddressesFromNodes(List<ProvisionedMeshNode> nodes) {
         if (deviceId == null) { setAddressFields("N/A", "N/A"); return; }
@@ -545,20 +288,6 @@ public class TestProvisionActivity extends AppCompatActivity {
         setAddressFields("N/A", "N/A");
     }
 
-    // =========================================================================
-    // MQTT helpers
-    // =========================================================================
-
-    private String getMqttTopicForPublish() {
-        if (svgName != null && !svgName.isEmpty()
-                && relationDeviceName != null && !relationDeviceName.isEmpty()) {
-            String[] parts  = relationDeviceName.split("_");
-            String   prefix = parts[0].trim().toLowerCase();
-            return svgName + "/" + prefix + "/in";
-        }
-        return null;
-    }
-
     private void updateMqttTopicDisplay(String relDevName) {
         if (tvMqttTopic == null) return;
         String finalTopic;
@@ -575,10 +304,6 @@ public class TestProvisionActivity extends AppCompatActivity {
         }
         tvMqttTopic.setText(finalTopic);
     }
-
-    // =========================================================================
-    // Misc helpers
-    // =========================================================================
 
     private void setAddressFields(String mac, String unicast) {
         if (tvMacAddress     != null) tvMacAddress.setText(mac);
@@ -601,35 +326,226 @@ public class TestProvisionActivity extends AppCompatActivity {
                 .getServerUnicastAddress(id.trim().toLowerCase()) != -1;
     }
 
-    private String extractAreaPrefix(String fullId) {
-        if (fullId == null || !fullId.contains(":")) return "";
-        return fullId.split(":")[0].trim().toUpperCase();
+    // =========================================================================
+    // Slider Helpers
+    // =========================================================================
+
+    private void setupSlider(SeekBar seekBar, View fill, TextView label, boolean isBle) {
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                updateSliderProgress(seekBar, fill, label, progress);
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar seekBar) {
+                if (seekBar.getParent() != null) {
+                    seekBar.getParent().requestDisallowInterceptTouchEvent(true);
+                }
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar seekBar) {
+                if (seekBar.getParent() != null) {
+                    seekBar.getParent().requestDisallowInterceptTouchEvent(false);
+                }
+                int progress = seekBar.getProgress();
+                if (isBle) {
+                    sendBleBrightness(progress);
+                } else {
+                    sendMqttBrightness(progress);
+                }
+            }
+        });
+        // Initial sync
+        seekBar.post(() -> updateSliderProgress(seekBar, fill, label, seekBar.getProgress()));
     }
 
-    private String extractBaseName(String fullId) {
-        if (fullId == null) return "";
-        String name  = fullId.trim().toLowerCase();
-        int    colon = name.lastIndexOf(":");
-        if (colon != -1) name = name.substring(colon + 1).trim();
-        return name;
+    private void updateSliderProgress(SeekBar seekBar, View fill, TextView label, int progress) {
+        int max = DeviceValueManager.getMaxValue(deviceId, relationDeviceName);
+        int scaledValue = DeviceValueManager.getScaledValue(progress, max);
+        
+        if (label != null) label.setText(scaledValue + " (" + progress + "%)");
+        if (fill != null) {
+            int width = seekBar.getWidth();
+            if (width <= 0) {
+                seekBar.post(() -> updateSliderProgress(seekBar, fill, label, progress));
+                return;
+            }
+            android.view.ViewGroup.LayoutParams lp = fill.getLayoutParams();
+            int minHeight = fill.getHeight();
+            int minWidth = Math.max(0, minHeight); 
+            int calculatedWidth = (int) (width * (progress / 100.0));
+            lp.width = Math.max(minWidth, calculatedWidth);
+            fill.setLayoutParams(lp);
+        }
     }
 
-    private String extractPureNameNoNumber(String fullId) {
-        String base = extractBaseName(fullId);
-        return base.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").trim();
+    private void adjustProgress(SeekBar seekBar, int delta) {
+        int newProgress = seekBar.getProgress() + delta;
+        if (newProgress < 0) newProgress = 0;
+        if (newProgress > 100) newProgress = 100;
+        seekBar.setProgress(newProgress);
+
+        if (seekBar == bleBrightnessSeek) {
+            sendBleBrightness(newProgress);
+        } else {
+            sendMqttBrightness(newProgress);
+        }
     }
 
-    /**
-     * Extracts the address from relationDeviceName if it follows the pattern [area]_s_[elementId]_[address]_[total]
-     * Returns the address as a string, or null if not found.
-     */
+    private void sendBleBrightness(int progress) {
+        if (!isProvisioned(deviceId)) {
+            Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (mUnicastAddress == -1) {
+            Toast.makeText(this, "Unicast address not loaded yet!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Save brightness locally
+        devicePrefs.edit().putInt("ble_brightness_" + getStoreKey(), progress).apply();
+
+        int max = DeviceValueManager.getMaxValue(deviceId, relationDeviceName);
+        int scaledValue = DeviceValueManager.getScaledValue(progress, max);
+
+        int command = 2; // Default
+        if (isLcNodeDevice(deviceId) || isLcNodeDevice(relationDeviceName)) {
+            String savedAddr = devicePrefs.getString(getAddressKey(), "");
+            if (!savedAddr.isEmpty()) {
+                try {
+                    int userAddress = Integer.parseInt(savedAddr);
+                    command = 50 + userAddress;
+                } catch (NumberFormatException ignored) {}
+            }
+        }
+
+        MeshCommandManager.sendMeshCommand(mViewModel, tidCounter, scaledValue, mUnicastAddress, command);
+        Toast.makeText(this, "BLE: " + scaledValue + " (Max: " + max + ")", Toast.LENGTH_SHORT).show();
+    }
+
+    private void sendMqttBrightness(int progress) {
+        if (!isProvisioned(deviceId)) {
+            Toast.makeText(this, "Device not provisioned!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        SharedPreferences mqttPrefs = getSharedPreferences(MqttSettingsActivity.PREFS_MQTT, Context.MODE_PRIVATE);
+        final String finalHost  = mqttPrefs.getString(MqttSettingsActivity.KEY_BROKER_HOST, "");
+        final String finalTopic = getMqttTopicForPublish();
+
+        if (finalTopic == null || finalTopic.isEmpty() || finalHost.isEmpty()) {
+            Toast.makeText(this, "MQTT not configured or topic missing!", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (elementId == null || elementId.isEmpty()) {
+            Toast.makeText(this, "Element ID missing", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        // Save brightness locally
+        devicePrefs.edit().putInt("mqtt_brightness_" + getStoreKey(), progress).apply();
+
+        int max = DeviceValueManager.getMaxValue(deviceId, relationDeviceName);
+        DeviceValueManager.sendMqttBrightness(this, mqttManager, mqttExecutor, elementId, finalTopic, progress, max, this);
+    }
+
+    // =========================================================================
+    // Address Helpers
+    // =========================================================================
+
+    private String getStoreKey() {
+        if (relationDeviceName != null && !relationDeviceName.trim().isEmpty()) {
+            return relationDeviceName.trim().toLowerCase();
+        }
+        return deviceId != null ? deviceId.trim().toLowerCase() : "unknown";
+    }
+
+    private String getAddressKey() {
+        return "address_" + getStoreKey();
+    }
+
+    private void saveAndSendAddress(String addrStr, int userAddress) {
+        final String storeKey = getStoreKey();
+        devicePrefs.edit().putString(getAddressKey(), addrStr).apply();
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+                .putInt("lc_address_" + storeKey, userAddress)
+                .putString("address_" + storeKey, addrStr).apply();
+
+        etAddress.clearFocus();
+        android.view.inputmethod.InputMethodManager imm = (android.view.inputmethod.InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+        if (imm != null) imm.hideSoftInputFromWindow(etAddress.getWindowToken(), 0);
+
+        Toast.makeText(this, "Address saved: " + addrStr, Toast.LENGTH_SHORT).show();
+        sendLongCommand(userAddress);
+    }
+
+    private void sendLongCommand(int userAddress) {
+        no.nordicsemi.android.swaromapmesh.ApplicationKey appKey = getFirstAppKey();
+        if (appKey == null || mUnicastAddress == -1) return;
+
+        int[] data = new int[8];
+        data[0] = LONG_DATA_1; data[1] = LONG_DATA_2; data[2] = userAddress;
+        int tid = genericLightTidCounter.getAndIncrement();
+        if (tid > MAX_TID) genericLightTidCounter.set(0);
+
+        try {
+            GenericLightSet msg = new GenericLightSet(appKey, LONG_CMD_LENGTH, LONG_CMD_COMMAND, data, tid);
+            mViewModel.getMeshManagerApi().createMeshPdu(mUnicastAddress, msg);
+        } catch (Exception e) {
+            Log.e(TAG, "sendLongCommand failed", e);
+        }
+    }
+
+    private no.nordicsemi.android.swaromapmesh.ApplicationKey getFirstAppKey() {
+        try {
+            List<no.nordicsemi.android.swaromapmesh.ApplicationKey> keys = mViewModel.getNetworkLiveData().getAppKeys();
+            if (keys != null && !keys.isEmpty()) return keys.get(0);
+        } catch (Exception ignored) {}
+        return null;
+    }
+
+    private String getMqttTopicForPublish() {
+        if (svgName != null && !svgName.isEmpty() && relationDeviceName != null && !relationDeviceName.isEmpty()) {
+            String[] parts = relationDeviceName.split("_");
+            return svgName + "/" + parts[0].trim().toLowerCase() + "/in";
+        }
+        return null;
+    }
+
+    private boolean isLcNodeDevice(String name) {
+        if (name == null || name.isEmpty()) return false;
+        String lower = name.toLowerCase();
+        Log.d(TAG, "isLcNodeDevice check: '" + name + "'");
+        
+        // Literal "lc node" or "psd02" (the hardware code)
+        if (lower.contains("lc node") || lower.contains("lcnode") || lower.contains("psd02")) {
+            Log.d(TAG, "-> Match by literal");
+            return true;
+        }
+        
+        return false;
+    }
+
+    private boolean isControlNodeDevice(String name) {
+        if (name == null || name.isEmpty()) return false;
+        String lower = name.toLowerCase();
+        // Check for "control node" or hardware code "cn01"
+        return lower.contains("control node") || lower.contains("controlnode") || lower.contains("cn01");
+    }
+
     private String extractAddressFromRelation(String relName) {
         if (relName == null) return null;
         String[] parts = relName.split("_");
-        // Expected pattern: [area]_s_[elementId]_[address]_[total]
-        // The address is the 2nd value after "s" (which is index i+2 if parts[i] is "s")
+        // Structure: Area_CategoryCode_Count_Index_EID_RID (6 parts)
+        // e.g. Guest_PSD02_1_2_13_13 -> 2 is the address
+        if (parts.length >= 6) {
+            return parts[3]; // Index part
+        }
+        
+        // Fallback for old "s" logic if it still exists in some places
         for (int i = 0; i < parts.length - 2; i++) {
-            if (parts[i].equalsIgnoreCase("s")) {
+            if (parts[i].equalsIgnoreCase("s") || parts[i].equalsIgnoreCase("st")) {
                 return parts[i + 2];
             }
         }

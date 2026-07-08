@@ -7,7 +7,7 @@ import android.util.Log;
 
 import java.util.concurrent.atomic.AtomicInteger;
 
-import no.nordicsemi.android.swaromapmesh.MqttSettingsActivity;
+import no.nordicsemi.android.swaromapmesh.mqtt.MqttSettingsActivity;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 public class MeshCommandManager {
@@ -46,16 +46,15 @@ public class MeshCommandManager {
     ) {
         Log.d(TAG, "=== SINGLE ON → OFF START === cmd=" + command);
 
-        String typeKey = MqttSettingsActivity.extractDeviceTypeKey(relationDeviceName);
         int onValue;
         try {
-            onValue = Integer.parseInt(MqttSettingsActivity.getOnValueForType(typeKey));
+            onValue = Integer.parseInt(MqttSettingsActivity.getOnValueForName(relationDeviceName));
         } catch (NumberFormatException e) {
             onValue = 1; // fallback
         }
 
         final int finalOnValue = onValue;
-        Log.d(TAG, "BLE ON value for type='" + typeKey + "' → " + finalOnValue);
+        Log.d(TAG, "BLE ON value for name='" + relationDeviceName + "' → " + finalOnValue);
 
         sendMeshCommand(mViewModel, tidCounter, finalOnValue, unicastAddress, command);
         Log.d(TAG, "Sent ON cmd=" + command);
@@ -70,7 +69,7 @@ public class MeshCommandManager {
     // ─────────────────────────────────────────────────────────────
     // Core mesh send
     // ─────────────────────────────────────────────────────────────
-    private static void sendMeshCommand(
+    public static void sendMeshCommand(
             SharedViewModel mViewModel,
             AtomicInteger tidCounter,
             int dataValue,

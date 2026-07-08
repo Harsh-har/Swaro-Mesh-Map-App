@@ -36,11 +36,9 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import java.io.File;
-import java.io.FileOutputStream;
-import java.io.OutputStream;
+
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import android.widget.EditText;
-import android.widget.LinearLayout;
+
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -170,7 +168,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         if (internalSvg.exists()) {
             loadSvgFromUri(Uri.fromFile(internalSvg));
         } else {
-            loadSvgFromAssets("lalitesh.svg");
+            loadSvgFromAssets("office.svg");
         }
     }
 
