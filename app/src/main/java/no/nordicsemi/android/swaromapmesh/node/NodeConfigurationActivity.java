@@ -9,17 +9,14 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
-
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.ApplicationKey;
 import no.nordicsemi.android.swaromapmesh.DeviceDetailActivity;
@@ -83,6 +80,9 @@ public class NodeConfigurationActivity extends BaseActivity implements
     private boolean mCompositionRequested = false;
     private boolean mAppKeyBindRequested  = false;
 
+    // Direct Unprovision Mode
+    private boolean mDirectReset = false;
+
     // SVG device ID passed in from the previous screen
     private String mSvgDeviceId = null;
 
@@ -104,23 +104,42 @@ public class NodeConfigurationActivity extends BaseActivity implements
         mSharedViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
         initialize();
 
+        // ── Direct Unprovision Mode check ─────────────────────────────────────
+        mDirectReset = getIntent().getBooleanExtra("AUTO_RESET", false);
+        if (mDirectReset) {
+            binding.appbarLayout.setVisibility(View.GONE);
+            binding.nestedScrollView.setVisibility(View.GONE);
+            binding.directResetOverlay.setVisibility(View.VISIBLE);
+        }
+
         // ── Read SVG device ID from Intent ────────────────────────────────────
         mSvgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
         if (mSvgDeviceId != null) {
             mSharedViewModel.setSelectedSvgDeviceId(mSvgDeviceId);
             String deviceName = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME);
-            // AUTO_RESET: long press se aaya — reset dialog auto-show karo
-            if (getIntent().getBooleanExtra("AUTO_RESET", false)) {
+            
+            if (mDirectReset) {
+                // Show reset dialog immediately
                 new Handler(Looper.getMainLooper()).postDelayed(() -> {
                     if (isFinishing() || isDestroyed()) return;
-                    ProvisionedMeshNode node = mViewModel.getSelectedMeshNode().getValue();
+                    ProvisionedMeshNode node = resolveSelectedNode();
                     if (node == null) return;
+                    
                     DialogFragmentResetNode resetNodeFragment =
                             DialogFragmentResetNode.newInstance(
                                     getString(R.string.title_reset_node),
                                     getString(R.string.reset_node_rationale_summary));
-                    resetNodeFragment.show(getSupportFragmentManager(), null);
-                }, 800);
+                    
+                    // Listener to handle dialog cancel/dismiss
+                    getSupportFragmentManager().setFragmentResultListener("RESET_DIALOG_CLOSED", this, (requestKey, bundle) -> {
+                        if (!isFinishing() && mDirectReset && mResetNodeUnicast == -1) {
+                            Log.d(TAG, "Reset dialog closed without action — finishing");
+                            finish();
+                        }
+                    });
+                    
+                    resetNodeFragment.show(getSupportFragmentManager(), "RESET_DIALOG");
+                }, 200);
             }
             if (deviceName != null) {
                 Log.d(TAG, "Device name from intent: " + deviceName);
@@ -141,26 +160,36 @@ public class NodeConfigurationActivity extends BaseActivity implements
         ProvisionedMeshNode selectedNode = resolveSelectedNode();
 
         // ── Toolbar ───────────────────────────────────────────────────────────
-        setSupportActionBar(binding.toolbar);
-        if (getSupportActionBar() != null) {
-            getSupportActionBar().setDisplayHomeAsUpEnabled(true);
-            getSupportActionBar().setTitle(R.string.title_node_configuration);
-            if (selectedNode != null) {
-                getSupportActionBar().setSubtitle(selectedNode.getNodeName());
+        if (!mDirectReset) {
+            setSupportActionBar(binding.toolbar);
+            if (getSupportActionBar() != null) {
+                getSupportActionBar().setDisplayHomeAsUpEnabled(true);
+                getSupportActionBar().setTitle(R.string.title_node_configuration);
+                if (selectedNode != null) {
+                    getSupportActionBar().setSubtitle(selectedNode.getNodeName());
+                }
             }
+            setupNodeNameCard();
+            setupNetKeysCard();
+            setupAppKeysCard();
+            setupTtlCard();
+            setupElementsRecycler();
+            setupActionButtons();
+            observeSelectedNode();
+        } else {
+            // In direct reset mode, we still need to observe for node loading if necessary,
+            // but resolveSelectedNode usually handles it.
+            // We'll just observe for status updates.
+            mViewModel.getSelectedMeshNode().observe(this, meshNode -> {
+                if (meshNode == null && mResetNodeUnicast == -1) {
+                    finish();
+                }
+            });
         }
-
-        setupNodeNameCard();
-        setupNetKeysCard();
-        setupAppKeysCard();
-        setupTtlCard();
-        setupElementsRecycler();
-        setupActionButtons();
-        observeSelectedNode();
 
         Log.d(TAG, "NodeConfigurationActivity created"
                 + " node=" + (selectedNode != null ? selectedNode.getNodeName() : "null")
-                + " svgDeviceId=" + mSvgDeviceId);
+                + " directReset=" + mDirectReset);
     }
 
     // =========================================================================
@@ -293,8 +322,6 @@ public class NodeConfigurationActivity extends BaseActivity implements
         mViewModel.getSelectedMeshNode().observe(this, meshNode -> {
             if (meshNode == null) {
                 Log.w(TAG, "Selected mesh node became null");
-                // ✅ Reset in-progress hai toh wait karo —
-                // ConfigNodeResetStatus handler finish + clearDevice karega
                 if (mResetNodeUnicast != -1) {
                     Log.d(TAG, "Node null during reset — waiting for ConfigNodeResetStatus");
                     return;
@@ -601,13 +628,12 @@ public class NodeConfigurationActivity extends BaseActivity implements
         if (node != null) {
             mResetNodeUnicast = node.getUnicastAddress();
 
-            // ✅ SVG id abhi capture karo — baad mein node null ho jayega
             if (mSvgDeviceId == null || mSvgDeviceId.isEmpty()) {
-                // UUID se try karo
+                // UUID scan
                 mSvgDeviceId = mSharedViewModel.getSvgIdFromNode(node);
             }
             if (mSvgDeviceId == null || mSvgDeviceId.isEmpty()) {
-                // Unicast se try karo
+                // Unicast scan
                 mSvgDeviceId = ClientServerElementStore
                         .getKeyByUnicastAddress(node.getUnicastAddress());
             }
@@ -665,13 +691,24 @@ public class NodeConfigurationActivity extends BaseActivity implements
     protected void showProgressBar() {
         mHandler.postDelayed(mRunnableOperationTimeout, Utils.MESSAGE_TIME_OUT);
         disableClickableViews();
-        binding.configurationProgressBar.setVisibility(View.VISIBLE);
+        
+        if (mDirectReset) {
+            binding.directResetProgress.setVisibility(View.VISIBLE);
+            binding.directResetText.setVisibility(View.VISIBLE);
+        } else {
+            binding.configurationProgressBar.setVisibility(View.VISIBLE);
+        }
     }
 
     @Override
     protected void hideProgressBar() {
         enableClickableViews();
-        binding.configurationProgressBar.setVisibility(View.INVISIBLE);
+        if (mDirectReset) {
+            binding.directResetProgress.setVisibility(View.INVISIBLE);
+            binding.directResetText.setVisibility(View.INVISIBLE);
+        } else {
+            binding.configurationProgressBar.setVisibility(View.INVISIBLE);
+        }
         mHandler.removeCallbacks(mRunnableOperationTimeout);
     }
 

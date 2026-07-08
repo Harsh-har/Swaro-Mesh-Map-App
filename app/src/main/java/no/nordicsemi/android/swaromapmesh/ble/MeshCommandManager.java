@@ -1,8 +1,6 @@
 package no.nordicsemi.android.swaromapmesh.ble;
 
 import android.content.Context;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.Log;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -14,29 +12,25 @@ public class MeshCommandManager {
 
     private static final String TAG             = "MeshCommandManager";
     private static final int    HARDCODED_COMMAND = 2;
-    private static final int    VALUE_OFF         = 0;
-    private static final int    DELAY_MS          = 2000;
 
-    // ─────────────────────────────────────────────────────────────
-    // Overload: Other devices → hardcoded cmd = 2
-    // ─────────────────────────────────────────────────────────────
-    public static void sendOnThenOff(
+    /**
+     * Sends a single command (default CMD=2) based on the device name's mapped ON value.
+     */
+    public static void sendSingleCommand(
             Context context,
             SharedViewModel mViewModel,
             AtomicInteger tidCounter,
             int unicastAddress,
             String relationDeviceName
     ) {
-        sendOnThenOff(context, mViewModel, tidCounter,
+        sendSingleCommand(context, mViewModel, tidCounter,
                 unicastAddress, relationDeviceName, HARDCODED_COMMAND);
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Main Flow: ON → 2 sec → OFF  (command is passed explicitly)
-    // LC Node  → cmd = 51–58
-    // Others   → cmd = 2  (via overload above)
-    // ─────────────────────────────────────────────────────────────
-    public static void sendOnThenOff(
+    /**
+     * Sends a single command with a specific CMD value.
+     */
+    public static void sendSingleCommand(
             Context context,
             SharedViewModel mViewModel,
             AtomicInteger tidCounter,
@@ -44,7 +38,7 @@ public class MeshCommandManager {
             String relationDeviceName,
             int command
     ) {
-        Log.d(TAG, "=== SINGLE ON → OFF START === cmd=" + command);
+        Log.d(TAG, "=== SINGLE COMMAND START === cmd=" + command);
 
         int onValue;
         try {
@@ -53,22 +47,15 @@ public class MeshCommandManager {
             onValue = 1; // fallback
         }
 
-        final int finalOnValue = onValue;
-        Log.d(TAG, "BLE ON value for name='" + relationDeviceName + "' → " + finalOnValue);
+        Log.d(TAG, "BLE ON value for name='" + relationDeviceName + "' → " + onValue);
 
-        sendMeshCommand(mViewModel, tidCounter, finalOnValue, unicastAddress, command);
-        Log.d(TAG, "Sent ON cmd=" + command);
-
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            sendMeshCommand(mViewModel, tidCounter, VALUE_OFF, unicastAddress, command);
-            Log.d(TAG, "Sent OFF cmd=" + command);
-            Log.d(TAG, "=== SINGLE ON → OFF END ===");
-        }, DELAY_MS);
+        sendMeshCommand(mViewModel, tidCounter, onValue, unicastAddress, command);
+        Log.d(TAG, "=== SINGLE COMMAND END ===");
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // Core mesh send
-    // ─────────────────────────────────────────────────────────────
+    /**
+     * Core mesh send: Creates and sends a Mesh PDU.
+     */
     public static void sendMeshCommand(
             SharedViewModel mViewModel,
             AtomicInteger tidCounter,
@@ -105,5 +92,16 @@ public class MeshCommandManager {
         } catch (Exception e) {
             Log.e(TAG, "sendMeshCommand failed: " + e.getMessage());
         }
+    }
+
+    // Deprecated: Alias for sendSingleCommand
+    @Deprecated
+    public static void sendOnThenOff(Context c, SharedViewModel vm, AtomicInteger tc, int addr, String name) {
+        sendSingleCommand(c, vm, tc, addr, name);
+    }
+
+    @Deprecated
+    public static void sendOnThenOff(Context c, SharedViewModel vm, AtomicInteger tc, int addr, String name, int cmd) {
+        sendSingleCommand(c, vm, tc, addr, name, cmd);
     }
 }

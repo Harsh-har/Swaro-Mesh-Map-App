@@ -36,9 +36,7 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 import java.io.File;
-
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-
 import java.io.InputStream;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -62,6 +60,7 @@ import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.DeviceInfo;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgColorManager;
 import no.nordicsemi.android.swaromapmesh.swajaui.Svg_Operations.SvgParsers;
 import no.nordicsemi.android.swaromapmesh.utils.DeviceCodes;
+import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
@@ -1287,10 +1286,10 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         String svgUriString = svgUri != null ? svgUri.toString() : "";
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
-        String displayName = deviceOperations.extractPureDeviceName(deviceId);
+         String displayName = deviceOperations.extractPureDeviceName(deviceId);
 
         Intent intent = new Intent(requireContext(), NodeConfigurationActivity.class);
-        intent.putExtra("EXTRA_SVG_DEVICE_ID",                       deviceId);
+        intent.putExtra(Utils.EXTRA_SVG_DEVICE_ID,                   deviceId);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
         intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
@@ -1506,7 +1505,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
                 RectF bounds = svgParser.computeBounds(deviceEl);
                 if (bounds == null || bounds.isEmpty()) continue;
 
-                boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
+                boolean isStrip = deviceId.toLowerCase().contains("pss04") || deviceId.toLowerCase().contains("strip node");
                 float limit = isStrip ? 200f : 15f;
                 if (bounds.width() > limit || bounds.height() > limit) continue;
 
@@ -1542,7 +1541,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
                 RectF bounds = svgParser.computeBounds(deviceEl);
                 if (bounds == null || bounds.isEmpty()) continue;
 
-                boolean isStrip = deviceId.toLowerCase().contains("st_") || deviceId.toLowerCase().contains("strip");
+                boolean isStrip = deviceId.toLowerCase().contains("pss04") || deviceId.toLowerCase().contains("strip node");
                 float limit = isStrip ? 200f : 15f;
                 if (bounds.width() > limit || bounds.height() > limit) continue;
 
@@ -1630,7 +1629,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         for (Map.Entry<String, DeviceInfo> entry : deviceMap.entrySet()) {
             String id     = entry.getKey();
             RectF  bounds = entry.getValue().bounds;
-            boolean isStrip = id.toLowerCase().contains("st_") || id.toLowerCase().contains("strip");
+            boolean isStrip = id.toLowerCase().contains("pss04") || id.toLowerCase().contains("strip node");
 
             float screenTolPx = isStrip ? TOUCH_TOLERANCE_PX * 1.5f : TOUCH_TOLERANCE_PX;
             float tol = Math.max(MIN_SVG_TOLERANCE, screenTolPx / currentScale);
