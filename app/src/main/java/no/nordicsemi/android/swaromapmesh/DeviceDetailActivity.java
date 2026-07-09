@@ -116,31 +116,58 @@ public class DeviceDetailActivity extends AppCompatActivity {
     private String extractPureDeviceName(String fullDeviceId) {
         if (fullDeviceId == null || fullDeviceId.isEmpty()) return "";
 
-        // Check for new structure first: Area_Code_Count_EID_RID
-        String[] parts = fullDeviceId.split("_");
-        if (parts.length >= 5) {
-            // Category code is the 4th part from the end
-            String code = parts[parts.length - 4];
-            String count = parts[parts.length - 3];
-            String friendly = DeviceCodes.getName(code);
-            if (friendly == null) friendly = code;
+        String id = fullDeviceId;
+        if (id.endsWith("_phys")) id = id.substring(0, id.length() - 5);
 
-            // Only append count if it's a number
-            if (count.matches("\\d+")) {
-                return friendly + " " + count;
+        String[] parts = id.split("_");
+        int len = parts.length;
+        
+        if (len >= 3) {
+            int catIdx = -1;
+            int fallbackCatIdx = -1;
+            int numericBlockCount = 0;
+            for (int i = len - 1; i >= 0; i--) {
+                if (parts[i].matches("\\d+")) {
+                    numericBlockCount++;
+                } else {
+                    if (DeviceCodes.getName(parts[i].toUpperCase()) != null) {
+                        catIdx = i;
+                        break;
+                    }
+                    if (fallbackCatIdx == -1 && numericBlockCount >= 2) {
+                        fallbackCatIdx = i;
+                    }
+                }
             }
-            return friendly;
+            if (catIdx == -1) catIdx = fallbackCatIdx;
+
+            if (catIdx != -1) {
+                String code = parts[catIdx].toUpperCase();
+                String friendly = DeviceCodes.getName(code);
+                
+                if (friendly != null) {
+                    String count = "";
+                    if (catIdx + 1 < len) {
+                        if (catIdx + 1 < len - 2) {
+                            count = " " + parts[catIdx + 1];
+                        } else if (parts[catIdx + 1].matches("\\d+")) {
+                            count = " " + parts[catIdx + 1];
+                        }
+                    }
+                    return friendly + count;
+                }
+            }
         }
 
         // Handle manual devices: manual_Name_Timestamp
-        if (fullDeviceId.startsWith("manual_")) {
-            String name = fullDeviceId.substring("manual_".length());
+        if (id.startsWith("manual_")) {
+            String name = id.substring("manual_".length());
             name = name.replaceAll("_\\d+$", "");
             name = name.replace("_", " ");
             return name.trim();
         }
 
-        String name = fullDeviceId;
+        String name = id;
         if (name.contains(":")) {
             name = name.substring(name.lastIndexOf(":") + 1).trim();
         }
@@ -148,11 +175,14 @@ public class DeviceDetailActivity extends AppCompatActivity {
         // Don't strip numbers if it's a known device code (e.g., PSD02)
         if (DeviceCodes.getName(name) != null) return name;
 
+        // Remove trailing components that look like indices or zones (e.g., _1_1 or _phys)
+        name = name.replaceAll("(_\\d+)+$", "");
+
         name = name.replaceAll("\\s*\\d+$", "")
                 .replaceAll("\\d+$", "")
                 .replaceAll("\\s+", " ")
                 .trim();
-        return name.isEmpty() ? fullDeviceId : name;
+        return name.isEmpty() ? id : name;
     }
 
     private void setupToolbar() {

@@ -247,26 +247,50 @@ public class MainActivity extends AppCompatActivity implements
                 if (view != null) {
                     Animation blink = AnimationUtils.loadAnimation(this, R.anim.blink);
                     view.startAnimation(blink);
-                }
-            }
-            MenuItem connectTextItem = menu.findItem(R.id.action_connect_proxy_text);
-            if (connectTextItem != null) {
-                View view = findViewById(connectTextItem.getItemId());
-                if (view != null) {
-                    Animation blink = AnimationUtils.loadAnimation(this, R.anim.blink);
-                    view.startAnimation(blink);
+                    
+                    // ✅ Long press to open Scanner (Proxy List)
+                    view.setOnLongClickListener(v -> {
+                        mViewModel.navigateToScannerActivity(this, false);
+                        return true;
+                    });
+                } else {
+                    // Try after a short delay if view isn't ready
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        View v = findViewById(R.id.action_disconnection_state);
+                        if (v != null) {
+                            Animation blink = AnimationUtils.loadAnimation(this, R.anim.blink);
+                            v.startAnimation(blink);
+                            v.setOnLongClickListener(v2 -> {
+                                mViewModel.navigateToScannerActivity(this, false);
+                                return true;
+                            });
+                        }
+                    });
                 }
             }
         } else {
             item = menu.findItem(R.id.action_connection_state);
             if (item != null) {
                 View view = findViewById(item.getItemId());
-                if (view != null) view.clearAnimation();
-            }
-            MenuItem disconnectTextItem = menu.findItem(R.id.action_disconnect_proxy_text);
-            if (disconnectTextItem != null) {
-                View view = findViewById(disconnectTextItem.getItemId());
-                if (view != null) view.clearAnimation();
+                if (view != null) {
+                    view.clearAnimation();
+                    // ✅ Long press to open Scanner (Proxy List)
+                    view.setOnLongClickListener(v -> {
+                        mViewModel.navigateToScannerActivity(this, false);
+                        return true;
+                    });
+                } else {
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        View v = findViewById(R.id.action_connection_state);
+                        if (v != null) {
+                            v.clearAnimation();
+                            v.setOnLongClickListener(v2 -> {
+                                mViewModel.navigateToScannerActivity(this, false);
+                                return true;
+                            });
+                        }
+                    });
+                }
             }
         }
 
@@ -295,10 +319,12 @@ public class MainActivity extends AppCompatActivity implements
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         int id = item.getItemId();
-        if (id == R.id.action_connection_state || id == R.id.action_disconnect_proxy_text) {
+        if (id == R.id.action_connection_state) {
             mViewModel.disconnect();
             return true;
-        } else if (id == R.id.action_disconnection_state || id == R.id.action_connect_proxy_text) {
+        } else if (id == R.id.action_disconnection_state) {
+            // ✅ Tap still opens Scanner by default, 
+            // but user specifically asked for Long Press functionality.
             mViewModel.navigateToScannerActivity(this, false);
             return true;
         }

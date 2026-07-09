@@ -9,11 +9,6 @@
         app:showAsAction="always" />
 
     <item
-        android:id="@+id/action_disconnect_proxy_text"
-        android:title="Disconnect"
-        app:showAsAction="always" />
-
-    <item
         android:id="@+id/action_mqtt_status"
         android:title="MQTT"
         android:icon="@drawable/circle_dot"

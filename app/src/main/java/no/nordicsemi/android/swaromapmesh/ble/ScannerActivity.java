@@ -19,12 +19,10 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.core.app.ActivityCompat;
 import androidx.lifecycle.ViewModelProvider;
-import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.recyclerview.widget.SimpleItemAnimator;
 import java.util.HashSet;
-import java.util.LinkedList;
 import java.util.Set;
 import java.util.UUID;
 import dagger.hilt.android.AndroidEntryPoint;
@@ -36,7 +34,6 @@ import no.nordicsemi.android.swaromapmesh.ble.adapter.DevicesAdapter;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityScannerBinding;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
-import no.nordicsemi.android.swaromapmesh.viewmodels.NrfMeshRepository;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerLiveData;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerStateLiveData;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ScannerViewModel;
@@ -44,8 +41,7 @@ import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
 
 @AndroidEntryPoint
 public class ScannerActivity extends AppCompatActivity implements
-        DevicesAdapter.OnItemClickListener,
-        DevicesAdapter.OnIdentifyClickListener {
+        DevicesAdapter.OnItemClickListener {
 
     private static final String TAG = "ScannerActivity";
     private static final int    REQUEST_ACCESS_FINE_LOCATION        = 1022;
@@ -53,24 +49,6 @@ public class ScannerActivity extends AppCompatActivity implements
     private static final long   AUTO_CONNECT_RETRY_DELAY_MS           = 1000;
     private static final long   TARGET_CONNECT_TIMEOUT_MS             = 10000;
     private static final long   AUTO_CONNECT_AFTER_PROVISIONING_DELAY = 2000;
-
-    // ── Multi-device Identify timing ────────────────────────────────────────
-    // identifyNode() sends the BLE-Mesh Provisioning INVITE PDU — valid only
-    // once per provisioning session (the device advances its internal state
-    // machine as soon as it replies with Capabilities). Re-sending Invite on
-    // an already-open link is silently ignored by the device firmware, even
-    // though the GATT write itself succeeds — so identify cannot be sped up
-    // by keeping the connection alive. Every identify needs a fresh
-    // disconnect + reconnect (i.e. a new provisioning session) to blink again.
-    private static final long IDENTIFY_PDU_SEND_BUFFER_MS          = 300;
-    private static final long IDENTIFY_CONNECT_TIMEOUT_MS          = 8000;
-    private static final long IDENTIFY_POLL_INTERVAL_MS            = 200;
-    // Poll until the BLE stack actually confirms disconnection (instead of a
-    // fixed delay) before starting the next identify — avoids a new connect()
-    // racing an in-flight disconnect(), which was the main source of
-    // unpredictable slowness.
-    private static final long IDENTIFY_DISCONNECT_POLL_INTERVAL_MS = 100;
-    private static final long IDENTIFY_DISCONNECT_TIMEOUT_MS       = 1500;
 
     private ActivityScannerBinding binding;
     private ScannerViewModel       mViewModel;
@@ -96,17 +74,8 @@ public class ScannerActivity extends AppCompatActivity implements
     private Runnable mAutoConnectRunnable;
     private long     mScanStartTime;
 
-    // ✅ Member variable — survives across all launcher callbacks
     private String mSvgDeviceId = null;
     private String mReceiveId   = null;
-
-    // ── Multi-device Identify state ─────────────────────────────────────────
-    private final LinkedList<ExtendedBluetoothDevice> mIdentifyQueue = new LinkedList<>();
-    private boolean                 mIdentifyInProgress      = false;
-    private ExtendedBluetoothDevice mIdentifyingDevice       = null;
-    private long                    mIdentifyConnectStart    = 0L;
-    private long                    mIdentifyDisconnectStart = 0L;
-    private Handler                 mIdentifyHandler;
 
     // -----------------------------------------------------------------------
     // Activity Result Launchers
@@ -119,7 +88,6 @@ public class ScannerActivity extends AppCompatActivity implements
 
                     final Intent data = result.getData();
 
-                    // ✅ Capture svgDeviceId from ProvisioningActivity result
                     String svgFromResult = data.getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
                     if (svgFromResult != null) {
                         mSvgDeviceId = svgFromResult;
@@ -142,7 +110,6 @@ public class ScannerActivity extends AppCompatActivity implements
                         showConnectingUI();
                         binding.textConnectingProgress.setText("Provisioning complete!\nConnecting to proxy...");
 
-
                         startAutoConnectAfterProvisioning();
 
                     } else {
@@ -164,7 +131,6 @@ public class ScannerActivity extends AppCompatActivity implements
                     mProxyConnected    = true;
                     mReconnectLaunched = false;
 
-                    // ✅ Build return intent with all required fields
                     final Intent returnIntent = new Intent();
                     returnIntent.putExtra(Utils.EXTRA_NEWLY_PROVISIONED_NODE, mIsNewlyProvisioned);
                     returnIntent.putExtra(Utils.PROVISIONING_COMPLETED, true);
@@ -175,7 +141,6 @@ public class ScannerActivity extends AppCompatActivity implements
                         returnIntent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID, mReceiveId);
                     }
 
-                    // Copy device from ReconnectActivity result if present
                     final Intent reconnectData = result.getData();
                     if (reconnectData != null) {
                         ExtendedBluetoothDevice reconnectDevice =
@@ -201,9 +166,6 @@ public class ScannerActivity extends AppCompatActivity implements
                 }
             });
 
-    // -----------------------------------------------------------------------
-    // onCreate
-    // -----------------------------------------------------------------------
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -218,24 +180,23 @@ public class ScannerActivity extends AppCompatActivity implements
         toolbar.setTitle(null);
         setSupportActionBar(toolbar);
 
-        // ✅ Read svgDeviceId from incoming intent
         if (getIntent() != null) {
             mSvgDeviceId = getIntent().getStringExtra(Utils.EXTRA_SVG_DEVICE_ID);
             mReceiveId   = getIntent().getStringExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID);
-
-            Log.d(TAG, "onCreate — mSvgDeviceId from intent: " + mSvgDeviceId);
 
             mScanWithProxyService = getIntent().getBooleanExtra(
                     Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);
             mSilentConnect        = getIntent().getBooleanExtra(
                     Utils.EXTRA_SILENT_CONNECT, false);
 
-            // ✅ AUTO FILTER
             String autoFilterDevice = getIntent().getStringExtra(
                     DeviceDetailActivity.EXTRA_AUTO_FILTER_DEVICE);
             if (autoFilterDevice != null && !autoFilterDevice.isEmpty()) {
                 mSharedViewModel.setSelectedDevice(autoFilterDevice);
                 mSharedViewModel.setDeviceNameFilter("");
+            } else if (savedInstanceState == null) {
+                mSharedViewModel.setSelectedDevice("All Device");
+                mSharedViewModel.setSignalThreshold(DevicesAdapter.SIGNAL_DEFAULT);
             }
 
             boolean autoConnectAfterProvisioning =
@@ -250,15 +211,12 @@ public class ScannerActivity extends AppCompatActivity implements
                     mSilentConnect                      = true;
                     mScanWithProxyService               = false;
 
-                    Log.d(TAG, "Auto-connect from intent for MAC: " + deviceMac);
-
                     showConnectingUI();
                     binding.textConnectingProgress.setText("Connecting to proxy...");
 
                     startAutoConnectAfterProvisioning();
                 }
             } else {
-                // ✅ Normal scanner mode — title, subtitle, back arrow
                 if (getSupportActionBar() != null) {
                     getSupportActionBar().setTitle(R.string.title_scanner);
                     getSupportActionBar().setDisplayHomeAsUpEnabled(true);
@@ -276,7 +234,6 @@ public class ScannerActivity extends AppCompatActivity implements
             return;
         }
 
-        // RecyclerView
         final RecyclerView recyclerViewDevices = binding.recyclerViewBleDevices;
         recyclerViewDevices.setLayoutManager(new LinearLayoutManager(this));
 
@@ -287,7 +244,6 @@ public class ScannerActivity extends AppCompatActivity implements
         adapter = new DevicesAdapter(this,
                 mViewModel.getScannerRepository().getScannerResults());
         adapter.setOnItemClickListener(this);
-        adapter.setOnIdentifyClickListener(this);
         recyclerViewDevices.setAdapter(adapter);
 
         binding.noDevices.actionEnableLocation.setOnClickListener(
@@ -305,7 +261,6 @@ public class ScannerActivity extends AppCompatActivity implements
 
         targetProxyMac      = getIntent().getStringExtra(Utils.EXTRA_TARGET_PROXY_MAC);
         mAutoConnectHandler = new Handler();
-        mIdentifyHandler    = new Handler();
 
         if (targetProxyMac != null && !mShouldAutoConnectAfterProvisioning) {
             binding.textConnectingProgress.setText(
@@ -316,14 +271,12 @@ public class ScannerActivity extends AppCompatActivity implements
         mSharedViewModel.getSelectedDevice().observe(this, device -> {
             mCurrentDeviceFilter = (device != null
                     && !device.equals("All Device")) ? device : "";
-            Log.d(TAG, "Device filter: '" + mCurrentDeviceFilter + "'");
             applyFilterToAdapter();
         });
 
         mSharedViewModel.getSignalThreshold().observe(this, threshold -> {
             mCurrentSignalFilter = threshold != null
                     ? threshold : DevicesAdapter.SIGNAL_DEFAULT;
-            Log.d(TAG, "Signal filter: " + mCurrentSignalFilter);
             applyFilterToAdapter();
         });
 
@@ -331,10 +284,6 @@ public class ScannerActivity extends AppCompatActivity implements
             applyFilterToAdapter();
         });
     }
-
-    // -----------------------------------------------------------------------
-    // Filter
-    // -----------------------------------------------------------------------
 
     private void applyFilterToAdapter() {
         if (mSilentConnect || mShouldAutoConnectAfterProvisioning) return;
@@ -346,19 +295,13 @@ public class ScannerActivity extends AppCompatActivity implements
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Lifecycle
-    // -----------------------------------------------------------------------
-
     @Override
     protected void onStart() {
         super.onStart();
-        if (mProxyConnected || mReconnectLaunched || mIdentifyInProgress) {
-            Log.d(TAG, "onStart: reconnect/identify in progress — skipping scan");
+        if (mProxyConnected || mReconnectLaunched) {
             return;
         }
         if (mViewModel.getBleMeshManager().isConnected()) {
-            Log.d(TAG, "onStart: already connected — skipping scan");
             return;
         }
         mScanStartTime = System.currentTimeMillis();
@@ -368,8 +311,7 @@ public class ScannerActivity extends AppCompatActivity implements
     @Override
     protected void onStop() {
         super.onStop();
-        if (mProxyConnected || mReconnectLaunched || mIdentifyInProgress) {
-            Log.d(TAG, "onStop: reconnect/identify in progress — not stopping scan");
+        if (mProxyConnected || mReconnectLaunched) {
             return;
         }
         stopScan();
@@ -383,9 +325,6 @@ public class ScannerActivity extends AppCompatActivity implements
         if (mAutoConnectHandler != null) {
             mAutoConnectHandler.removeCallbacksAndMessages(null);
         }
-        if (mIdentifyHandler != null) {
-            mIdentifyHandler.removeCallbacksAndMessages(null);
-        }
     }
 
     @Override
@@ -397,17 +336,8 @@ public class ScannerActivity extends AppCompatActivity implements
         return false;
     }
 
-    // -----------------------------------------------------------------------
-    // Device click — manual OR auto-triggered
-    // -----------------------------------------------------------------------
-
     @Override
     public void onItemClick(final ExtendedBluetoothDevice device) {
-        if (mIdentifyInProgress) {
-            Log.d(TAG, "onItemClick ignored — identify in progress");
-            return;
-        }
-
         if (mViewModel.getBleMeshManager().isConnected())
             mViewModel.disconnect();
 
@@ -429,134 +359,6 @@ public class ScannerActivity extends AppCompatActivity implements
             reconnect.launch(intent);
         }
     }
-
-    // -----------------------------------------------------------------------
-    // Multi-device Identify
-    // -----------------------------------------------------------------------
-
-    @Override
-    public void onIdentifyClick(final ExtendedBluetoothDevice device) {
-        if (device.getAddress() == null) return;
-
-        if (mIdentifyInProgress) {
-            final String activeAddress =
-                    mIdentifyingDevice != null ? mIdentifyingDevice.getAddress() : null;
-            if (device.getAddress().equalsIgnoreCase(activeAddress)) {
-                return; // already identifying this one
-            }
-            for (final ExtendedBluetoothDevice queued : mIdentifyQueue) {
-                if (device.getAddress().equalsIgnoreCase(queued.getAddress())) {
-                    return; // already queued
-                }
-            }
-            mIdentifyQueue.add(device);
-            adapter.setQueuedIdentifyAddresses(queuedIdentifyAddresses());
-            Log.d(TAG, "Identify queued: " + device.getAddress()
-                    + " (queue size=" + mIdentifyQueue.size() + ")");
-            return;
-        }
-
-        startIdentify(device);
-    }
-
-    private void startIdentify(@NonNull final ExtendedBluetoothDevice device) {
-        Log.d(TAG, "Identify: connecting to " + device.getAddress());
-
-        mIdentifyInProgress   = true;
-        mIdentifyingDevice    = device;
-        mIdentifyConnectStart = System.currentTimeMillis();
-
-        adapter.setIdentifyingDevice(device.getAddress());
-        stopScan();
-
-        mViewModel.connect(this, device, false);
-        mIdentifyHandler.postDelayed(mIdentifyPollRunnable, IDENTIFY_POLL_INTERVAL_MS);
-    }
-
-    // Poll until device is ready, then send the Provisioning Invite (identify)
-    // PDU and move to a short send-buffer wait instead of the old full
-    // attention-timer wait — the device blinks locally on its own once it
-    // receives the Invite, we don't need to hold the link open for that.
-    private final Runnable mIdentifyPollRunnable = new Runnable() {
-        @Override
-        public void run() {
-            if (!mIdentifyInProgress || mIdentifyingDevice == null) return;
-
-            if (mViewModel.getBleMeshManager().isDeviceReady()) {
-                Log.d(TAG, "Identify: device ready — sending identify PDU to "
-                        + mIdentifyingDevice.getAddress());
-                mViewModel.getMeshRepository().identifyNode(mIdentifyingDevice);
-                mIdentifyHandler.postDelayed(mIdentifyFinishRunnable, IDENTIFY_PDU_SEND_BUFFER_MS);
-                return;
-            }
-
-            final long elapsed = System.currentTimeMillis() - mIdentifyConnectStart;
-            if (elapsed > IDENTIFY_CONNECT_TIMEOUT_MS) {
-                Log.w(TAG, "Identify: connect timeout for " + mIdentifyingDevice.getAddress());
-                finishIdentify();
-                return;
-            }
-
-            mIdentifyHandler.postDelayed(this, IDENTIFY_POLL_INTERVAL_MS);
-        }
-    };
-
-    private final Runnable mIdentifyFinishRunnable = this::finishIdentify;
-
-    private void finishIdentify() {
-        mIdentifyHandler.removeCallbacks(mIdentifyPollRunnable);
-        mIdentifyHandler.removeCallbacks(mIdentifyFinishRunnable);
-
-        mViewModel.disconnect();
-
-        mIdentifyInProgress = false;
-        mIdentifyingDevice  = null;
-        adapter.setIdentifyingDevice(null);
-
-        final ExtendedBluetoothDevice next = mIdentifyQueue.poll();
-        adapter.setQueuedIdentifyAddresses(queuedIdentifyAddresses());
-
-        Log.d(TAG, "Identify finished. Next in queue: "
-                + (next != null ? next.getAddress() : "none"));
-
-        // Poll until the BLE stack actually confirms disconnection (instead
-        // of a fixed delay) before starting the next identify / rescanning —
-        // this avoids a new connect() racing an in-flight disconnect().
-        mIdentifyDisconnectStart = System.currentTimeMillis();
-        mIdentifyHandler.post(new Runnable() {
-            @Override
-            public void run() {
-                final boolean stillConnected = mViewModel.getBleMeshManager().isConnected();
-                final long elapsed = System.currentTimeMillis() - mIdentifyDisconnectStart;
-
-                if (!stillConnected || elapsed > IDENTIFY_DISCONNECT_TIMEOUT_MS) {
-                    if (elapsed > IDENTIFY_DISCONNECT_TIMEOUT_MS && stillConnected) {
-                        Log.w(TAG, "Identify: disconnect wait timed out — proceeding anyway");
-                    }
-                    if (next != null) {
-                        startIdentify(next);
-                    } else {
-                        mViewModel.getScannerRepository().getScannerState().startScanning();
-                    }
-                    return;
-                }
-
-                mIdentifyHandler.postDelayed(this, IDENTIFY_DISCONNECT_POLL_INTERVAL_MS);
-            }
-        });
-    }
-
-    private Set<String> queuedIdentifyAddresses() {
-        final Set<String> set = new HashSet<>();
-        for (final ExtendedBluetoothDevice d : mIdentifyQueue) {
-            if (d.getAddress() != null) set.add(d.getAddress());
-        }
-        return set;
-    }
-
-    // -----------------------------------------------------------------------
-    // Permissions
-    // -----------------------------------------------------------------------
 
     @Override
     public void onRequestPermissionsResult(final int requestCode,
@@ -600,13 +402,8 @@ public class ScannerActivity extends AppCompatActivity implements
         startActivity(intent);
     }
 
-    // -----------------------------------------------------------------------
-    // Scan observer
-    // -----------------------------------------------------------------------
-
     private void startScan(final ScannerStateLiveData state) {
-        if (mProxyConnected || mReconnectLaunched || mIdentifyInProgress) {
-            Log.d(TAG, "startScan blocked — reconnect/identify in progress");
+        if (mProxyConnected || mReconnectLaunched) {
             return;
         }
 
@@ -647,7 +444,6 @@ public class ScannerActivity extends AppCompatActivity implements
             binding.noDevices.getRoot().setVisibility(View.GONE);
             binding.connectivityProgressContainer.setVisibility(View.GONE);
             if (mAutoConnectStarted) stopAutoConnectLoop();
-            Log.d(TAG, "Bluetooth off");
             return;
         } else {
             binding.bluetoothOff.getRoot().setVisibility(View.GONE);
@@ -678,56 +474,41 @@ public class ScannerActivity extends AppCompatActivity implements
                 && (mSilentConnect || mShouldAutoConnectAfterProvisioning)
                 && targetProxyMac != null
                 && !mAutoConnectStarted) {
-            Log.d(TAG, "Starting auto-connect loop for: " + targetProxyMac);
             if (state.isBluetoothEnabled()) {
                 startAutoConnectLoop();
             }
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Auto-connect after provisioning
-    // -----------------------------------------------------------------------
-
     private void startAutoConnectAfterProvisioning() {
         if (mProvisionedDeviceMac == null) return;
         targetProxyMac = mProvisionedDeviceMac;
-        Log.d(TAG, "Target MAC: " + targetProxyMac);
         stopScan();
 
         new Handler().postDelayed(() -> runOnUiThread(() -> {
             if (mReconnectLaunched || mProxyConnected) return;
-            Log.d(TAG, "Starting PROXY scan after delay");
             mViewModel.getScannerRepository().startScan(BleMeshManager.MESH_PROXY_UUID);
             if (!mAutoConnectStarted) startAutoConnectLoop();
         }), AUTO_CONNECT_AFTER_PROVISIONING_DELAY);
     }
-
-    // -----------------------------------------------------------------------
-    // Auto-connect loop
-    // -----------------------------------------------------------------------
 
     private void startAutoConnectLoop() {
         if (mAutoConnectStarted) return;
 
         mAutoConnectStarted = true;
         mScanStartTime      = System.currentTimeMillis();
-        Log.d(TAG, "Auto-connect loop started");
 
         mAutoConnectRunnable = new Runnable() {
             @Override
             public void run() {
                 if (mProxyConnected || mReconnectLaunched) {
-                    Log.d(TAG, "Loop stopped — reconnect launched or connected");
                     stopAutoConnectLoop();
                     return;
                 }
 
                 long elapsed = System.currentTimeMillis() - mScanStartTime;
-                Log.d(TAG, "Loop check: elapsed " + elapsed + "ms");
 
                 if (elapsed > TARGET_CONNECT_TIMEOUT_MS) {
-                    Log.e(TAG, "Timeout!");
                     if (mShouldAutoConnectAfterProvisioning) {
                         runOnUiThread(() -> {
                             binding.textConnectingProgress.setText(
@@ -747,16 +528,12 @@ public class ScannerActivity extends AppCompatActivity implements
                 ExtendedBluetoothDevice targetDevice = findTargetDevice();
 
                 if (targetDevice != null) {
-                    Log.i(TAG, "✅ Target found: " + targetDevice.getAddress());
-
                     mReconnectLaunched  = true;
                     mAutoConnectStarted = false;
 
                     stopScan();
                     stopAutoConnectLoop();
 
-                    // ✅ Hide our own progress container before launching ReconnectActivity
-                    // to prevent overlapping "Connecting" UIs.
                     binding.connectivityProgressContainer.setVisibility(View.GONE);
 
                     if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
@@ -766,10 +543,6 @@ public class ScannerActivity extends AppCompatActivity implements
                         if (provNode != null) {
                             mViewModel.getMeshRepository()
                                     .markSetupRequired(provNode.getUnicastAddress());
-                            Log.d(TAG, "✅ markSetupRequired called for node=0x"
-                                    + Integer.toHexString(provNode.getUnicastAddress()));
-                        } else {
-                            Log.e(TAG, "❌ markSetupRequired: getLastProvisionedNode() returned null");
                         }
                     }
 
@@ -800,7 +573,6 @@ public class ScannerActivity extends AppCompatActivity implements
             mAutoConnectHandler.removeCallbacks(mAutoConnectRunnable);
             mAutoConnectRunnable = null;
         }
-        Log.d(TAG, "Auto-connect loop stopped");
     }
 
     private ExtendedBluetoothDevice findTargetDevice() {
@@ -815,10 +587,6 @@ public class ScannerActivity extends AppCompatActivity implements
         }
         return null;
     }
-
-    // -----------------------------------------------------------------------
-    // UI helpers
-    // -----------------------------------------------------------------------
 
     private void updateProgressText() {
         if (targetProxyMac == null || binding.textConnectingProgress == null) return;
@@ -882,7 +650,7 @@ public class ScannerActivity extends AppCompatActivity implements
         targetProxyMac                      = null;
         mShouldAutoConnectAfterProvisioning = false;
         mReconnectLaunched                  = false;
-        mSilentConnect                      = false; // ✅ Reset silent connect when showing scanner UI
+        mSilentConnect                      = false;
 
         stopAutoConnectLoop();
         if (adapter != null) {
@@ -896,7 +664,7 @@ public class ScannerActivity extends AppCompatActivity implements
             data.putExtra(Utils.EXTRA_SVG_DEVICE_ID, mSvgDeviceId);
         }
         if (mReceiveId != null) {
-            data.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID, mReceiveId); // ← ADD
+            data.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID, mReceiveId);
         }
         setResult(Activity.RESULT_OK, data);
         finish();

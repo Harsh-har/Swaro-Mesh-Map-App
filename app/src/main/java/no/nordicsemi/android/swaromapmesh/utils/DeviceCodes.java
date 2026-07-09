@@ -83,10 +83,15 @@ public class DeviceCodes {
             return true;
         }
 
-        // ── 4. Check if filterCode is a friendly name (e.g. "LC Node") ──
-        String codeForName = NAME_TO_CODE.get(lowerFilterCode);
-        if (codeForName != null && lowerDeviceName.contains(codeForName.toLowerCase())) {
-            return true;
+        // ── 4. Check if filterCode contains a known friendly name (e.g. "LC Node 5" matches "LC Node") ──
+        for (Map.Entry<String, String> entry : NAME_TO_CODE.entrySet()) {
+            String knownFriendly = entry.getKey();
+            String code          = entry.getValue().toLowerCase();
+            if (lowerFilterCode.contains(knownFriendly)) {
+                if (lowerDeviceName.contains(code) || lowerDeviceName.contains(knownFriendly)) {
+                    return true;
+                }
+            }
         }
 
         // ── 5. Partial code match (e.g. "PSD" matches any device advertising "PSD02") ──

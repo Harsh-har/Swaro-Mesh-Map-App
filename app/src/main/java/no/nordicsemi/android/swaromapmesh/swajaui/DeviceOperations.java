@@ -785,25 +785,39 @@ public class DeviceOperations {
             // Category code is the first non-numeric part searching from the right, 
             // after skipping at least the EID and RID.
             int catIdx = -1;
+            int fallbackCatIdx = -1;
             int numericBlockCount = 0;
             for (int i = len - 1; i >= 0; i--) {
                 if (parts[i].matches("\\d+")) {
                     numericBlockCount++;
-                } else if (numericBlockCount >= 2) { // Found non-numeric after EID/RID
-                    catIdx = i;
-                    break;
+                } else {
+                    // If we find a part that is a known device code, use it immediately
+                    if (DeviceCodes.getName(parts[i].toUpperCase()) != null) {
+                        catIdx = i;
+                        break;
+                    }
+                    // Fallback to older heuristic: first non-numeric after EID/RID
+                    if (fallbackCatIdx == -1 && numericBlockCount >= 2) {
+                        fallbackCatIdx = i;
+                    }
                 }
             }
+            if (catIdx == -1) catIdx = fallbackCatIdx;
 
             if (catIdx != -1) {
                 String code = parts[catIdx].toUpperCase();
                 String friendly = DeviceCodes.getName(code);
                 
                 if (friendly != null) {
-                    // Instance Count is immediately after category
+                    // Instance Count or Identifier is often after category
                     String count = "";
-                    if (catIdx + 1 < len && parts[catIdx + 1].matches("\\d+")) {
-                        count = " " + parts[catIdx + 1];
+                    if (catIdx + 1 < len) {
+                        // Include the next part if it's not strictly one of the final 2 numeric IDs (EID/RID)
+                        if (catIdx + 1 < len - 2) {
+                            count = " " + parts[catIdx + 1];
+                        } else if (parts[catIdx + 1].matches("\\d+")) {
+                            count = " " + parts[catIdx + 1];
+                        }
                     }
                     return friendly + count;
                 }
@@ -827,6 +841,9 @@ public class DeviceOperations {
 
         // Don't strip numbers if it's a known device code (e.g., PSD02)
         if (DeviceCodes.getName(name) != null) return name;
+
+        // Remove trailing components that look like indices or zones (e.g., _1_1 or _phys)
+        name = name.replaceAll("(_\\d+)+$", "");
 
         name = name.replaceAll("\\s*\\d+$", "").replaceAll("\\d+$", "").replaceAll("\\s+", " ").trim();
         return name.isEmpty() ? (id.contains(":") ? id.substring(id.indexOf(":") + 1).trim() : id) : name;

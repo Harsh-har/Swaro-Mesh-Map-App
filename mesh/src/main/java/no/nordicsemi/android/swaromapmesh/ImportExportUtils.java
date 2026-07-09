@@ -31,7 +31,7 @@ import no.nordicsemi.android.swaromapmesh.transport.MeshModel;
 import no.nordicsemi.android.swaromapmesh.transport.MeshModelListDeserializer;
 import no.nordicsemi.android.swaromapmesh.transport.NodeDeserializer;
 import no.nordicsemi.android.swaromapmesh.transport.ProvisionedMeshNode;
-import no.nordicsemi.android.swaromapmesh.utils.CryptoUtils;
+// import no.nordicsemi.android.swaromapmesh.utils.CryptoUtils;
 
 import static no.nordicsemi.android.swaromapmesh.utils.MeshAddress.isValidGroupAddress;
 
@@ -136,7 +136,7 @@ class ImportExportUtils {
     protected MeshNetwork importNetwork(@NonNull String networkJson) throws JsonSyntaxException {
         MeshLogger.debug(TAG, "Importing network JSON...");
 
-        // ✅ Decrypt if it's an encrypted file
+        /*// ✅ Decrypt if it's an encrypted file
         if (CryptoUtils.isEncrypted(networkJson)) {
             MeshLogger.debug(TAG, "Encrypted file detected — decrypting...");
             String decrypted = CryptoUtils.decrypt(networkJson);
@@ -146,7 +146,7 @@ class ImportExportUtils {
                 MeshLogger.error(TAG, "Failed to decrypt network JSON");
                 throw new JsonSyntaxException("Failed to decrypt network JSON. Invalid key or corrupted file.");
             }
-        }
+        }*/
 
         if (networkJson.contains("mac_address")) {
             MeshLogger.debug(TAG, "JSON contains 'mac_address' field");
@@ -213,12 +213,12 @@ class ImportExportUtils {
                 }
                 MeshLogger.debug(TAG, "Found 'mac_address' " + count + " times in export");
 
-                // ✅ ENCRYPT the exported JSON
+                /*// ✅ ENCRYPT the exported JSON
                 String encryptedJson = CryptoUtils.encrypt(exportedJson);
                 if (encryptedJson != null) {
                     MeshLogger.debug(TAG, "Network JSON encrypted successfully");
                     return encryptedJson;
-                }
+                }*/
             }
 
             return exportedJson;
