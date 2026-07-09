@@ -755,6 +755,10 @@ public class ScannerActivity extends AppCompatActivity implements
                     stopScan();
                     stopAutoConnectLoop();
 
+                    // ✅ Hide our own progress container before launching ReconnectActivity
+                    // to prevent overlapping "Connecting" UIs.
+                    binding.connectivityProgressContainer.setVisibility(View.GONE);
+
                     if (mIsNewlyProvisioned || mShouldAutoConnectAfterProvisioning) {
                         ProvisionedMeshNode provNode =
                                 mViewModel.getMeshRepository().getLastProvisionedNode();
