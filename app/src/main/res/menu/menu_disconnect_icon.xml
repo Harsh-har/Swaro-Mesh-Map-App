@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+
+    <item
+        android:id="@+id/action_disconnection_state"
+        android:title="Connect"
+        android:icon="@drawable/disconnected_icon"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_connect_proxy_text"
+        android:title="Connect Proxy"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_mqtt_status"
+        android:title="MQTT"
+        android:icon="@drawable/circle_dot"
+        app:showAsAction="always" />
+
+</menu>

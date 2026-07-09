@@ -1,0 +1,25 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 519.58 462.24">
+    <rect width="519.58" height="462.24" fill="#1a1a1a"/>
+
+    <g id="User Layer">
+        <g id="Living Area">
+            <!-- Background element for the area -->
+            <rect x="250" y="100" width="100" height="80" fill="#333333" stroke="#666666" stroke-width="1"/>
+            <text x="300" y="115" font-size="8" text-anchor="middle" fill="#cccccc">Living Area</text>
+        </g>
+    </g>
+
+    <g id="Technician Layer">
+        <g id="Living Area">
+            <!-- New Large Device for Provisioning -->
+            <g id="SMT_CS07_0002_1_1">
+                <!-- Outer circle for better visibility -->
+                <circle cx="300" cy="140" r="10" fill="#ffae42" stroke="#ffffff" stroke-width="1.5"/>
+                <!-- Inner design to make it look like a sensor/node -->
+                <circle cx="300" cy="140" r="6" fill="none" stroke="#000000" stroke-width="0.5" stroke-dasharray="2,1"/>
+                <circle cx="300" cy="140" r="2" fill="#000000"/>
+            </g>
+        </g>
+    </g>
+</svg>

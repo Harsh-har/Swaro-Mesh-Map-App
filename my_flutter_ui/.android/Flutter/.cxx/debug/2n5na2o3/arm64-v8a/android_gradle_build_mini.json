@@ -1,0 +1,20 @@
+{
+  "buildFiles": [
+    "/Users/harsh.flutterdev/development/flutter/packages/flutter_tools/gradle/src/main/scripts/CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "/Users/harsh.flutterdev/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+      "-C",
+      "/Users/harsh.flutterdev/Documents/Swaro-Mesh-Map-App/my_flutter_ui/.android/Flutter/.cxx/debug/2n5na2o3/arm64-v8a",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "/Users/harsh.flutterdev/Library/Android/sdk/cmake/3.22.1/bin/ninja",
+    "-C",
+    "/Users/harsh.flutterdev/Documents/Swaro-Mesh-Map-App/my_flutter_ui/.android/Flutter/.cxx/debug/2n5na2o3/arm64-v8a",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {}
+}

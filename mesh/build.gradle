@@ -1,0 +1,76 @@
+apply plugin: 'com.android.library'
+
+android {
+
+    namespace 'no.nordicsemi.android.mesh'
+    group 'no.nordicsemi.android.mesh'
+
+    compileSdk 36
+
+    defaultConfig {
+        minSdk 18
+
+        javaCompileOptions {
+            annotationProcessorOptions {
+                arguments += [
+                        "room.schemaLocation": "$projectDir/schemas"
+                ]
+            }
+        }
+
+        consumerProguardFiles 'mesh-proguard-rules.pro'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    // Required for Gradle 8+ publishing
+    publishing {
+        singleVariant("release") {
+            withSourcesJar()
+            withJavadocJar()
+        }
+    }
+
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+        }
+        targetSdk 35
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+    lint {
+        targetSdk 35
+    }
+}
+
+dependencies {
+
+    // -------------------- AndroidX --------------------
+    implementation 'androidx.annotation:annotation:1.9.1'
+
+    // -------------------- Cryptography --------------------
+    // ⚠️ KEEP SpongyCastle for Mesh compatibility
+    implementation 'com.madgag.spongycastle:core:1.58.0.0'
+    implementation 'com.madgag.spongycastle:prov:1.58.0.0'
+
+    // -------------------- JSON --------------------
+    implementation 'com.google.code.gson:gson:2.13.2'
+
+    // -------------------- Room (minSdk safe) --------------------
+    implementation 'androidx.room:room-runtime:2.8.4'
+    annotationProcessor 'androidx.room:room-compiler:2.8.4'
+    androidTestImplementation 'androidx.room:room-testing:2.8.4'
+
+    // -------------------- Testing --------------------
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.mockito:mockito-core:5.21.0'
+    androidTestImplementation 'org.mockito:mockito-android:5.21.0'
+}
