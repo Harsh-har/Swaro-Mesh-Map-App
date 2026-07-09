@@ -58,6 +58,7 @@ public class MainActivity extends AppCompatActivity implements
     private SharedViewModel mViewModel;
 
     private NetworkFragment       mNetworkFragment;
+    private Fragment              mGroupsFragment;
     private Fragment              mSettingsFragment;
     private ActivityMainBinding   binding;
     private BottomNavigationView  bottomNavigationView;
@@ -158,6 +159,7 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         mNetworkFragment       = (NetworkFragment)       getSupportFragmentManager().findFragmentById(R.id.fragment_network);
+        mGroupsFragment        =                         getSupportFragmentManager().findFragmentById(R.id.fragment_groups);
         mSettingsFragment      =                         getSupportFragmentManager().findFragmentById(R.id.fragment_settings);
 
         bottomNavigationView = findViewById(R.id.bottom_navigation_view);
@@ -339,9 +341,15 @@ public class MainActivity extends AppCompatActivity implements
 
         if (item.getItemId() == R.id.action_network) {
             ft.show(mNetworkFragment)
+                    .hide(mGroupsFragment)
+                    .hide(mSettingsFragment);
+        } else if (item.getItemId() == R.id.action_groups) {
+            ft.hide(mNetworkFragment)
+                    .show(mGroupsFragment)
                     .hide(mSettingsFragment);
         } else if (item.getItemId() == R.id.action_settings) {
             ft.hide(mNetworkFragment)
+                    .hide(mGroupsFragment)
                     .show(mSettingsFragment);
         }
 
@@ -361,6 +369,8 @@ public class MainActivity extends AppCompatActivity implements
 
         if (mNetworkFragment != null && mNetworkFragment.isVisible()) {
             currentFragment = mNetworkFragment;
+        } else if (mGroupsFragment != null && mGroupsFragment.isVisible()) {
+            currentFragment = mGroupsFragment;
         } else if (mSettingsFragment != null && mSettingsFragment.isVisible()) {
             currentFragment = mSettingsFragment;
         }

@@ -12,6 +12,14 @@
         tools:ignore="AlwaysShowAction"/>
 
     <item
+        android:id="@+id/action_groups"
+        android:enabled="true"
+        android:icon="@drawable/ic_outline_group_24dp"
+        android:title="@string/action_groups"
+        app:showAsAction="always"
+        tools:ignore="AlwaysShowAction"/>
+
+    <item
         android:id="@+id/action_settings"
         android:enabled="true"
         android:icon="@drawable/ic_settings"
