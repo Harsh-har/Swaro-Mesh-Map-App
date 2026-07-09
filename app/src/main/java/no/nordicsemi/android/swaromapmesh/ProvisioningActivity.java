@@ -226,11 +226,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
             }
         });
 
-        binding.actionIdentifyDevice.setOnClickListener(v -> {
-            mDevice.setName(mViewModel.getNetworkLiveData().getNodeName());
-            mViewModel.getNrfMeshRepository().identifyNode(mDevice);
-        });
-
         binding.actionProvisionDevice.setOnClickListener(v -> {
             final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
 

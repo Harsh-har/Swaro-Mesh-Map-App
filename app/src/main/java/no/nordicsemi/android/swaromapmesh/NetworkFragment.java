@@ -1133,16 +1133,13 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
 
         List<String> options = new java.util.ArrayList<>();
         if (isTechnician) {
-            if (isProvisioned(hitId)) options.add("Reset Node");
+            if (isProvisioned(hitId))
+                options.add("Reset Node");
             options.add("Edit Device");
         }
         
         options.add("Move Device");
-        
-        if (isTechnician && !isProvisioned(hitId)) {
-            options.add("Delete from Map");
-        }
-        
+
         options.add("Cancel");
 
         if (options.size() <= 1) return;
@@ -1189,8 +1186,6 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
                             binding.draggableIcon.setY(containerY - binding.draggableIcon.getHeight() / 2f);
                         });
                         
-                    } else if ("Delete from Map".equals(choice)) {
-                        deviceOperations.deleteDeviceFromSvg(finalHitId, deviceMap, iconToDeviceRelations, svgDocument, svgParser);
                     }
                 })
                 .show();
@@ -1435,7 +1430,13 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         }
         return null;
     }
+    
     private void onRelationDeviceTapped(String iconId, String tappedDeviceId) {
+        if (isProvisioned(iconId)) {
+            // provision device hone pr relation device par tab karne par bhi kuch nahi karna
+            return;
+        }
+        
         String trueId = getTrueProvisionedId(iconId);
         // Case-insensitive search in deviceMap
         DeviceInfo device = null;
@@ -1457,33 +1458,13 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
 
         String displayName = deviceOperations.extractPureDeviceName(device.id);
 
-        if (isProvisioned(iconId)) {
-            // If the main node is provisioned, ensure its SVG Element ID is saved for the Test screen
-            if (device.elementId != null) {
-                try {
-                    int svgId = Integer.parseInt(device.elementId.trim());
-                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(device.id, svgId);
-                } catch (NumberFormatException ignored) {}
-            }
-            
-            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        device.id);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
-            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
-            intent.putExtra("EXTRA_RELATION_DEVICE_NAME",                tappedDeviceId);
-            intent.putExtra("svg_name", svgName);
-            startActivity(intent);
-        } else {
-            Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        device.id);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
-            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
-            startActivity(intent);
-        }
+        Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        device.id);
+        intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
+        intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,       device.elementId);
+        intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,       device.receiveId);
+        startActivity(intent);
     }
 
     private RelationHitResult findRelationDeviceAt(float svgX, float svgY) {
@@ -1565,7 +1546,9 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         }
 
         return (bestIconId != null) ? new RelationHitResult(bestIconId, bestDeviceId) : null;
-    }    public float[] touchToSvgCoords(float localX, float localY) {
+    }
+    
+    public float[] touchToSvgCoords(float localX, float localY) {
         Matrix inverse = new Matrix();
         if (!matrix.invert(inverse)) return new float[]{localX, localY};
         
@@ -1663,6 +1646,11 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
     // ══════════════════════════════════════════════════════════════════════
 
     private void onDeviceTapped(String deviceId) {
+        if (isProvisioned(deviceId)) {
+            // provision device hone pr device ki details show nhi karna, aur move bhi nahi hone dena
+            return;
+        }
+        
         String trueId = getTrueProvisionedId(deviceId);
         DeviceInfo device = deviceMap.get(trueId);
         if (device == null) device = deviceMap.get(deviceId); // Fallback
@@ -1686,46 +1674,6 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         String svgName      = prefs.getString("svg_name_" + svgUriString, "");
 
         String      displayName    = deviceOperations.extractPureDeviceName(trueId);
-        Set<String> relatedDevices = iconToDeviceRelations.containsKey(trueId)
-                ? iconToDeviceRelations.get(trueId) : new HashSet<>();
-        String      relationDevName = relatedDevices.isEmpty()
-                ? null : relatedDevices.iterator().next();
-
-        Log.d(TAG, "isProvisioned check: deviceId=" + trueId
-                + " result=" + isProvisioned(trueId));
-
-        if (isProvisioned(deviceId)) {
-            if (device != null && device.elementId != null) {
-                try {
-                    int svgId = Integer.parseInt(device.elementId.trim());
-                    if (svgId >= 0) ClientServerElementStore.saveServerSvgElementId(trueId, svgId);
-                } catch (NumberFormatException ignored) {}
-            }
-            Intent intent = new Intent(requireContext(), TestProvisionActivity.class);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        trueId);
-            intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_NAME,      displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_PURE_DEVICE_NAME, displayName);
-            intent.putExtra(DeviceDetailActivity.EXTRA_ELEMENT_ID,
-                    device != null ? device.elementId : null);
-            intent.putExtra(DeviceDetailActivity.EXTRA_RECEIVE_ID,
-                    device != null ? device.receiveId : null);
-            intent.putExtra("EXTRA_RELATION_DEVICE_NAME", relationDevName);
-            intent.putExtra("svg_name", svgName);
-            startActivity(intent);
-            return;
-        }
-
-        if (device != null && device.elementId != null) {
-            try {
-                int svgId = Integer.parseInt(device.elementId.trim());
-                if (svgId >= 0) {
-                    ClientServerElementStore.saveServerSvgElementId(trueId, svgId);
-                    Log.d(TAG, "✅ onDeviceTapped: svgId pre-saved device=" + trueId + " svgId=" + svgId);
-                }
-            } catch (NumberFormatException e) {
-                Log.w(TAG, "onDeviceTapped: elementId parse failed: " + device.elementId);
-            }
-        }
 
         Intent intent = new Intent(requireContext(), DeviceDetailActivity.class);
         intent.putExtra(DeviceDetailActivity.EXTRA_DEVICE_ID,        trueId);
