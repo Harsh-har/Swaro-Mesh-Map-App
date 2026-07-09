@@ -1,8 +1,12 @@
 package no.nordicsemi.android.swaromapmesh;
 
+import android.Manifest;
+import android.bluetooth.BluetoothAdapter;
 import android.content.Intent;
 import android.content.SharedPreferences;
+import android.content.pm.PackageManager;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -13,6 +17,10 @@ import android.view.animation.AnimationUtils;
 
 import android.graphics.Color;
 import android.graphics.drawable.Drawable;
+
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.drawable.DrawableCompat;
 import androidx.activity.EdgeToEdge;
@@ -31,6 +39,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.List;
 
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.databinding.ActivityMainBinding;
@@ -44,6 +53,7 @@ public class MainActivity extends AppCompatActivity implements
 
     private static final String TAG              = "MainActivity";
     private static final String CURRENT_FRAGMENT = "CURRENT_FRAGMENT";
+    private static final int    PERMISSION_REQUEST_CODE = 101;
 
     private SharedViewModel mViewModel;
 
@@ -51,6 +61,18 @@ public class MainActivity extends AppCompatActivity implements
     private Fragment              mSettingsFragment;
     private ActivityMainBinding   binding;
     private BottomNavigationView  bottomNavigationView;
+
+    // ✅ Bluetooth enable launcher
+    private final ActivityResultLauncher<Intent> enableBluetooth =
+            registerForActivityResult(
+                    new ActivityResultContracts.StartActivityForResult(),
+                    result -> {
+                        if (result.getResultCode() == RESULT_OK) {
+                            Log.d(TAG, "Bluetooth enabled by user");
+                        } else {
+                            Log.w(TAG, "Bluetooth enable refused by user");
+                        }
+                    });
 
     // ==================== LIFECYCLE ====================
 
@@ -60,10 +82,15 @@ public class MainActivity extends AppCompatActivity implements
         super.onCreate(savedInstanceState);
         EdgeToEdge.enable(this);
 
+        // ✅ Step 1: Permissions pehle maango
+        checkAndRequestPermissions();
+
+        // ✅ Step 2: Bluetooth on karne ko kaho agar band hai
+        requestBluetoothEnable();
+
         mViewModel = new ViewModelProvider(this).get(SharedViewModel.class);
 
         ensureOfficeSvgExists();
-        ensureDefaultNetworkImported();
 
         boolean fromAreaList = getIntent().getBooleanExtra("from_area_list", false);
 
@@ -322,27 +349,6 @@ public class MainActivity extends AppCompatActivity implements
         }
     }
 
-    private void ensureDefaultNetworkImported() {
-        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        if (prefs.getBoolean("network_imported_v2", false)) return;
-
-        try (InputStream is = getAssets().open("default_network.json")) {
-            int size = is.available();
-            byte[] buffer = new byte[size];
-            int read = is.read(buffer);
-            if (read != size) {
-                Log.w(TAG, "ensureDefaultNetworkImported: could not read full file");
-            }
-            String json = new String(buffer, java.nio.charset.StandardCharsets.UTF_8);
-
-            mViewModel.getMeshManagerApi().importMeshNetworkJson(json);
-            prefs.edit().putBoolean("network_imported_v2", true).apply();
-            Log.d(TAG, "✅ default_network.json imported successfully");
-        } catch (IOException e) {
-            Log.e(TAG, "Error importing default network", e);
-        }
-    }
-
     private void ensureOfficeSvgExists() {
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
         // Force update for development
@@ -368,6 +374,77 @@ public class MainActivity extends AppCompatActivity implements
             Log.d(TAG, "✅ office.svg updated in internal storage");
         } catch (IOException e) {
             Log.e(TAG, "Error copying office.svg", e);
+        }
+    }
+
+    // ==================== BLUETOOTH & PERMISSIONS ====================
+
+    private void requestBluetoothEnable() {
+        BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        if (bluetoothAdapter == null) {
+            Log.w(TAG, "Device does not support Bluetooth");
+            return;
+        }
+        if (!bluetoothAdapter.isEnabled()) {
+            Log.d(TAG, "Bluetooth is off — requesting enable");
+            enableBluetooth.launch(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE));
+        }
+    }
+
+    private void checkAndRequestPermissions() {
+        List<String> permissionsNeeded = new ArrayList<>();
+
+        // ✅ Camera — QR scan ke liye
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.CAMERA);
+        }
+
+        // ✅ Location — BLE scan ke liye zaroori
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+
+        // ✅ Bluetooth — Android version ke hisaab se
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            // Android 12+
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.BLUETOOTH_SCAN);
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.BLUETOOTH_CONNECT);
+            }
+        }
+
+        // ✅ Notifications — Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }
+
+        if (!permissionsNeeded.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    permissionsNeeded.toArray(new String[0]),
+                    PERMISSION_REQUEST_CODE);
+        }
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERMISSION_REQUEST_CODE) {
+            for (int i = 0; i < permissions.length; i++) {
+                if (grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    Log.d(TAG, "Permission granted: " + permissions[i]);
+                } else {
+                    Log.w(TAG, "Permission denied: " + permissions[i]);
+                }
+            }
         }
     }
 
