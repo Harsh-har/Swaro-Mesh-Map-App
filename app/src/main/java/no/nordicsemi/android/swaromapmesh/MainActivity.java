@@ -178,7 +178,6 @@ public class MainActivity extends AppCompatActivity implements
         }
 
         mViewModel.isConnectedToProxy().observe(this, connected -> invalidateOptionsMenu());
-        mViewModel.getMqttConnected().observe(this, connected -> invalidateOptionsMenu());
 
         handleNavigationIntent(getIntent());
     }
@@ -294,25 +293,6 @@ public class MainActivity extends AppCompatActivity implements
                     });
                 }
             }
-        }
-
-        MenuItem mqttItem = menu.findItem(R.id.action_mqtt_status);
-        if (mqttItem != null) {
-            // Only show in Network fragment
-            mqttItem.setVisible(bottomNavigationView.getSelectedItemId() == R.id.action_network);
-
-            Boolean mqttConnected = mViewModel.getMqttConnected().getValue();
-            int color = (mqttConnected != null && mqttConnected)
-                    ? ContextCompat.getColor(this, android.R.color.holo_green_dark)
-                    : ContextCompat.getColor(this, android.R.color.holo_red_dark);
-
-            Drawable icon = ContextCompat.getDrawable(this, R.drawable.circle_dot);
-            if (icon != null) {
-                Drawable wrappedIcon = DrawableCompat.wrap(icon.mutate());
-                DrawableCompat.setTint(wrappedIcon, color);
-                mqttItem.setIcon(wrappedIcon);
-            }
-            Log.d(TAG, "MQTT Menu updated: connected=" + mqttConnected);
         }
 
         return true;

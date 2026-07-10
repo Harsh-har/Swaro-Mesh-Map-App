@@ -8,10 +8,4 @@
         android:icon="@drawable/connected_icon"
         app:showAsAction="always" />
 
-    <item
-        android:id="@+id/action_mqtt_status"
-        android:title="MQTT"
-        android:icon="@drawable/circle_dot"
-        app:showAsAction="always" />
-
 </menu>

@@ -6,6 +6,8 @@ import android.content.SharedPreferences;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.util.Log;
+import android.util.TypedValue;
+import android.view.HapticFeedbackConstants;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -219,6 +221,14 @@ public class SettingsFragment extends Fragment implements
             switch (event.getAction()) {
                 case MotionEvent.ACTION_DOWN:
                     Log.d(TAG, "Hidden access: touch DOWN detected");
+
+                    // Visual feedback: set pressed state and change background color
+                    v.setPressed(true);
+                    v.setBackgroundColor(ContextCompat.getColor(requireContext(), R.color.nordicLightGray));
+
+                    // Haptic feedback
+                    v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+
                     // Prevent the parent ScrollView from intercepting this touch as a
                     // scroll gesture, which would otherwise send ACTION_CANCEL almost
                     // immediately and stop the countdown before 10s.
@@ -233,11 +243,22 @@ public class SettingsFragment extends Fragment implements
                         public void onTick(long millisUntilFinished) {
                             long secondsLeft = (millisUntilFinished / 1000) + 1;
                             Log.d(TAG, "Hidden access: holding, " + secondsLeft + "s left");
+
+                            // Provide small haptic feedback every second to indicate it's still working
+                            v.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
                         }
 
                         @Override
                         public void onFinish() {
                             Log.d(TAG, "Hidden access hold completed, showing password dialog");
+                            v.setPressed(false);
+                            // Reset background to default selectable item background
+                            TypedValue outValue = new TypedValue();
+                            requireContext().getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true);
+                            v.setBackgroundResource(outValue.resourceId);
+
+                            v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+
                             DialogFragmentHiddenAccess.newInstance()
                                     .show(getChildFragmentManager(), "hidden_access");
                         }
@@ -249,6 +270,13 @@ public class SettingsFragment extends Fragment implements
                     Log.d(TAG, "Hidden access: touch " +
                             (event.getAction() == MotionEvent.ACTION_UP ? "UP" : "CANCEL") +
                             " - resetting timer");
+
+                    v.setPressed(false);
+                    // Reset background to default selectable item background
+                    TypedValue outValue = new TypedValue();
+                    requireContext().getTheme().resolveAttribute(android.R.attr.selectableItemBackground, outValue, true);
+                    v.setBackgroundResource(outValue.resourceId);
+
                     v.getParent().requestDisallowInterceptTouchEvent(false);
                     if (hiddenAccessCountDownTimer != null) {
                         hiddenAccessCountDownTimer.cancel();

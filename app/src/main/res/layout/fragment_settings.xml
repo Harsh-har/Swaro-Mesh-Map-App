@@ -161,6 +161,11 @@
                     android:layout_height="wrap_content" />
 
             </LinearLayout>
+
+
+
+
+
         </com.google.android.material.card.MaterialCardView>
         <!-- RSSI FILTER -->
         <include
