@@ -214,12 +214,12 @@ class ImportExportUtils {
                 }
                 MeshLogger.debug(TAG, "Found 'mac_address' " + count + " times in export");
 
-                /*// ✅ ENCRYPT the exported JSON
+               // ✅ ENCRYPT the exported JSON
                 String encryptedJson = CryptoUtils.encrypt(exportedJson);
                 if (encryptedJson != null) {
                     MeshLogger.debug(TAG, "Network JSON encrypted successfully");
                     return encryptedJson;
-                }*/
+                }
             }
 
             return exportedJson;

@@ -112,9 +112,9 @@ public class DeviceOperations {
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(40, 20, 40, 20);
 
-        final boolean isLcNode = selectedCategory.equals(DeviceCodes.LC_NODE) || 
-                                selectedCategory.equalsIgnoreCase("LC Node") || 
-                                selectedCategory.equalsIgnoreCase("PSD02");
+        final boolean isLcNode = selectedCategory.equals(DeviceCodes.LC_NODE) ||
+                selectedCategory.equalsIgnoreCase("LC Node") ||
+                selectedCategory.equalsIgnoreCase("PSD02");
 
         final EditText lightsCountInput = new EditText(context);
         if (isLcNode) {
@@ -151,7 +151,7 @@ public class DeviceOperations {
                 if (parts.length >= 5) {
                     String eid = elementIdInput.getText().toString();
                     String rid = receiveIdInput.getText().toString();
-                    
+
                     // Rebuild the name preserving all parts except the last two (EID and RID)
                     StringBuilder sb = new StringBuilder();
                     for (int i = 0; i < parts.length - 2; i++) {
@@ -159,7 +159,7 @@ public class DeviceOperations {
                         sb.append(parts[i]);
                     }
                     sb.append("_").append(eid).append("_").append(rid);
-                    
+
                     String newName = sb.toString();
                     if (!currentName.equals(newName)) {
                         nameInput.setText(newName);
@@ -169,7 +169,7 @@ public class DeviceOperations {
         };
         elementIdInput.addTextChangedListener(syncWatcher);
         receiveIdInput.addTextChangedListener(syncWatcher);
-        
+
         new MaterialAlertDialogBuilder(context)
                 .setTitle("Enter Device Info")
                 .setView(layout)
@@ -251,8 +251,8 @@ public class DeviceOperations {
                 String normInfoArea = info.areaId != null ? info.areaId.replace(" ", "_").toLowerCase() : "";
 
                 boolean areaMatch = normArea.equals(normInfoArea) ||
-                                   normArea.endsWith("_" + normInfoArea) ||
-                                   normInfoArea.endsWith("_" + normArea);
+                        normArea.endsWith("_" + normInfoArea) ||
+                        normInfoArea.endsWith("_" + normArea);
 
                 if (areaMatch) {
                     // Normalize the device name/code for comparison
@@ -263,11 +263,11 @@ public class DeviceOperations {
                     // 1. Explicitly parsed deviceName (code or name)
                     // 2. String contains match in the full ID string
                     boolean codeMatch = targetCode.equalsIgnoreCase(infoNameOrCode) ||
-                                       idLower.contains("_" + targetCode.toLowerCase() + "_") ||
-                                       idLower.contains(":" + targetCode.toLowerCase());
+                            idLower.contains("_" + targetCode.toLowerCase() + "_") ||
+                            idLower.contains(":" + targetCode.toLowerCase());
 
                     boolean nameMatch = targetName.equalsIgnoreCase(infoNameOrCode.replace("_", " ")) ||
-                                       idLower.contains(targetName.toLowerCase().replace(" ", "_"));
+                            idLower.contains(targetName.toLowerCase().replace(" ", "_"));
 
                     if (codeMatch || nameMatch) {
                         try {
@@ -432,7 +432,7 @@ public class DeviceOperations {
 
             Element devAreaGroup = svgParser.findElementById(devicesGroup, areaId);
             if (devAreaGroup == null) devAreaGroup = svgParser.findElementFuzzy(devicesGroup, areaId);
-            
+
             if (devAreaGroup == null) {
                 devAreaGroup = svgDocument.createElement("g");
                 devAreaGroup.setAttribute("id", areaId);
@@ -451,24 +451,24 @@ public class DeviceOperations {
                 for (int i = 1; i <= lightsCount; i++) {
                     // Standard light ID: Area_Category_Count_Index_EID_RID
                     String techLightId = areaPrefix + "_" + catLabel + "_" + countPart + "_" + i + "_" + eid + "_" + rid;
-                    
+
                     // Initial position: Spread them out slightly around the main icon
                     float offsetX = (i - 1) * 20 - ((lightsCount - 1) * 10f);
                     float relX = x + offsetX;
                     float relY = y;
-                    
+
                     // Add to User Layer (Final visualization)
                     float[] lUserPts = {relX, relY};
                     devInv.mapPoints(lUserPts);
 
                     Element userLight = svgDocument.createElement("circle");
                     // Use the same 6-part ID with _phys suffix
-                    userLight.setAttribute("id", techLightId + "_phys"); 
+                    userLight.setAttribute("id", techLightId + "_phys");
                     userLight.setAttribute("cx", String.valueOf(lUserPts[0]));
                     userLight.setAttribute("cy", String.valueOf(lUserPts[1]));
                     userLight.setAttribute("r", "1.29");
                     userLight.setAttribute("style", "fill:#bl3b3b3;");
-                    
+
                     // Add metadata for element ID so it's recognized as a device
                     Element meta = svgDocument.createElement("metadata");
                     Element lEidNode = svgDocument.createElement("elementId");
@@ -703,12 +703,12 @@ public class DeviceOperations {
             Element root = svgDocument.getDocumentElement();
             Element el = svgParser.findElementById(root, elementId);
             if (el == null) el = svgParser.findElementFuzzy(root, elementId);
-            
+
             if (el != null) {
                 // 1. Calculate current absolute center
                 RectF currentBounds = svgParser.computeBounds(el);
                 if (currentBounds == null || currentBounds.isEmpty()) return;
-                
+
                 float dx = x - currentBounds.centerX();
                 float dy = y - currentBounds.centerY();
 
@@ -718,7 +718,7 @@ public class DeviceOperations {
                     Matrix parentMatrix = svgParser.getCumulativeTransform((Element) parent);
                     Matrix inv = new Matrix();
                     parentMatrix.invert(inv);
-                    
+
                     // Transform absolute delta (dx, dy) into parent-local delta
                     float[] deltaVector = {dx, dy};
                     inv.mapVectors(deltaVector);
@@ -750,7 +750,7 @@ public class DeviceOperations {
                         // For groups and others, apply translate on top of existing transform
                         String currentTransform = el.getAttribute("transform");
                         String newTranslate = "translate(" + ldx + " " + ldy + ")";
-                        
+
                         if (currentTransform != null && !currentTransform.isEmpty()) {
                             // Prepend the new translate to ensure it's applied correctly
                             el.setAttribute("transform", newTranslate + " " + currentTransform);
@@ -759,7 +759,7 @@ public class DeviceOperations {
                         }
                     }
                 }
-                
+
                 saveSvgToInternal(svgDocument);
                 callback.onDataChanged();
                 Toast.makeText(context, "Position updated", Toast.LENGTH_SHORT).show();
@@ -780,9 +780,9 @@ public class DeviceOperations {
         // Or: Area_Category_Count_EID_RID (5 parts)
         String[] parts = id.split("_");
         int len = parts.length;
-        
+
         if (len >= 3) {
-            // Category code is the first non-numeric part searching from the right, 
+            // Category code is the first non-numeric part searching from the right,
             // after skipping at least the EID and RID.
             int catIdx = -1;
             int fallbackCatIdx = -1;
@@ -807,7 +807,7 @@ public class DeviceOperations {
             if (catIdx != -1) {
                 String code = parts[catIdx].toUpperCase();
                 String friendly = DeviceCodes.getName(code);
-                
+
                 if (friendly != null) {
                     // Instance Count or Identifier is often after category
                     String count = "";
