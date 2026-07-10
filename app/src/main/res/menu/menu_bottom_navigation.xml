@@ -16,6 +16,7 @@
         android:enabled="true"
         android:icon="@drawable/ic_outline_group_24dp"
         android:title="@string/action_groups"
+        android:visible="false"
         app:showAsAction="always"
         tools:ignore="AlwaysShowAction"/>
 

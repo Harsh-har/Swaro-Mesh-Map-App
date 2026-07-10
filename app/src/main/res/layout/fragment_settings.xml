@@ -99,6 +99,7 @@
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/mqtt_settings_card"
             android:layout_width="match_parent"
+            android:visibility="gone"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/activity_horizontal_margin"
             app:cardElevation="1dp">
@@ -130,6 +131,7 @@
         <!-- About card -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/about_card"
+
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="@dimen/activity_horizontal_margin"
@@ -164,6 +166,7 @@
         <include
             android:id="@+id/container_rssi_filter"
             layout="@layout/layout_container"
+            android:layout_marginTop="28dp"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
 
@@ -177,6 +180,12 @@
         <!-- DEVICE FILTER -->
         <include
             android:id="@+id/container_device_filter"
+            layout="@layout/layout_container"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+        <!-- HIDDEN ACCESS TRIGGER -->
+        <include
+            android:id="@+id/container_hidden_access"
             layout="@layout/layout_container"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />

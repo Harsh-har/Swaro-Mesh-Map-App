@@ -4,11 +4,13 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.os.Bundle;
+import android.os.CountDownTimer;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 
@@ -33,6 +35,7 @@ import no.nordicsemi.android.swaromapmesh.keys.NetKeysActivity;
 import no.nordicsemi.android.swaromapmesh.mqtt.MqttSettingsActivity;
 import no.nordicsemi.android.swaromapmesh.provisioners.ProvisionersActivity;
 import no.nordicsemi.android.swaromapmesh.swajaui.AreaClientListActivity;
+import no.nordicsemi.android.swaromapmesh.swajaui.DialogFragmentHiddenAccess;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ClientServerElementStore;
 import no.nordicsemi.android.swaromapmesh.viewmodels.SharedViewModel;
@@ -44,10 +47,15 @@ import static java.text.DateFormat.getDateTimeInstance;
 public class SettingsFragment extends Fragment implements
         DialogFragmentNetworkName.DialogFragmentNetworkNameListener,
         DialogFragmentResetNetwork.DialogFragmentResetNetworkListener,
-        DialogFragmentMeshImport.DialogFragmentNetworkImportListener {
+        DialogFragmentMeshImport.DialogFragmentNetworkImportListener,
+        DialogFragmentHiddenAccess.DialogFragmentHiddenAccessListener {
 
     private static final String TAG = SettingsFragment.class.getSimpleName();
+    private static final long HIDDEN_ACCESS_HOLD_MS = 10000; // 10 seconds
+
     private SharedViewModel mViewModel;
+
+    private CountDownTimer hiddenAccessCountDownTimer;
 
     private final androidx.activity.result.ActivityResultLauncher<String> fileSelector =
             registerForActivityResult(new GetContent(), result -> {
@@ -114,8 +122,6 @@ public class SettingsFragment extends Fragment implements
         binding.containerAppKeys.getRoot().setOnClickListener(v ->
                 startActivity(new Intent(requireContext(), AppKeysActivity.class)));
 
-
-
         // MQTT Settings
         binding.containerMqtt.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
@@ -127,7 +133,7 @@ public class SettingsFragment extends Fragment implements
                 startActivity(new Intent(requireContext(), MqttSettingsActivity.class)));
 
         // ================================================================
-        // AREA CLIENT LIST - ADD THIS SECTION
+        // AREA CLIENT LIST
         // ================================================================
         binding.containerAreaClient.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
@@ -141,8 +147,9 @@ public class SettingsFragment extends Fragment implements
             startActivity(intent);
         });
 
-        // RSSI FILTER - ADD THIS SECTION
-// ================================================================
+        // ================================================================
+        // RSSI FILTER
+        // ================================================================
         binding.containerRssiFilter.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_folder_key_24dp)); // swap icon as needed
@@ -174,7 +181,7 @@ public class SettingsFragment extends Fragment implements
             binding.containerProxyFilter.actionChangeTestMode.toggle();
         });
 
-        // DEVICE FILTER - ADD THIS SECTION
+        // DEVICE FILTER
         binding.containerDeviceFilter.image
                 .setBackground(ContextCompat.getDrawable(requireContext(),
                         R.drawable.ic_settings));
@@ -197,7 +204,62 @@ public class SettingsFragment extends Fragment implements
             binding.containerDeviceFilter.actionChangeTestMode.toggle();
         });
 
+        // ================================================================
+        // HIDDEN ACCESS - long press 10 seconds to reveal password screen,
+        // correct password navigates to GroupsFragment (GroupsActivity)
+        // Subtitle text is intentionally kept hidden from the user; the
+        // countdown still runs internally, it's just not displayed.
+        // ================================================================
+        binding.containerHiddenAccess.image
+                .setBackground(ContextCompat.getDrawable(requireContext(), R.drawable.ic_settings));
+        binding.containerHiddenAccess.title.setText("More");
+        binding.containerHiddenAccess.text.setVisibility(View.GONE);
 
+        binding.containerHiddenAccess.getRoot().setOnTouchListener((v, event) -> {
+            switch (event.getAction()) {
+                case MotionEvent.ACTION_DOWN:
+                    Log.d(TAG, "Hidden access: touch DOWN detected");
+                    // Prevent the parent ScrollView from intercepting this touch as a
+                    // scroll gesture, which would otherwise send ACTION_CANCEL almost
+                    // immediately and stop the countdown before 10s.
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+
+                    if (hiddenAccessCountDownTimer != null) {
+                        hiddenAccessCountDownTimer.cancel();
+                    }
+
+                    hiddenAccessCountDownTimer = new CountDownTimer(HIDDEN_ACCESS_HOLD_MS, 1000) {
+                        @Override
+                        public void onTick(long millisUntilFinished) {
+                            long secondsLeft = (millisUntilFinished / 1000) + 1;
+                            Log.d(TAG, "Hidden access: holding, " + secondsLeft + "s left");
+                        }
+
+                        @Override
+                        public void onFinish() {
+                            Log.d(TAG, "Hidden access hold completed, showing password dialog");
+                            DialogFragmentHiddenAccess.newInstance()
+                                    .show(getChildFragmentManager(), "hidden_access");
+                        }
+                    }.start();
+                    return true;
+
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    Log.d(TAG, "Hidden access: touch " +
+                            (event.getAction() == MotionEvent.ACTION_UP ? "UP" : "CANCEL") +
+                            " - resetting timer");
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                    if (hiddenAccessCountDownTimer != null) {
+                        hiddenAccessCountDownTimer.cancel();
+                        hiddenAccessCountDownTimer = null;
+                    }
+                    return true;
+
+                default:
+                    return false;
+            }
+        });
 
         // LiveData observers
         mViewModel.getNetworkLiveData().observe(getViewLifecycleOwner(), meshNetworkLiveData -> {
@@ -238,6 +300,16 @@ public class SettingsFragment extends Fragment implements
     @Override
     public void onResume() {
         super.onResume();
+    }
+
+    @Override
+    public void onDestroyView() {
+        super.onDestroyView();
+        // Prevent a pending countdown from firing after the view is gone
+        if (hiddenAccessCountDownTimer != null) {
+            hiddenAccessCountDownTimer.cancel();
+            hiddenAccessCountDownTimer = null;
+        }
     }
 
     private void refreshMqttSubtitle(FragmentSettingsBinding binding) {
@@ -326,10 +398,18 @@ public class SettingsFragment extends Fragment implements
         startActivity(intent);
     }
 
-
-
     @Override
     public void onNetworkImportConfirmed() {
         fileSelector.launch("application/json");
+    }
+
+    @Override
+    public void onPasswordCorrect() {
+        Log.d(TAG, "Correct password entered, navigating to GroupsFragment");
+        if (requireActivity() instanceof MainActivity) {
+            ((MainActivity) requireActivity()).navigateToTab(R.id.action_groups);
+        } else {
+            Log.w(TAG, "Host activity is not MainActivity — cannot switch to Groups tab");
+        }
     }
 }

@@ -249,7 +249,7 @@ public class MainActivity extends AppCompatActivity implements
                 if (view != null) {
                     Animation blink = AnimationUtils.loadAnimation(this, R.anim.blink);
                     view.startAnimation(blink);
-                    
+
                     // ✅ Long press to open Scanner (Proxy List)
                     view.setOnLongClickListener(v -> {
                         mViewModel.navigateToScannerActivity(this, false);
@@ -362,6 +362,21 @@ public class MainActivity extends AppCompatActivity implements
     public void onNavigationItemReselected(@NonNull MenuItem item) {
         // No-op
     }
+
+    /**
+     * Public entry point so a fragment (e.g. SettingsFragment) can request
+     * switching to a given bottom navigation tab, the same way a user tap does.
+     * Pass one of R.id.action_network, R.id.action_groups, R.id.action_settings.
+     */
+    public void navigateToTab(int menuItemId) {
+        if (bottomNavigationView == null) return;
+        bottomNavigationView.setSelectedItemId(menuItemId);
+        MenuItem item = bottomNavigationView.getMenu().findItem(menuItemId);
+        if (item != null) {
+            onNavigationItemSelected(item);
+        }
+    }
+
     @Override
     public void onBackPressed() {
         // Get the currently visible fragment
