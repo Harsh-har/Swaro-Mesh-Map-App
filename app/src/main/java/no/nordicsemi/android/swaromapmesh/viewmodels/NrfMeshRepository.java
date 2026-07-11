@@ -411,7 +411,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     @Override
     public void onDeviceConnected(@NonNull final BluetoothDevice device) {
         mIsConnected.postValue(true);
-        mConnectionState.postValue("Discovering services…");
+        mConnectionState.postValue("…");
         mIsConnectedToProxy.postValue(true);
     }
 
@@ -451,7 +451,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     @Override public void onServicesDiscovered(@NonNull final BluetoothDevice device,
                                                final boolean optionalServicesFound) {
-        mConnectionState.postValue("Initializing…");
+        mConnectionState.postValue("…");
     }
 
     @Override

@@ -67,6 +67,7 @@
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
                             android:text="Device Name"
+                            android:visibility="gone"
                             android:textColor="#888"
                             android:textSize="14sp" />
 
@@ -75,6 +76,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="2"
+                            android:visibility="gone"
                             android:textColor="@android:color/white"
                             android:textSize="14sp"
                             android:gravity="end" />
@@ -91,7 +93,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Element ID"
+                            android:text="EID"
                             android:textColor="#888"
                             android:textSize="14sp" />
 
@@ -117,7 +119,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Recive ID"
+                            android:text="RID"
                             android:textColor="#888"
                             android:textSize="14sp" />
 
@@ -150,7 +152,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="2"
-                            android:hint="Unprovision"
+                            android:hint="Not Added"
                             android:textColorHint="@color/red"
                             android:textSize="14sp"
                             android:gravity="end" />
@@ -189,7 +191,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="48dp"
                         android:layout_marginBottom="10dp"
-                        android:text="Add To Network"
+                        android:text="Add To Home"
                         android:textColor="@android:color/black"
                         app:backgroundTint="#ffbb00"
                         app:cornerRadius="8dp" />

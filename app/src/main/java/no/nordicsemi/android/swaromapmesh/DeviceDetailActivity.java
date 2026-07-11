@@ -239,8 +239,8 @@ public class DeviceDetailActivity extends AppCompatActivity {
         });
 
         binding.addToNetwork.setOnClickListener(v -> {
-            Toast.makeText(this, "Starting provisioning for: " + deviceName,
-                    Toast.LENGTH_SHORT).show();
+//            Toast.makeText(this, "Starting provisioning for: " + deviceName,
+//                    Toast.LENGTH_SHORT).show();
 
             Intent intent = new Intent(this, ScannerActivity.class);
             intent.putExtra(Utils.EXTRA_DATA_PROVISIONING_SERVICE, true);

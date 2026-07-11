@@ -6,9 +6,9 @@
 
     <string name="app_name">Swaro Mesh</string>
     <string name="feature_name">Mesh</string>
-    <string name="title_scanner">Scanner</string>
-    <string name="sub_title_scanning_nodes">Looking for unprovisioned proxy nodes…</string>
-    <string name="sub_title_scanning_proxy_node">Looking for provisioned proxy nodes…</string>
+    <string name="title_scanner">Scanning</string>
+    <string name="sub_title_scanning_nodes">Looking for new devices …</string>
+    <string name="sub_title_scanning_proxy_node">Looking for Added devices…</string>
 
     <string name="unknown_device">Unknown Device</string>
     <string name="rssi_format">%d dBm</string>
@@ -30,7 +30,7 @@
     <string name="bluetooth_disabled_info">The Bluetooth adapter is turned off. Click the button below to enable it.</string>
     <string name="bluetooth_disabled_action">Enable</string>
 
-    <string name="unprovisioned_node_guide_title">CAN\'T SEE YOUR NODE?</string>
+    <string name="unprovisioned_node_guide_title">CAN\'T Find New Devices</string>
     <string name="unprovisioned_node_guide_info">1. Make sure the DK is <b>turned on</b> and is connected to a power source using a micro USB cable or a coin cell is plugged in.
         \n\n2. Make sure the <b>relevant</b> firmware and SoftDevice are flashed.</string>
     <string name="unprovisioned_node_guide_location_info">3. Location is turned off. Some Android phones require it enabled in order to scan for Bluetooth LE devices.
@@ -75,7 +75,7 @@
 
     <string name="sending_prov_invite">Sending provisioning invite…</string>
 
-    <string name="provision_action">Provision</string>
+    <string name="provision_action">Add to Home</string>
     <string name="identify_action">Identify</string>
     <string name="identify_queued_action">Queued</string>
 
@@ -175,7 +175,7 @@
     <string name="title_scenes">Scenes</string>
     <string name="hint_unicast_address">Unicast address</string>
     <string name="error_empty_unicast_address">Address cannot be empty!</string>
-    <string name="network">Network</string>
+    <string name="network">Home</string>
     <string name="device_filter">Device Filter</string>
 
     <string name="action_groups">Groups</string>

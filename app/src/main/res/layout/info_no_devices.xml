@@ -50,6 +50,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="@dimen/activity_vertical_margin"
+        android:visibility="gone"
         android:text="@string/unprovisioned_node_guide_info" />
 
     <LinearLayout
@@ -63,6 +64,7 @@
         <com.google.android.material.textview.MaterialTextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:visibility="gone"
             android:layout_marginTop="@dimen/activity_vertical_margin"
             android:text="@string/unprovisioned_node_guide_location_info" />
 
