@@ -167,7 +167,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         if (internalSvg.exists()) {
             loadSvgFromUri(Uri.fromFile(internalSvg));
         } else {
-            loadSvgFromAssets("office.svg");
+            loadSvgFromAssets("I25.svg");
         }
     }
 
@@ -1145,7 +1145,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
         List<String> options = new java.util.ArrayList<>();
         if (isTechnician) {
             if (isProvisioned(hitId))
-                options.add("Reset Node");
+//                options.add("Reset Node");
             options.add("Edit Device");
         }
         

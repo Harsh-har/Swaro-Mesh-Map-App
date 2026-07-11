@@ -200,15 +200,52 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
 
     @Inject
     public NrfMeshRepository(final MeshManagerApi meshManagerApi,
-                             final BleMeshManager bleMeshManager) {
+                             final BleMeshManager bleMeshManager,
+                             @dagger.hilt.android.qualifiers.ApplicationContext final Context context) {
         mMeshManagerApi = meshManagerApi;
         mMeshManagerApi.setMeshManagerCallbacks(this);
         mMeshManagerApi.setProvisioningStatusCallbacks(this);
         mMeshManagerApi.setMeshStatusCallbacks(this);
-        mMeshManagerApi.loadMeshNetwork();
+
+        // ── First-launch: import bundled default network instead of normal load ──
+        final android.content.SharedPreferences appPrefs =
+                context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        final boolean alreadyImported =
+                appPrefs.getBoolean("default_network_imported", false);
+
+        if (!alreadyImported) {
+            final String defaultJson = readDefaultNetworkJson(context);
+            if (defaultJson != null) {
+                mMeshManagerApi.importMeshNetworkJson(defaultJson);
+                appPrefs.edit().putBoolean("default_network_imported", true).apply();
+                Log.d(TAG, "✅ Default mesh network (i25_net.json) imported on first launch");
+            } else {
+                Log.w(TAG, "⚠️ Default network json missing/unreadable — falling back to normal load");
+                mMeshManagerApi.loadMeshNetwork();
+            }
+        } else {
+            mMeshManagerApi.loadMeshNetwork();
+        }
+
         mBleMeshManager = bleMeshManager;
         mBleMeshManager.setGattCallbacks(this);
         mHandler = new Handler(Looper.getMainLooper());
+    }
+
+    @Nullable
+    private String readDefaultNetworkJson(@NonNull final Context context) {
+        try (java.io.InputStream is = context.getAssets().open("network/i25_net.json")) {
+            final java.io.ByteArrayOutputStream buffer = new java.io.ByteArrayOutputStream();
+            final byte[] chunk = new byte[1024];
+            int read;
+            while ((read = is.read(chunk)) != -1) {
+                buffer.write(chunk, 0, read);
+            }
+            return buffer.toString("UTF-8");
+        } catch (java.io.IOException e) {
+            Log.e(TAG, "Error reading default mesh network json", e);
+            return null;
+        }
     }
 
     // =========================================================================
@@ -514,6 +551,9 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
     @Override public void onNetworkImportFailed(final String error) {
         mNetworkImportState.postValue(error);
     }
+
+
+
     @Override
     public void onNetworkImported(final MeshNetwork meshNetwork) {
         loadNetwork(meshNetwork);
@@ -522,12 +562,7 @@ public class NrfMeshRepository implements MeshProvisioningStatusCallbacks, MeshS
             mHandler.post(cb);
             Log.d(TAG, "✅ onNetworkImported: callback fired");
         }
-        mNetworkImportState.postValue(meshNetwork.getMeshName()
-                + " has been successfully imported.\n"
-                + "To start sending messages to this network, please change the provisioner "
-                + "address. Using the same provisioner address will cause messages to be "
-                + "discarded due to incorrect sequence numbers. If the network has no nodes, "
-                + "you do not need to change the address.");
+        mNetworkImportState.postValue("Network has been successfully imported.\n");
     }
 
     @Override public void sendProvisioningPdu(final UnprovisionedMeshNode meshNode,

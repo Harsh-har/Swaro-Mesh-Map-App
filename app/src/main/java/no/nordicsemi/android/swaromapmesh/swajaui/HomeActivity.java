@@ -55,12 +55,12 @@ public class HomeActivity extends AppCompatActivity {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         String savedUri = prefs.getString(KEY_SVG_URI, null);
 
-        // --- HARDCODE FIX: If no map, force office.svg ---
+        // --- HARDCODE FIX: If no map, force I25.svg ---
         if (savedUri == null) {
             try {
-                java.io.File file = new java.io.File(getFilesDir(), "office.svg");
+                java.io.File file = new java.io.File(getFilesDir(), "I25.svg");
                 if (!file.exists()) {
-                    java.io.InputStream is = getAssets().open("office.svg");
+                    java.io.InputStream is = getAssets().open("I25.svg");
                     java.io.FileOutputStream fos = new java.io.FileOutputStream(file);
                     byte[] buffer = new byte[1024];
                     int read;
@@ -75,7 +75,7 @@ public class HomeActivity extends AppCompatActivity {
                 prefs.edit().putString(KEY_SVG_URI, savedUri)
                         .putString("svg_name_" + savedUri, "Office Map").apply();
             } catch (java.io.IOException e) {
-                Log.e("HomeActivity", "Error copying office.svg", e);
+                Log.e("HomeActivity", "Error copying I25.svg", e);
             }
         }
         // ------------------------------------------------

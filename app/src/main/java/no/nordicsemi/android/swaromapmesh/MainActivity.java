@@ -15,14 +15,10 @@ import android.view.View;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
 
-import android.graphics.Color;
-import android.graphics.drawable.Drawable;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
-import androidx.core.graphics.drawable.DrawableCompat;
 import androidx.activity.EdgeToEdge;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -384,9 +380,9 @@ public class MainActivity extends AppCompatActivity implements
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
         // Force update for development
         try {
-            File file = new File(getFilesDir(), "office.svg");
+            File file = new File(getFilesDir(), "I25.svg");
             // Overwrite every time during development to reflect SVG changes
-            InputStream is = getAssets().open("office.svg");
+            InputStream is = getAssets().open("I25.svg");
             FileOutputStream fos = new FileOutputStream(file);
             byte[] buffer = new byte[1024];
             int read;
@@ -400,11 +396,11 @@ public class MainActivity extends AppCompatActivity implements
             String uri = Uri.fromFile(file).toString();
             prefs.edit()
                     .putString("saved_svg_uri", uri)
-                    .putString("svg_name_" + uri, "Office Map")
+                    .putString("svg_name_" + uri, "I25")
                     .apply();
-            Log.d(TAG, "✅ office.svg updated in internal storage");
+            Log.d(TAG, "✅ I25.svg updated in internal storage");
         } catch (IOException e) {
-            Log.e(TAG, "Error copying office.svg", e);
+            Log.e(TAG, "Error copying I25.svg", e);
         }
     }
 
