@@ -41,7 +41,10 @@ import no.nordicsemi.android.swaromapmesh.utils.FeedbackManager;
 import no.nordicsemi.android.swaromapmesh.utils.NetworkExportUtils;
 
 @HiltViewModel
-public class SharedViewModel extends BaseViewModel
+public class
+
+
+SharedViewModel extends BaseViewModel
         implements NetworkExportUtils.NetworkExportCallbacks {
 
     private static final String TAG = "SharedViewModel";
@@ -237,39 +240,7 @@ public class SharedViewModel extends BaseViewModel
 
         SharedPreferences meshPrefs = mContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         Set<String> provisionedKeys = ClientServerElementStore.getProvisionedKeys();
-        
-        // 1. Identify Target Control Node
-        int controlNodeAddr = -1;
         List<ProvisionedMeshNode> allNodes = getAllProvisionedNodes();
-        if (allNodes != null) {
-            // Priority 1: Control Node matching "Living Room" (Main hub)
-            for (ProvisionedMeshNode n : allNodes) {
-                if (n.getNodeName() != null && n.getNodeName().equalsIgnoreCase("Control Node Living Room")) {
-                    controlNodeAddr = n.getUnicastAddress();
-                    break;
-                }
-            }
-            // Priority 2: Any Control Node
-            if (controlNodeAddr == -1) {
-                for (ProvisionedMeshNode n : allNodes) {
-                    if (n.getNodeName() != null && n.getNodeName().toLowerCase().contains("control node")) {
-                        controlNodeAddr = n.getUnicastAddress();
-                        break;
-                    }
-                }
-            }
-        }
-
-        if (controlNodeAddr == -1) {
-            Log.e(TAG, "❌ triggerPublicationSetup: No Control Node found in network");
-            mNodesInSetup.remove(completedNode.getUnicastAddress());
-            return;
-        }
-
-        if (provisionedKeys.isEmpty()) {
-            mNodesInSetup.remove(completedNode.getUnicastAddress());
-            return;
-        }
 
         boolean anyScheduled = false;
         long delayOffset = 1000; // Start after 1s to allow mesh to settle
@@ -282,7 +253,96 @@ public class SharedViewModel extends BaseViewModel
             // Only process the node that was JUST provisioned
             if (primaryServerAddr != completedNode.getUnicastAddress()) continue;
 
-            // ── 2. Verify server node (must have OnOff Server model) ───────
+            // ── 2. Identify Target Control Node (Client) for THIS Server ──────
+            String serverArea = ClientServerElementStore.getServerAreaId(serverKey);
+            int controlNodeAddr = -1;
+
+            if (allNodes != null) {
+                // Priority 0: Direct Hex Address Hint from SVG ID (e.g., SMT_CS07_1A11_1_1 -> 1A11)
+                // This is the most reliable way when nodes are not provisioned by this app.
+                String[] parts = serverKey.split("_");
+                if (parts.length >= 5) {
+                    String hexHint = parts[2]; // e.g. "1A11" or "19D2"
+                    try {
+                        int hintAddr = Integer.parseInt(hexHint, 16);
+                        // Check if this node address exists in the network
+                        for (ProvisionedMeshNode n : allNodes) {
+                            if (n.getUnicastAddress() == hintAddr) {
+                                controlNodeAddr = hintAddr;
+                                Log.d(TAG, "🎯 Priority 0: Using Direct Client Address from SVG ID: 0x" + hexHint);
+                                break;
+                            }
+                        }
+                    } catch (NumberFormatException ignored) {}
+                }
+
+                // Priority 1: Match Control Node by Area ID (Store based)
+                if (controlNodeAddr == -1 && serverArea != null && !serverArea.isEmpty()) {
+                    for (ProvisionedMeshNode n : allNodes) {
+                        String nodeName = n.getNodeName();
+                        if (nodeName != null && nodeName.toLowerCase().contains("control node")) {
+                            String controlKey = getSvgIdFromNode(n);
+                            if (controlKey != null) {
+                                String controlArea = ClientServerElementStore.getServerAreaId(controlKey);
+                                if (serverArea.equalsIgnoreCase(controlArea)) {
+                                    controlNodeAddr = n.getUnicastAddress();
+                                    Log.d(TAG, "🎯 Priority 1: Area Match Control Node 0x" + String.format("%04X", controlNodeAddr));
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Priority 2: Match by Address Hint anywhere in Server ID (Substring match)
+                if (controlNodeAddr == -1 && serverKey.toUpperCase().contains("_")) {
+                    for (ProvisionedMeshNode n : allNodes) {
+                        String hexAddr = String.format("%04X", n.getUnicastAddress());
+                        if (serverKey.toUpperCase().contains(hexAddr) && n.getNodeName() != null && n.getNodeName().toLowerCase().contains("control node")) {
+                            controlNodeAddr = n.getUnicastAddress();
+                            Log.d(TAG, "🎯 Priority 2: ID Hint Substring Match Control Node 0x" + hexAddr);
+                            break;
+                        }
+                    }
+                }
+
+                // Priority 3: Match by Area Name in Node Name (e.g., "SMT Control Node")
+                if (controlNodeAddr == -1 && serverArea != null && !serverArea.isEmpty()) {
+                    for (ProvisionedMeshNode n : allNodes) {
+                        String name = n.getNodeName();
+                        if (name != null && name.toLowerCase().contains("control node") && name.toLowerCase().contains(serverArea.toLowerCase())) {
+                            controlNodeAddr = n.getUnicastAddress();
+                            Log.d(TAG, "🎯 Priority 3: Name Contain Match Control Node 0x" + String.format("%04X", controlNodeAddr));
+                            break;
+                        }
+                    }
+                }
+
+                // Priority 4: Default fallbacks
+                if (controlNodeAddr == -1) {
+                    for (ProvisionedMeshNode n : allNodes) {
+                        if (n.getNodeName() != null && n.getNodeName().equalsIgnoreCase("Control Node Living Room")) {
+                            controlNodeAddr = n.getUnicastAddress();
+                            break;
+                        }
+                    }
+                    if (controlNodeAddr == -1) {
+                        for (ProvisionedMeshNode n : allNodes) {
+                            if (n.getNodeName() != null && n.getNodeName().toLowerCase().contains("control node")) {
+                                controlNodeAddr = n.getUnicastAddress();
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (controlNodeAddr == -1) {
+                Log.e(TAG, "❌ triggerPublicationSetup: No Control Node found for area: " + serverArea);
+                continue;
+            }
+
+            // ── 3. Verify server node (must have OnOff Server model) ───────
             int serverAddr = findServerModelAddress(primaryServerAddr);
             if (serverAddr == -1) {
                 Log.w(TAG, "  Node 0x" + String.format("%04X", primaryServerAddr) + " has no OnOff Server model");
@@ -564,6 +624,8 @@ public class SharedViewModel extends BaseViewModel
         }
 
         int clientElemIndex = AutoPublicationHelper.getElementIndex(clientNode, clientAddr);
+
+
         int serverElemIndex = AutoPublicationHelper.getElementIndex(serverNode, serverAddr);
 
         if (clientElemIndex == -1 || serverElemIndex == -1) {

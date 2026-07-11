@@ -628,8 +628,41 @@ public class DeviceOperations {
             String oldId = iconEl.getAttribute("id");
             String[] parts = oldId.split("_");
             if (parts.length >= 5) {
-                String newId = parts[0] + "_" + parts[1] + "_" + parts[2] + "_" + newEid + "_" + newRid;
+                // Use the new name, EID and RID to construct the new ID
+                String sanitizedName = newName.replace("_", "-");
+                String newId = parts[0] + "_" + parts[1] + "_" + sanitizedName + "_" + newEid + "_" + newRid;
                 iconEl.setAttribute("id", newId);
+                Log.d(TAG, "Updated element ID from " + oldId + " to " + newId);
+
+                // Also update corresponding physical element(s) in User Layer
+                try {
+                    Element root = svgDocument.getDocumentElement();
+                    // Typical physical ID is oldId + "_phys"
+                    NodeList physicals = root.getElementsByTagName("*");
+                    for (int i = 0; i < physicals.getLength(); i++) {
+                        Node pNode = physicals.item(i);
+                        if (pNode instanceof Element) {
+                            Element pEl = (Element) pNode;
+                            String pid = pEl.getAttribute("id");
+                            if (pid != null && pid.startsWith(oldId)) {
+                                String newPid = pid.replace(oldId, newId);
+                                pEl.setAttribute("id", newPid);
+                                
+                                // Also update metadata in physical element if it exists
+                                NodeList pChildren = pEl.getElementsByTagName("metadata");
+                                if (pChildren.getLength() > 0) {
+                                    Element pMeta = (Element) pChildren.item(0);
+                                    NodeList pEids = pMeta.getElementsByTagName("elementId");
+                                    if (pEids.getLength() > 0) pEids.item(0).setTextContent(newEid);
+                                    NodeList pRids = pMeta.getElementsByTagName("reciveId");
+                                    if (pRids.getLength() > 0) pRids.item(0).setTextContent(newRid);
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.w(TAG, "Could not update physical elements", e);
+                }
             }
 
             if (!eidUpdated || (!ridUpdated && !newRid.isEmpty())) {

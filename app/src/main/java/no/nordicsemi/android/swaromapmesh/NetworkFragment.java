@@ -209,16 +209,27 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
     @Override
     public void onDataChanged() {
         if (svgDocument == null) return;
-        Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
-        deviceMap.clear();
-        deviceMap.putAll(newDevices);
-        Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument, deviceMap);
-        iconToDeviceRelations.clear();
-        iconToDeviceRelations.putAll(newRelations);
+        try {
+            // Re-load everything from the updated svgDocument
+            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
+            deviceMap.clear();
+            deviceMap.putAll(newDevices);
+            
+            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument, deviceMap);
+            iconToDeviceRelations.clear();
+            iconToDeviceRelations.putAll(newRelations);
+            
+            svgParser.parseSelectionLayer(svgDocument);
+            floorPlanBounds = null;
 
-        colorManager.init(svgDocument, svgParser, deviceMap);
-        refreshColors();
-        reRenderSvg();
+            colorManager.init(svgDocument, svgParser, deviceMap);
+            refreshColors();
+            reRenderSvg();
+            
+            Log.d(TAG, "onDataChanged: Map refreshed with " + deviceMap.size() + " devices");
+        } catch (Exception e) {
+            Log.e(TAG, "Error onDataChanged", e);
+        }
     }
 
     @Override
@@ -1197,81 +1208,7 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
 
 
 
-    /**
-     * Same as checkDeviceConflict but skips the device being edited (self-check).
-     */
 
-    private void applyDeviceEdits(String iconId, DeviceInfo device,
-                                  String newName, String newEid, String newRid) {
-        if (svgDocument == null) return;
-        try {
-            Element iconEl = device.element;
-
-            // ── 1. Update elementId in <metadata><elementId> ──────────────
-            NodeList allChildren = iconEl.getElementsByTagName("*");
-            boolean eidUpdated = false, ridUpdated = false;
-            for (int i = 0; i < allChildren.getLength(); i++) {
-                Node n = allChildren.item(i);
-                if (!(n instanceof Element)) continue;
-                Element el = (Element) n;
-                String tag = el.getTagName().toLowerCase().replace("svg:", "");
-                if ("elementid".equals(tag)) {
-                    el.setTextContent(newEid);
-                    eidUpdated = true;
-                } else if ("reciveid".equals(tag) || "receiveid".equals(tag)) {
-                    el.setTextContent(newRid);
-                    ridUpdated = true;
-                }
-            }
-
-            // ── If <metadata> tags didn't exist, create them ──────────────
-            if (!eidUpdated || (!ridUpdated && !newRid.isEmpty())) {
-                Element metadata = null;
-                NodeList metaList = iconEl.getElementsByTagName("metadata");
-                if (metaList.getLength() > 0) {
-                    metadata = (Element) metaList.item(0);
-                } else {
-                    metadata = svgDocument.createElement("metadata");
-                    iconEl.insertBefore(metadata, iconEl.getFirstChild());
-                }
-                if (!eidUpdated) {
-                    Element eidNode = svgDocument.createElement("elementId");
-                    eidNode.setTextContent(newEid);
-                    metadata.appendChild(eidNode);
-                }
-                if (!ridUpdated && !newRid.isEmpty()) {
-                    Element ridNode = svgDocument.createElement("reciveId");
-                    ridNode.setTextContent(newRid);
-                    metadata.appendChild(ridNode);
-                }
-            }
-
-            // ── 2. The in-memory deviceMap is fully rebuilt below via
-            //    svgParser.extractDevices(), so no direct field assignment needed.
-            //    (DeviceInfo fields are final — updated implicitly via re-parse.)
-
-            // ── 3. Save & refresh ─────────────────────────────────────────
-            deviceOperations.saveSvgToInternal(svgDocument);
-
-            Map<String, DeviceInfo> newDevices = svgParser.extractDevices(svgDocument);
-            deviceMap.clear();
-            deviceMap.putAll(newDevices);
-            Map<String, Set<String>> newRelations = svgParser.parseRelations(svgDocument, deviceMap);
-            iconToDeviceRelations.clear();
-            iconToDeviceRelations.putAll(newRelations);
-
-            colorManager.init(svgDocument, svgParser, deviceMap);
-            refreshColors();
-            reRenderSvg();
-
-            Toast.makeText(requireContext(),
-                    "Device updated: EID=" + newEid, Toast.LENGTH_SHORT).show();
-
-        } catch (Exception e) {
-            Log.e(TAG, "Error editing device", e);
-            Toast.makeText(requireContext(), "Failed to update device", Toast.LENGTH_SHORT).show();
-        }
-    }
 
 
     private void openNodeConfigForReset(String deviceId, DeviceInfo device) {
