@@ -72,7 +72,7 @@ abstract class BaseMeshNetwork {
     @ColumnInfo(name = "mesh_name")
     @SerializedName("meshName")
     @Expose
-    String meshName = "nRF Mesh Network";
+    String meshName = "Swaro Mesh Json";
     @ColumnInfo(name = "timestamp", defaultValue = "0")
     @SerializedName("timestamp")
     @Expose
