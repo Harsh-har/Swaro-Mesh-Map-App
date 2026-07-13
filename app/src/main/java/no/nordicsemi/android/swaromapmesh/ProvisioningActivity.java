@@ -6,7 +6,6 @@ import android.os.Bundle;
 import android.util.Log;
 import android.view.MenuItem;
 import android.view.View;
-
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
@@ -16,11 +15,8 @@ import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
-
 import com.google.android.material.snackbar.Snackbar;
-
 import java.util.Locale;
-
 import dagger.hilt.android.AndroidEntryPoint;
 import no.nordicsemi.android.swaromapmesh.adapter.ExtendedBluetoothDevice;
 import no.nordicsemi.android.swaromapmesh.adapter.ProvisioningProgressAdapter;
@@ -43,7 +39,6 @@ import no.nordicsemi.android.swaromapmesh.utils.StaticOOBType;
 import no.nordicsemi.android.swaromapmesh.utils.Utils;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ProvisionerProgress;
 import no.nordicsemi.android.swaromapmesh.viewmodels.ProvisioningViewModel;
-
 import static no.nordicsemi.android.swaromapmesh.utils.Utils.RESULT_KEY;
 
 @AndroidEntryPoint
@@ -200,7 +195,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 if (capabilities != null) {
                     binding.provisioningProgressBar.setVisibility(View.INVISIBLE);
                     binding.actionProvisionDevice.setText(R.string.provision_action);
-                    binding.containerUnicast.getRoot().setVisibility(View.VISIBLE);
                     final MeshNetwork network = mViewModel.getNetworkLiveData().getMeshNetwork();
                     if (network != null) {
                         try {
@@ -225,7 +219,6 @@ public class ProvisioningActivity extends AppCompatActivity implements
                 }
             }
         });
-
         binding.actionProvisionDevice.setOnClickListener(v -> {
             final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
 
