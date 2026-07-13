@@ -124,7 +124,7 @@ public class ProvisioningActivity extends AppCompatActivity implements
         binding.containerUnicast.image
                 .setBackground(ContextCompat.getDrawable(this, R.drawable.ic_lan_24dp));
         binding.containerUnicast.title.setText(R.string.title_unicast_address);
-        binding.containerUnicast.text.setVisibility(View.VISIBLE);
+        binding.containerUnicast.text.setVisibility(View.GONE);
         binding.containerUnicast.getRoot().setOnClickListener(v -> {
             final UnprovisionedMeshNode node = mViewModel.getUnprovisionedMeshNode().getValue();
             if (node != null && node.getProvisioningCapabilities() != null) {

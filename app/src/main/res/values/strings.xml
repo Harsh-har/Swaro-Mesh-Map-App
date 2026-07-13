@@ -168,7 +168,7 @@
     <string name="error_empty_iv_index">IV Index cannot be empty!</string>
     <string name="error_invalid_iv_index">IV Index must be 0 to 4294967295!</string>
 
-    <string name="title_unicast_address">Unicast Address</string>
+    <string name="title_unicast_address">Device Address</string>
     <string name="dialog_summary_unicast_address">Enter a unicast address for the node.</string>
     <string name="title_unicast_addresses">Unicast Addresses</string>
     <string name="title_group_addresses">Group Addresses</string>
@@ -235,7 +235,7 @@
     <string name="title_error_provisioning_failed">Provisioning Failed</string>
     <string name="provisioning_cancelled">Provisioning canceled!</string>
 
-    <string name="nrf_mesh_node">nRF Mesh Node</string>
+    <string name="nrf_mesh_node">Swaro Mesh Node</string>
     <string name="company">Company:</string>
     <string name="nordic_semiconductor_asa">Nordic Semiconductor ASA</string>
     <string name="elements">Elements:</string>

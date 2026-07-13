@@ -379,7 +379,7 @@ public class DeviceDetailActivity extends AppCompatActivity {
         } else if (DEVICE_TYPE_CLIENT.equals(deviceType)) {
             msg = "Client " + label + " provisioned!\nElement ID: " + elementId;
         } else {
-            msg = label + " provisioned successfully!";
+            msg = label + " add to network successfully!";
         }
         Toast.makeText(this, msg, Toast.LENGTH_LONG).show();
     }

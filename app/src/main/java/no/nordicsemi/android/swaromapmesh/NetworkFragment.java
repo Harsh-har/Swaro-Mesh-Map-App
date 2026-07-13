@@ -1144,11 +1144,11 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
 
         List<String> options = new java.util.ArrayList<>();
         if (isTechnician) {
-            if (isProvisioned(hitId))
-//                options.add("Reset Node");
+            // if (isProvisioned(hitId))
+            //   options.add("Reset Node");
             options.add("Edit Device");
         }
-        
+
         options.add("Move Device");
 
         options.add("Cancel");
@@ -1157,25 +1157,26 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
 
         final String finalHitId = hitId;
         final RectF finalBounds = bounds;
-        
+
         new MaterialAlertDialogBuilder(requireContext())
                 .setTitle(isTechnician ? deviceOperations.extractPureDeviceName(finalHitId) : "User Layer Element")
                 .setItems(options.toArray(new String[0]), (dialog, which) -> {
                     String choice = options.get(which);
-                    if ("Reset Node".equals(choice)) {
-                        boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
-                                && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
-                        if (!isConnected) {
-                            Toast.makeText(requireContext(), "Connect to proxy first", Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        openNodeConfigForReset(finalHitId, deviceMap.get(finalHitId));
-                    } else if ("Edit Device".equals(choice)) {
+                    // if ("Reset Node".equals(choice)) {
+                    //     boolean isConnected = mViewModel.isConnectedToProxy().getValue() != null
+                    //             && Boolean.TRUE.equals(mViewModel.isConnectedToProxy().getValue());
+                    //     if (!isConnected) {
+                    //         Toast.makeText(requireContext(), "Connect to proxy first", Toast.LENGTH_SHORT).show();
+                    //         return;
+                    //     }
+                    //     openNodeConfigForReset(finalHitId, deviceMap.get(finalHitId));
+                    // } else
+                    if ("Edit Device".equals(choice)) {
                         deviceOperations.showEditDeviceDialog(finalHitId, deviceMap.get(finalHitId), deviceMap, svgDocument);
                     } else if ("Move Device".equals(choice)) {
                         mIsMoveMode = true;
                         mMovingDeviceId = finalHitId;
-                        
+
                         // Hide original in SVG while moving
                         refreshColors();
                         reRenderSvg();
@@ -1183,25 +1184,24 @@ public class NetworkFragment extends Fragment implements DeviceOperations.Device
                         binding.addDeviceToolbar.setVisibility(View.VISIBLE);
                         binding.draggableIcon.setVisibility(View.VISIBLE);
                         binding.fabAddDevice.setVisibility(View.GONE);
-                        
+
                         // Wait for layout to get width/height for correct centering
                         binding.draggableIcon.post(() -> {
                             if (binding == null || mMovingDeviceId == null) return;
                             float[] svgPos = {finalBounds.centerX(), finalBounds.centerY()};
                             float[] screenPos = svgToTouchCoords(svgPos[0], svgPos[1]);
-                            
+
                             float containerX = screenPos[0] + binding.svgView.getLeft();
                             float containerY = screenPos[1] + binding.svgView.getTop();
-                            
+
                             binding.draggableIcon.setX(containerX - binding.draggableIcon.getWidth() / 2f);
                             binding.draggableIcon.setY(containerY - binding.draggableIcon.getHeight() / 2f);
                         });
-                        
+
                     }
                 })
                 .show();
     }
-
     // ══════════════════════════════════════════════════════════════════════
 //  EDIT DEVICE
 // ══════════════════════════════════════════════════════════════════════

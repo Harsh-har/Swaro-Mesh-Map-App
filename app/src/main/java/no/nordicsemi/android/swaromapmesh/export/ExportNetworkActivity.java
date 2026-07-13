@@ -99,12 +99,12 @@ public class ExportNetworkActivity extends AppCompatActivity implements
                                 displayExportSuccessSnackBar();
 
                                 // ✅ Send mesh JSON to API after successful export
-                                try {
-                                    String json = mViewModel.getExportedJson();
-                                    sendMeshDataToApi(json);
-                                } catch (Exception e) {
-                                    Log.e(TAG, "Failed to get JSON for API: " + e.getMessage());
-                                }
+                                // try {
+                                //     String json = mViewModel.getExportedJson();
+                                //     sendMeshDataToApi(json);
+                                // } catch (Exception e) {
+                                //     Log.e(TAG, "Failed to get JSON for API: " + e.getMessage());
+                                // }
                             }
                         }
                     } catch (Exception ex) {
@@ -112,7 +112,6 @@ public class ExportNetworkActivity extends AppCompatActivity implements
                     }
                 }
             });
-
     @Override
     protected void onCreate(@Nullable final Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -249,16 +248,16 @@ public class ExportNetworkActivity extends AppCompatActivity implements
 
     private void handleNetworkExport() {
         try {
-            final String networkName = mViewModel.getNetworkLiveData().getNetworkName();
-            fileExporter.launch(networkName);
+            final String fileName = "Swaro Network";
+            fileExporter.launch(fileName);
         } catch (Exception ex) {
             displayExportErrorDialog(ex.getMessage());
         }
     }
 
+
     private void displayExportSuccessSnackBar() {
-        final String message = mViewModel.getNetworkLiveData().getMeshNetwork().getMeshName()
-                + " has been successfully exported.";
+        final String message = "Network exported successfully.";
         mViewModel.displaySnackBar(this, binding.coordinator, message, Snackbar.LENGTH_LONG);
     }
 

@@ -13,7 +13,7 @@
     <g id="Technician Layer">
         <g id="Leaving Area">
             <!-- New Large Device for Provisioning -->
-            <g id="CMT_CS07_19D2_1_1">
+            <g id="CMT_CS07_011C_1_1">
                 <!-- Outer circle for better visibility -->
                 <circle cx="300" cy="140" r="10" fill="#ffae42" stroke="#ffffff" stroke-width="1.5"/>
                 <!-- Inner design to make it look like a sensor/node -->

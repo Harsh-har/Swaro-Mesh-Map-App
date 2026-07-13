@@ -108,7 +108,7 @@ public class ScannerActivity extends AppCompatActivity implements
                                 " with SVG ID: " + mSvgDeviceId);
 
                         showConnectingUI();
-                        binding.textConnectingProgress.setText("Provisioning complete!\nConnecting to proxy...");
+                        binding.textConnectingProgress.setText("Added complete!\nConnecting to device...");
 
                         startAutoConnectAfterProvisioning();
 
@@ -212,7 +212,7 @@ public class ScannerActivity extends AppCompatActivity implements
                     mScanWithProxyService               = false;
 
                     showConnectingUI();
-                    binding.textConnectingProgress.setText("Connecting to proxy...");
+                    binding.textConnectingProgress.setText("Connecting to Device...");
 
                     startAutoConnectAfterProvisioning();
                 }
@@ -594,7 +594,7 @@ public class ScannerActivity extends AppCompatActivity implements
         long   elapsed = (System.currentTimeMillis() - mScanStartTime) / 1000;
         String mac     = formatMacForDisplay(targetProxyMac);
         String text = mShouldAutoConnectAfterProvisioning
-                ? String.format("Connecting to proxy... (%ds)", elapsed)
+                ? String.format("Connecting to Device... (%ds)", elapsed)
                 : String.format("Looking for device... (%ds)", elapsed);
         binding.textConnectingProgress.setText(text);
     }
@@ -632,7 +632,7 @@ public class ScannerActivity extends AppCompatActivity implements
         binding.stateScanning.setVisibility(View.GONE);
         binding.connectivityProgressContainer.setVisibility(View.VISIBLE);
         binding.textConnectingProgress.setVisibility(View.VISIBLE);
-        binding.textConnectingProgress.setText("Connecting to proxy...");
+        binding.textConnectingProgress.setText("Connecting to device...");
     }
     private void showScannerUI() {
         binding.appbarLayout.setVisibility(View.VISIBLE);

@@ -71,7 +71,7 @@ public class ReconnectActivity extends AppCompatActivity {
         if (mSilentConnect) {
             binding.toolbar.setVisibility(View.GONE);
             binding.connectionState.setVisibility(View.VISIBLE);
-            binding.connectionState.setText("Connecting to Proxy...");
+            binding.connectionState.setText("Connecting to Device...");
             binding.connectionState.setTextColor(Color.WHITE);
             binding.progressBar.setVisibility(View.VISIBLE);
             binding.connectivityProgressContainer.setVisibility(View.VISIBLE);
